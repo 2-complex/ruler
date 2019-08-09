@@ -160,8 +160,6 @@ fn main()
                             let mut handles = Vec::new();
                             for (index, rule) in rules_in_order.iter().enumerate()
                             {
-                                println!("{} : {}", index, rule);
-
                                 let sender_vec = match senders.remove(&index)
                                 {
                                     Some(v) => v,
