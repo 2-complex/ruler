@@ -26,33 +26,55 @@ fn run_command(
     receivers : Vec<Receiver<Hash>>,
     protected_connection : Arc<Mutex<Connection>> ) -> JoinHandle<Output>
 {
-    let command_vec = &rule.command;
-    let mut command = Command::new(command_vec[0]);
-    for argument in command_vec[1..].iter()
+    if rule.command.len() == 0
     {
-        command.arg(argument);
+        let mut command = Command::new("echo");
+        command.arg(format!("hello {}", rule.targets[0]));
+
+        thread::spawn(
+            move || -> Output
+            {
+                let out = command.output().expect("failed to execute process");
+
+                for snd in senders
+                {
+                    snd.send(HashFactory::new_from_str("").result());
+                }
+
+                out
+            }
+        )
     }
-
-    let mut factory = HashFactory::new_from_str(rule.all);
-
-    thread::spawn(
-        move || -> Output
+    else
+    {
+        let command_vec = &rule.command;
+        let mut command = Command::new(command_vec[0]);
+        for argument in command_vec[1..].iter()
         {
-            for rcv in receivers
-            {
-                factory.input_hash( rcv.recv().unwrap() );
-            }
-
-            let out = command.output().expect("failed to execute process");
-
-            for snd in senders
-            {
-                snd.send(HashFactory::new_from_str("").result());
-            }
-
-            out
+            command.arg(argument);
         }
-    )
+
+        let mut factory = HashFactory::new_from_str(rule.all);
+
+        thread::spawn(
+            move || -> Output
+            {
+                for rcv in receivers
+                {
+                    factory.input_hash( rcv.recv().unwrap() );
+                }
+
+                let out = command.output().expect("failed to execute process");
+
+                for snd in senders
+                {
+                    snd.send(HashFactory::new_from_str("").result());
+                }
+
+                out
+            }
+        )
+    }
 }
 
 use sqlite::{Connection, State};
@@ -107,16 +129,22 @@ fn main()
                         Err(why) => eprintln!("ERROR: {}", why),
                         Ok(rules) =>
                         {
-                            let deps_in_order = rulefile::topological_sort_indices(&rules, &target);
+                            let (rules_in_order, source_to_index) =
+                                rulefile::topological_sort(rules, &target);
 
                             let mut senders = MultiMap::new();
                             let mut receivers = MultiMap::new();
 
-                            for target_index in deps_in_order.iter()
+                            for (target_index, rule) in rules_in_order.iter().enumerate()
                             {
-                                for source_index in rules[*target_index].source_rule_indices.iter()
+                                for source in rule.sources.iter()
                                 {
                                     let (sender, receiver) : (Sender<Hash>, Receiver<Hash>) = mpsc::channel();
+
+                                    println!("source: {}", source);
+                                    let source_index = source_to_index.get(*source).unwrap();
+                                    println!("index: {}", source_index);
+
                                     senders.insert(source_index, sender);
                                     receivers.insert(target_index, receiver);
                                 }
@@ -130,23 +158,27 @@ fn main()
                             let protected_connection = Arc::new(Mutex::new(connection));
 
                             let mut handles = Vec::new();
-                            for i in deps_in_order.iter()
+                            for (index, rule) in rules_in_order.iter().enumerate()
                             {
-                                let sender_vec = match senders.remove(i)
+                                println!("{} : {}", index, rule);
+
+                                let sender_vec = match senders.remove(&index)
                                 {
                                     Some(v) => v,
-                                    None => Vec::new(),
+                                    None => vec![],
                                 };
 
-                                let receiver_vec = match receivers.remove(i)
+                                let receiver_vec = match receivers.remove(&index)
                                 {
                                     Some(v) => v,
-                                    None => Vec::new(),
+                                    None => vec![],
                                 };
 
                                 handles.push(
                                     run_command(
-                                        &rules[*i], sender_vec, receiver_vec,
+                                        &rule,
+                                        sender_vec,
+                                        receiver_vec,
                                         protected_connection.clone()
                                     )
                                 );
