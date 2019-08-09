@@ -1,16 +1,12 @@
 extern crate clap;
-extern crate crypto;
 extern crate sqlite;
 extern crate multimap;
 
 use clap::{Arg, App};
-use crypto::sha2::Sha512;
-use crypto::digest::Digest;
 
 use std::process::{Output, Command};
 use std::thread::{self, JoinHandle};
 
-use base64::{encode};
 use std::io::{self, Write};
 
 use std::sync::mpsc::{Sender, Receiver};
@@ -19,67 +15,44 @@ use multimap::MultiMap;
 
 mod file;
 mod rulefile;
+mod hash;
 
 use self::rulefile::Rule;
+use self::hash::{Hash, HashFactory};
 
-fn sha_512(input: &str, out: &mut [u8])
+fn run_command(
+    rule: &Rule,
+    senders : Vec<Sender<Hash>>,
+    receivers : Vec<Receiver<Hash>>,
+    protected_connection : Arc<Mutex<Connection>> ) -> JoinHandle<Output>
 {
-    let mut dig = Sha512::new();
-    dig.input(input.as_bytes());
-    dig.result(out);
-}
-
-fn base64_sha(sha: &[u8]) -> String
-{
-    format!("{}", encode(&sha))
-}
-
-fn base64_sha_str(content: &str) -> String
-{
-    let mut sha : [u8; 64] = [0; 64];
-    sha_512(&content, &mut sha);
-    base64_sha(&sha)
-}
-
-
-fn spawn_command(
-    command_first : &str,
-    command_args : Vec<&str>,
-    senders : Vec<Sender<i32>>,
-    receivers : Vec<Receiver<i32>>) -> JoinHandle<Output>
-{
-    let mut command = Command::new(command_first);
-    for argument in command_args
+    let command_vec = &rule.command;
+    let mut command = Command::new(command_vec[0]);
+    for argument in command_vec[1..].iter()
     {
         command.arg(argument);
     }
+
+    let mut factory = HashFactory::new_from_str(rule.all);
 
     thread::spawn(
         move || -> Output
         {
             for rcv in receivers
             {
-                rcv.recv();
+                factory.input_hash( rcv.recv().unwrap() );
             }
 
             let out = command.output().expect("failed to execute process");
 
             for snd in senders
             {
-                snd.send(1);
+                snd.send(HashFactory::new_from_str("").result());
             }
 
             out
         }
     )
-}
-
-fn run_command(rule: &Rule,
-    senders : Vec<Sender<i32>>,
-    receivers : Vec<Receiver<i32>>) -> JoinHandle<Output>
-{
-    let command = &rule.command;
-    spawn_command(command[0], command[1..].to_vec(), senders, receivers)
 }
 
 use sqlite::{Connection, State};
@@ -143,11 +116,18 @@ fn main()
                             {
                                 for source_index in rules[*target_index].source_rule_indices.iter()
                                 {
-                                    let (sender, receiver) : (Sender<i32>, Receiver<i32>) = mpsc::channel();
+                                    let (sender, receiver) : (Sender<Hash>, Receiver<Hash>) = mpsc::channel();
                                     senders.insert(source_index, sender);
                                     receivers.insert(target_index, receiver);
                                 }
                             }
+
+                            let connection = sqlite::open("history.db").unwrap();
+                            connection.execute(
+                                "CREATE TABLE IF NOT EXISTS history (source varchar(88), target varchar(88), UNIQUE(source) );"
+                            ).unwrap();
+
+                            let protected_connection = Arc::new(Mutex::new(connection));
 
                             let mut handles = Vec::new();
                             for i in deps_in_order.iter()
@@ -166,7 +146,10 @@ fn main()
 
                                 handles.push(
                                     run_command(
-                                        &rules[*i], sender_vec, receiver_vec));
+                                        &rules[*i], sender_vec, receiver_vec,
+                                        protected_connection.clone()
+                                    )
+                                );
                             }
 
                             for h in handles
@@ -199,15 +182,4 @@ fn main()
             eprintln!("ERROR no target to build");
         },
     };
-
-
-    let connection = sqlite::open("history.db").unwrap();
-    connection.execute(
-        "CREATE TABLE IF NOT EXISTS history (source varchar(88), target varchar(88), UNIQUE(source) );"
-    ).unwrap();
-
-    let protected_connection = Arc::new(Mutex::new(connection));
-
-    println!( "getting target hash2: {}", get_target_hash(&protected_connection.lock().unwrap(), &base64_sha_str("stuff2")) );
-    println!( "getting target hash: {}", get_target_hash(&protected_connection.lock().unwrap(), &base64_sha_str("stuff")) );
 }

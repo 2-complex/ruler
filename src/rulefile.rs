@@ -66,55 +66,6 @@ fn assign_source_rules(rules : &mut Vec<Rule>)
     }
 }
 
-pub fn topological_sort<'a>(
-    rules : &'a Vec<Rule<'a>>,
-    target : &str
-    ) -> Vec<&'a Rule<'a>>
-{
-    let mut dep_map : HashMap<String, &Rule> = HashMap::new();
-    let mut visited : HashSet<String> = HashSet::new();
-
-    for rule in rules
-    {
-        for &t in rule.targets.iter()
-        {
-            dep_map.insert(t.to_string(), rule);
-        }
-    }
-
-    let mut accum : Vec<&Rule> = Vec::new();
-    let mut buf = VecDeque::new();
-
-    buf.push_back(target);
-    buf.push_back(target);
-
-    while let Some(t) = buf.pop_back()
-    {
-        if let Some(rule) = dep_map.get(t)
-        {
-            if visited.contains(t)
-            {
-                accum.push(rule);
-            }
-            else
-            {
-                visited.insert(t.to_string());
-                for &s in rule.sources.iter().rev()
-                {
-                    if !visited.contains(s)
-                    {
-                        buf.push_back(s);
-                        buf.push_back(s);
-                    }
-                }
-            }
-        }
-    }
-
-    accum
-}
-
-
 pub fn topological_sort_indices(
     rules : &Vec<Rule>,
     target : &str
