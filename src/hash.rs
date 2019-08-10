@@ -59,31 +59,20 @@ impl HashFactory
         {
             Ok(mut file) =>
             {
-                let mut d = Sha512::new();
+                let mut dig = Sha512::new();
                 let mut buf = [0u8; 256];
-                let mut done = false;
 
                 loop
                 {
                     match file.read(&mut buf)
                     {
                         Ok(0) => break,
-                        Ok(packet_size) =>
-                        {
-                            if packet_size == 0
-                            {
-                                done = true;
-                            }
-                            else
-                            {
-                                d.input(&buf[..packet_size]);
-                            }
-                        },
+                        Ok(packet_size) => dig.input(&buf[..packet_size]),
                         Err(why) => return Err(why),
                     }
                 }
 
-                Ok(HashFactory{dig : d})
+                Ok(HashFactory{dig : dig})
             },
             Err(why) => Err(why),
         }

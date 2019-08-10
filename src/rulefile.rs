@@ -152,6 +152,24 @@ mod tests {
     use crate::rulefile::Rule;
 
     #[test]
+    fn rules_are_rules()
+    {
+        let rulefile = "abc".to_string();
+        let r = Rule
+        {
+            all : &rulefile,
+            targets : vec![&rulefile[0..1]],
+            sources : vec![&rulefile[1..2]],
+            command : vec![&rulefile[2..3]],
+        };
+
+        assert_eq!(r.all, "abc");
+        assert_eq!(r.targets[0], "a");
+        assert_eq!(r.sources[0], "b");
+        assert_eq!(r.command[0], "c");
+    }
+
+    #[test]
     fn topological_sort_empty_is_empty()
     {
         let (v, m) = topological_sort(vec![], "");
@@ -163,10 +181,6 @@ mod tests {
     fn topological_sort_adds_rulres_for_source()
     {
         let rulefile = "abc".to_string();
-
-        println!("{}", &rulefile[0..1]);
-        println!("{}", &rulefile[1..2]);
-        println!("{}", &rulefile[2..3]);
 
         let (v, m) = topological_sort(
             vec![Rule
