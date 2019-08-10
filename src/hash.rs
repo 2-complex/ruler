@@ -4,7 +4,7 @@ use crypto::sha2::Sha512;
 use base64::{encode};
 use crypto::digest::Digest;
 use std::fs::File;
-use std::io::{Read, Error};
+use std::io::Read;
 
 pub fn base64_sha(sha: &[u8]) -> String
 {

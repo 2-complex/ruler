@@ -148,7 +148,8 @@ pub fn topological_sort<'a>(
 }
 
 mod tests {
-    use crate::rulefile::topological_sort;  
+    use crate::rulefile::topological_sort;
+    use crate::rulefile::Rule;
 
     #[test]
     fn topological_sort_empty_is_empty()
@@ -159,27 +160,28 @@ mod tests {
     }
 
     #[test]
-    fn topological_sort_single_is_single()
+    fn topological_sort_adds_rulres_for_source()
     {
         let rulefile = "abc".to_string();
 
-        println!("{}", rulefile[0..1]);
-        println!("{}", rulefile[0..1]);
-        println!("{}", rulefile[0..1]);
+        println!("{}", &rulefile[0..1]);
+        println!("{}", &rulefile[1..2]);
+        println!("{}", &rulefile[2..3]);
 
         let (v, m) = topological_sort(
             vec![Rule
             {
-                all : rulefile,
-                targets = vec![rulefile[0..1]],
-                sources = vec![rulefile[1..2]],
-                command = vec![rulefile[2..3]],
+                all : &rulefile,
+                targets : vec![&rulefile[0..1]],
+                sources : vec![&rulefile[1..2]],
+                command : vec![&rulefile[2..3]],
             }
         ], "a");
 
-        assert_eq!(v.len(), 1);
-        assert_eq!(m.len(), 1);
-        assert_eq!(m.get().unwrap());
+        assert_eq!(v.len(), 2);
+        assert_eq!(m.len(), 2);
+        assert_eq!(*m.get("a").unwrap(), 1usize);
+        assert_eq!(*m.get("b").unwrap(), 0usize);
     }
 }
 
