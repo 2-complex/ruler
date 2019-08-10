@@ -142,8 +142,20 @@ pub fn topological_sort<'a>(
                 }
             }
         }
-
     }
 
     (rules_in_order, source_to_index)
 }
+
+mod tests {
+    use crate::rulefile::topological_sort;  
+
+    #[test]
+    fn topological_sort_empty_is_empty()
+    {
+        let (v, m) = topological_sort(vec![], "anything");
+        assert_eq!(v.len(), 0);
+        assert_eq!(m.len(), 0);
+    }
+}
+
