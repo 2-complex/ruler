@@ -14,87 +14,68 @@ use std::sync::mpsc;
 use multimap::MultiMap;
 
 mod file;
-mod rulefile;
+mod rule;
 mod hash;
 
-use self::rulefile::Rule;
+use self::rule::Record;
 use self::hash::{Hash, HashFactory};
 
 fn run_command(
-    rule: &Rule,
-    senders : Vec<Sender<Hash>>,
+    mut record: Record,
+    senders : Vec<(usize, Sender<Hash>)>,
     receivers : Vec<Receiver<Hash>>,
-    protected_connection : Arc<Mutex<Connection>> ) -> JoinHandle<Output>
+    _protected_connection : Arc<Mutex<Connection>> )
+    -> JoinHandle<Output>
 {
-    if rule.command.len() == 0
-    {
-        let mut command = Command::new("echo");
-        command.arg(format!("hello {}", rule.targets[0]));
+    let mut factory = HashFactory::new_from_str(&record.all());
 
-        thread::spawn(
-            move || -> Output
-            {
-                let out = command.output().expect("failed to execute process");
-
-                for snd in senders
-                {
-                    snd.send(HashFactory::new_from_str("").result());
-                }
-
-                out
-            }
-        )
-    }
-    else
-    {
-        let command_vec = &rule.command;
-        let mut command = Command::new(command_vec[0]);
-        for argument in command_vec[1..].iter()
+    thread::spawn(
+        move || -> Output
         {
-            command.arg(argument);
-        }
-
-        let mut factory = HashFactory::new_from_str(rule.all);
-
-        thread::spawn(
-            move || -> Output
+            let mut command =
+            if let Some(first) = record.command.pop_front()
             {
-                for rcv in receivers
+                let mut command = Command::new(first);
+                while let Some(argument) = record.command.pop_front()
                 {
-                    factory.input_hash( rcv.recv().unwrap() );
+                    command.arg(argument);
                 }
-
-                let out = command.output().expect("failed to execute process");
-
-                for snd in senders
-                {
-                    snd.send(HashFactory::new_from_str("").result());
-                }
-
-                out
+                command
             }
-        )
-    }
+            else
+            {
+                Command::new("echo hello")
+            };
+
+            for rcv in receivers
+            {
+                factory.input_hash( rcv.recv().unwrap() );
+            }
+
+            let out = command.output().expect("failed to execute process");
+
+            for (sub_index, sender) in senders
+            {
+                match HashFactory::new_from_filepath(&record.targets[sub_index])
+                {
+                    Ok(mut hash) =>
+                    {
+                        sender.send(hash.result());
+                    }
+                    Err(_error) =>
+                    {
+                        eprintln!("FILE IO ERROR");
+                    }
+                }
+            }
+
+            out
+        }
+    )
 }
 
-use sqlite::{Connection, State};
+use sqlite::Connection;
 use std::sync::{Arc, Mutex};
-
-
-fn get_target_hash(connection : &Connection, sha_str : &str) -> String
-{
-    let mut statement = connection
-        .prepare("SELECT * FROM history WHERE source = ?")
-        .unwrap();
-
-    statement.bind(1, sha_str).unwrap();
-
-    match statement.next().unwrap()
-    {
-        State::Row => statement.read::<String>(1).unwrap(),
-        _ => String::new(),
-    }
-}
 
 fn main()
 {
@@ -102,7 +83,7 @@ fn main()
         .version("0.1.0")
         .author("Peterson Trethewey <ptrethewey@roblox.com>")
         .about("You know when you have files that depend on other files?  This is for that situation.")
-        .arg(Arg::with_name("BUILDFILE")
+        .arg(Arg::with_name("RULEFILE")
              .required(true)
              .takes_value(true)
              .index(1)
@@ -110,95 +91,97 @@ fn main()
         .arg(Arg::from_usage("-t --target=[TARGET] 'Sets which target to build'"))
         .get_matches();
 
-    let buildfile = matches.value_of("BUILDFILE").unwrap();
+    let rulefile = matches.value_of("RULEFILE").unwrap();
 
     match matches.value_of("target")
     {
         Some(target) =>
         {
-            println!("Reading rulesfile: {}", buildfile);
+            println!("Reading rulefile: {}", rulefile);
             println!("Building target: {}", target);
 
-            match file::read(&buildfile.to_string())
+            match file::read(&rulefile.to_string())
             {
                 Err(why) => eprintln!("ERROR: {}", why),
-                Ok(content) => 
+                Ok(content) =>
                 {
-                    match rulefile::parse(&content)
+                    match rule::parse(content)
                     {
                         Err(why) => eprintln!("ERROR: {}", why),
                         Ok(rules) =>
                         {
-                            let (rules_in_order, source_to_index) =
-                                rulefile::topological_sort(rules, &target);
-
-                            let mut senders = MultiMap::new();
-                            let mut receivers = MultiMap::new();
-
-                            for (target_index, rule) in rules_in_order.iter().enumerate()
+                            match rule::topological_sort(rules, &target)
                             {
-                                for source in rule.sources.iter()
+                                Err(why) => eprintln!("ERROR: {}", why),
+                                Ok(mut records) =>
                                 {
-                                    let (sender, receiver) : (Sender<Hash>, Receiver<Hash>) = mpsc::channel();
+                                    let mut senders : MultiMap<usize, (usize, Sender<Hash>)> = MultiMap::new();
+                                    let mut receivers : MultiMap<usize, (Receiver<Hash>)> = MultiMap::new();
 
-                                    println!("source: {}", source);
-                                    let source_index = source_to_index.get(*source).unwrap();
-                                    println!("index: {}", source_index);
-
-                                    senders.insert(source_index, sender);
-                                    receivers.insert(target_index, receiver);
-                                }
-                            }
-
-                            let connection = sqlite::open("history.db").unwrap();
-                            connection.execute(
-                                "CREATE TABLE IF NOT EXISTS history (source varchar(88), target varchar(88), UNIQUE(source) );"
-                            ).unwrap();
-
-                            let protected_connection = Arc::new(Mutex::new(connection));
-
-                            let mut handles = Vec::new();
-                            for (index, rule) in rules_in_order.iter().enumerate()
-                            {
-                                let sender_vec = match senders.remove(&index)
-                                {
-                                    Some(v) => v,
-                                    None => vec![],
-                                };
-
-                                let receiver_vec = match receivers.remove(&index)
-                                {
-                                    Some(v) => v,
-                                    None => vec![],
-                                };
-
-                                handles.push(
-                                    run_command(
-                                        &rule,
-                                        sender_vec,
-                                        receiver_vec,
-                                        protected_connection.clone()
-                                    )
-                                );
-                            }
-
-                            for h in handles
-                            {
-                                match h.join()
-                                {
-                                    Err(_) =>
+                                    for (target_index, record) in records.iter().enumerate()
                                     {
-                                        eprintln!("ERROR");
-                                    },
-                                    Ok(output) =>
-                                    {
-                                        println!("status: {}", output.status);
-                                        println!("out:");
-                                        io::stdout().write_all(&output.stdout).unwrap();
-                                        println!("err:");
-                                        io::stderr().write_all(&output.stderr).unwrap();
+                                        for (source_index, sub_index) in record.source_indices.iter()
+                                        {
+                                            let (sender, receiver) : (Sender<Hash>, Receiver<Hash>) = mpsc::channel();
+                                            senders.insert(*source_index, (*sub_index, sender));
+                                            receivers.insert(target_index, receiver);
+                                        }
                                     }
-                                }
+
+                                    let connection = sqlite::open("history.db").unwrap();
+                                    connection.execute(
+                                        "CREATE TABLE IF NOT EXISTS history (source varchar(88), target varchar(88), UNIQUE(source) );"
+                                    ).unwrap();
+
+                                    let protected_connection = Arc::new(Mutex::new(connection));
+
+                                    let mut handles = Vec::new();
+                                    let mut index : usize = 0;
+                                    while let Some(record) = records.pop_front()
+                                    {
+                                        let sender_vec = match senders.remove(&index)
+                                        {
+                                            Some(v) => v,
+                                            None => vec![],
+                                        };
+
+                                        let receiver_vec = match receivers.remove(&index)
+                                        {
+                                            Some(v) => v,
+                                            None => vec![],
+                                        };
+
+                                        handles.push(
+                                            run_command(
+                                                record,
+                                                sender_vec,
+                                                receiver_vec,
+                                                protected_connection.clone()
+                                            )
+                                        );
+
+                                        index+=1;
+                                    }
+
+                                    for h in handles
+                                    {
+                                        match h.join()
+                                        {
+                                            Err(_) =>
+                                            {
+                                                eprintln!("ERROR");
+                                            },
+                                            Ok(output) =>
+                                            {
+                                                println!("status: {}", output.status);
+                                                println!("out:");
+                                                io::stdout().write_all(&output.stdout).unwrap();
+                                                println!("err:");
+                                                io::stderr().write_all(&output.stderr).unwrap();
+                                            }
+                                        }
+                                    }
+                                },
                             }
                         }
                     }

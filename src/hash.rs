@@ -6,7 +6,7 @@ use crypto::digest::Digest;
 use std::fs::File;
 use std::io::Read;
 
-pub fn base64_sha(sha: &[u8]) -> String
+fn base64_sha(sha: &[u8]) -> String
 {
     format!("{}", encode(&sha))
 }
@@ -18,6 +18,7 @@ pub struct Hash
 
 impl Hash
 {
+    #[allow(dead_code)]
     pub fn base64(&self) -> String
     {
         base64_sha(&self.sha)
