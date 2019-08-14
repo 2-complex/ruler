@@ -1,6 +1,3 @@
-extern crate regex;
-
-use regex::Regex;
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::fmt;
@@ -9,14 +6,14 @@ pub struct Rule
 {
     pub targets : Vec<String>,
     pub sources : Vec<String>,
-    pub command : VecDeque<String>,
+    pub command : Vec<String>,
 }
 
 pub struct Record
 {
     pub targets: Vec<String>,
     pub source_indices: Vec<(usize, usize)>,
-    pub command : VecDeque<String>,
+    pub command : Vec<String>,
     sources: Vec<String>,
 }
 
@@ -50,35 +47,150 @@ impl Record
     }
 }
 
+struct EndpointPair
+{
+    start : usize,
+    end : usize,
+}
+
+fn get_line_endpoints(content : &str) -> Vec<EndpointPair>
+{
+    let mut endpoints = Vec::new();
+    let mut last_i = 0usize;
+    for (i, c) in content.chars().enumerate()
+    {
+        match c
+        {
+            '\n' =>
+            {
+                endpoints.push(EndpointPair{
+                    start:last_i,
+                    end:i,
+                });
+                last_i = i+1;
+            },
+            _ => {},
+        }
+    }
+
+    endpoints
+}
+
+fn split_along_endpoints(
+    mut content : String,
+    mut endpoints : Vec<EndpointPair>) -> Vec<String>
+{
+    let mut result = Vec::new();
+    let mut total = 0usize;
+
+    for p in endpoints.drain(..)
+    {
+        let mut chunk = content.split_off(p.start - total);
+        content = chunk.split_off(p.end - p.start);
+        chunk.shrink_to_fit();
+        total = p.end;
+        result.push(chunk);
+    }
+
+    result
+}
+
+enum Mode
+{
+    Targets,
+    Sources,
+    Command,
+    NewLine
+}
+
+use self::Mode::Targets;
+use self::Mode::Sources;
+use self::Mode::Command;
+use self::Mode::NewLine;
+
+pub fn parse(mut content: String) -> Result<Vec<Rule>, String>
+{
+    let mut rules = Vec::new();
+    let mut targets = vec![];
+    let mut sources = vec![];
+    let mut command = vec![];
+    let mut mode = Targets;
+    let mut line_number = 1;
+
+    let endpoints = get_line_endpoints(&content);
+    for line in split_along_endpoints(content, endpoints).drain(..)
+    {
+        match mode
+        {
+            Targets =>
+            {
+                match line.as_ref()
+                {
+                    "" => return Err(format!("Unexpected empty line ({})", line_number)),
+                    ":" => mode = Sources,
+                    _ => targets.push(line),
+                }
+            },
+            Sources =>
+            {
+                match line.as_ref()
+                {
+                    "" => return Err(format!("Unexpected empty line ({})", line_number)),
+                    ":" => mode = Command,
+                    _ => sources.push(line),
+                }
+            },
+            Command =>
+            {
+                match line.as_ref()
+                {
+                    "" => return Err(format!("Unexpected empty line {}", line_number)),
+                    ":" =>
+                    {
+                        mode = NewLine;
+                        rules.push(
+                            Rule
+                            {
+                                targets : targets,
+                                sources : sources,
+                                command : command,
+                            }
+                        );
+                        targets = vec![];
+                        sources = vec![];
+                        command = vec![];
+                    }
+                    _ => command.push(line),
+                }
+            },
+            NewLine =>
+            {
+                match line.as_ref()
+                {
+                    "" => mode = Targets,
+                    ":" => return Err(format!("Unexpected extra ':' on line {}", line_number)),
+                    _ => return Err(format!("Unexpected content on line {}", line_number)),
+                }
+            },
+        }
+
+        line_number += 1;
+    }
+
+    match mode
+    {
+        NewLine => return Ok(rules),
+        Targets => return Err(format!("Unexpected end of file mid-targets")),
+        Sources => return Err(format!("Unexpected end of file mid-sources")),
+        Command => return Err(format!("Unexpected end of file mid-command")),
+    }
+}
+
 struct Frame
 {
     record: Record,
     visited: bool,
 }
-
-pub fn parse(content: String) -> Result<Vec<Rule>, String>
-{
-    let result = Vec::new();
-    let big_re = Regex::new(r"([^\n:][^:]*\n:\n[^\n:][^:]*\n:\n[^\n:][^:]*\n:\n)").unwrap();
-
-    for mat in big_re.find_iter(&content)
-    {
-        println!("{:?}", mat);
-
-        /*
-        let rule_re = Regex::new(r"([^\n:][^:]*)\n:\n([^\n:][^:]*)\n:\n([^\n:][^:]*)\n:\n").unwrap();
-        let all = big_caps.get(1).unwrap().as_str();
-
-        for mat in rule_re.find_iter(all)
-        {
-            println!("{:?}", mat);
-        }
-        */
-    }
-
-    Ok(result)
-}
-
 
 /*  Consume Rules, and in their place, make Records.
     In each Record, leave 'source_indices' empty.
@@ -190,7 +302,7 @@ pub fn topological_sort(
                                     {
                                         targets: vec![source.clone()],
                                         sources: vec![],
-                                        command: VecDeque::new(),
+                                        command: vec![],
                                         source_indices: vec![],
                                     }
                                 );
@@ -234,9 +346,8 @@ mod tests
 {
     use crate::rule::rules_to_record_buffer;
     use crate::rule::topological_sort;
-    use crate::rule::parse;
+    use crate::rule::{EndpointPair, split_along_endpoints, parse, get_line_endpoints};
     use crate::rule::Rule;
-    use std::collections::VecDeque;
 
     #[test]
     fn rules_are_rules()
@@ -246,7 +357,7 @@ mod tests
         {
             targets : vec![rulefile[0..1].to_string()],
             sources : vec![rulefile[1..2].to_string()],
-            command : VecDeque::from(vec![rulefile[2..3].to_string()]),
+            command : vec![rulefile[2..3].to_string()],
         };
 
         assert_eq!(r.targets[0], "a");
@@ -277,7 +388,7 @@ mod tests
                     {
                         targets: vec!["plant".to_string(), "fruit".to_string()],
                         sources: vec!["soil".to_string(), "seed".to_string()],
-                        command: VecDeque::from(vec!["water every day".to_string()]),
+                        command: vec!["water every day".to_string()],
                     },
                 ]
             )
@@ -309,7 +420,7 @@ mod tests
                         assert_eq!(record.targets[*target_index], "fruit");
                         assert_eq!(record.sources[0], "soil");
                         assert_eq!(record.sources[1], "seed");
-                        match record.command.front()
+                        match record.command.first()
                         {
                             Some(command) =>
                             {
@@ -337,13 +448,13 @@ mod tests
                 {
                     targets: vec!["fruit".to_string()],
                     sources: vec!["plant".to_string()],
-                    command: VecDeque::from(vec!["pick occasionally".to_string()]),
+                    command: vec!["pick occasionally".to_string()],
                 },
                 Rule
                 {
                     targets: vec!["plant".to_string()],
                     sources: vec!["soil".to_string(), "seed".to_string()],
-                    command: VecDeque::from(vec!["water every day".to_string()]),
+                    command: vec!["water every day".to_string()],
                 },
             ]
         )
@@ -369,13 +480,13 @@ mod tests
                 {
                     targets: vec!["fruit".to_string()],
                     sources: vec!["plant".to_string()],
-                    command: VecDeque::from(vec!["pick occasionally".to_string()]),
+                    command: vec!["pick occasionally".to_string()],
                 },
                 Rule
                 {
                     targets: vec!["plant".to_string(), "fruit".to_string()],
                     sources: vec!["soil".to_string(), "seed".to_string()],
-                    command: VecDeque::from(vec!["water every day".to_string()]),
+                    command: vec!["water every day".to_string()],
                 },
             ]
         )
@@ -417,7 +528,7 @@ mod tests
                 {
                     targets: vec!["plant".to_string()],
                     sources: vec![],
-                    command: VecDeque::from(vec![]),
+                    command: vec![],
                 },
             ],
             "plant")
@@ -439,13 +550,13 @@ mod tests
                 {
                     targets: vec!["fruit".to_string()],
                     sources: vec!["plant".to_string()],
-                    command: VecDeque::from(vec!["pick occasionally".to_string()]),
+                    command: vec!["pick occasionally".to_string()],
                 },
                 Rule
                 {
                     targets: vec!["plant".to_string()],
                     sources: vec![],
-                    command: VecDeque::from(vec![]),
+                    command: vec![],
                 },
             ],
             "fruit")
@@ -469,13 +580,13 @@ mod tests
                 {
                     targets: vec!["fruit".to_string()],
                     sources: vec!["plant".to_string()],
-                    command: VecDeque::from(vec!["pick occasionally".to_string()]),
+                    command: vec!["pick occasionally".to_string()],
                 },
                 Rule
                 {
                     targets: vec!["plant".to_string()],
                     sources: vec!["soil".to_string(), "water".to_string(), "seed".to_string(), "sunlight".to_string()],
-                    command: VecDeque::from(vec!["take care of plant".to_string()]),
+                    command: vec!["take care of plant".to_string()],
                 },
             ],
             "fruit")
@@ -495,15 +606,137 @@ mod tests
     }
 
     #[test]
+    fn split_along_endpoints_empty()
+    {
+        let v = split_along_endpoints("".to_string(), vec![]);
+        assert_eq!(v.len(), 0);
+    }
+
+    #[test]
+    fn split_along_endpoints_one()
+    {
+        let v = split_along_endpoints("apples".to_string(),
+            vec![
+                EndpointPair
+                {
+                    start: 0usize,
+                    end: 3usize,
+                }
+            ]
+        );
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0], "app");
+    }
+
+    #[test]
+    fn split_along_endpoints_two()
+    {
+        let v = split_along_endpoints("applesbananas".to_string(),
+            vec![
+                EndpointPair
+                {
+                    start: 0usize,
+                    end: 6usize,
+                },
+                EndpointPair
+                {
+                    start: 6usize,
+                    end: 13usize,
+                },
+            ]
+        );
+        assert_eq!(v.len(), 2);
+        assert_eq!(v[0], "apples");
+        assert_eq!(v[1], "bananas");
+    }
+
+    #[test]
+    fn split_along_endpoints_two_padding()
+    {
+        let v = split_along_endpoints("123apples012bananas".to_string(),
+            vec![
+                EndpointPair
+                {
+                    start: 3usize,
+                    end: 9usize,
+                },
+                EndpointPair
+                {
+                    start: 12usize,
+                    end: 19usize,
+                },
+            ]
+        );
+        assert_eq!(v.len(), 2);
+        assert_eq!(v[0], "apples");
+        assert_eq!(v[1], "bananas");
+    }
+
+    #[test]
+    fn get_line_endpoints_empty()
+    {
+        let v = get_line_endpoints("abcd");
+        assert_eq!(v.len(), 0);
+    }
+
+    #[test]
+    fn get_line_endpoints_one()
+    {
+        let v = get_line_endpoints("abcd\n");
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].start, 0);
+        assert_eq!(v[0].end, 4);
+    }
+
+    #[test]
+    fn get_line_endpoints_two()
+    {
+        let v = get_line_endpoints("ab\ncd\n");
+        assert_eq!(v.len(), 2);
+        assert_eq!(v[0].start, 0);
+        assert_eq!(v[0].end, 2);
+        assert_eq!(v[1].start, 3);
+        assert_eq!(v[1].end, 5);
+    }
+
+    #[test]
+    fn get_line_endpoints_rule()
+    {
+        let s = "a\n:\nb\n:\nc\n:\n";
+        let v = get_line_endpoints(s);
+        assert_eq!(v.len(), 6);
+        assert_eq!(s[v[0].start..v[0].end], *"a");
+        assert_eq!(s[v[1].start..v[1].end], *":");
+        assert_eq!(s[v[2].start..v[2].end], *"b");
+        assert_eq!(s[v[3].start..v[3].end], *":");
+        assert_eq!(s[v[4].start..v[4].end], *"c");
+        assert_eq!(s[v[5].start..v[5].end], *":");
+    }
+
+    #[test]
+    fn split_along_endpoints_rule()
+    {
+        let text = "a\n:\nb\n:\nc\n:\n".to_string();
+        let endpoints = get_line_endpoints(&text);
+        assert_eq!(endpoints.len(), 6);
+
+        let v = split_along_endpoints(text, endpoints);
+        assert_eq!(v.len(), 6);
+    }
+
+    #[test]
     fn parse_empty()
     {
         match parse("".to_string())
         {
-            Ok(v) =>
+            Ok(_) =>
             {
-                assert_eq!(v.len(), 0);
+                panic!(format!("Unexpected success when parsing empty string"));
             },
-            Err(why) => panic!(format!("Expected success, got: {}", why)),
+            Err(why) =>
+            {
+                assert_eq!(why, "Unexpected end of file mid-targets")
+            }
         };
     }
 
@@ -515,8 +748,82 @@ mod tests
             Ok(v) =>
             {
                 assert_eq!(v.len(), 1);
+                assert_eq!(v[0].targets, vec!["a".to_string()]);
+                assert_eq!(v[0].sources, vec!["b".to_string()]);
+                assert_eq!(v[0].command, vec!["c".to_string()]);
             },
             Err(why) => panic!(format!("Expected success, got: {}", why)),
+        };
+    }
+
+    #[test]
+    fn parse_two()
+    {
+        match parse("a\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\nf\n:\n".to_string())
+        {
+            Ok(v) =>
+            {
+                assert_eq!(v.len(), 2);
+                assert_eq!(v[0].targets, vec!["a".to_string()]);
+                assert_eq!(v[0].sources, vec!["b".to_string()]);
+                assert_eq!(v[0].command, vec!["c".to_string()]);
+                assert_eq!(v[1].targets, vec!["d".to_string()]);
+                assert_eq!(v[1].sources, vec!["e".to_string()]);
+                assert_eq!(v[1].command, vec!["f".to_string()]);
+            },
+            Err(why) => panic!(format!("Expected success, got: {}", why)),
+        };
+    }
+
+    #[test]
+    fn parse_extra_newline_error1()
+    {
+        match parse("\na\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\nf\n:\n".to_string())
+        {
+            Ok(v) => panic!(format!("Unexpected success")),
+            Err(why) =>
+            {
+                assert_eq!(why, "Unexpected empty line (1)");
+            }
+        };
+    }
+
+    #[test]
+    fn parse_extra_newline_error2()
+    {
+        match parse("a\n:\nb\n\n:\nc\n:\n\nd\n:\ne\n:\nf\n:\n".to_string())
+        {
+            Ok(v) => panic!(format!("Unexpected success")),
+            Err(why) =>
+            {
+                assert_eq!(why, "Unexpected empty line (4)");
+            }
+        };
+    }
+
+    #[test]
+    fn parse_extra_newline_error3()
+    {
+        match parse("a\n:\nb\n:\nc\n:\n\n\nd\n:\ne\n:\nf\n:\n".to_string())
+        {
+            Ok(v) => panic!(format!("Unexpected success")),
+            Err(why) =>
+            {
+                assert_eq!(why, "Unexpected empty line (8)");
+            }
+        };
+    }
+
+    #[test]
+    fn parse_extra_newline_error4()
+    {
+        match parse("a\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\nf\n:\n\n".to_string())
+        {
+            Ok(v) => panic!(format!("Unexpected success")),
+            Err(why) =>
+            {
+                assert_eq!(why, "Unexpected end of file mid-targets");
+            }
         };
     }
 }

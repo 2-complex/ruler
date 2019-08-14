@@ -13,6 +13,8 @@ use std::sync::mpsc::{Sender, Receiver};
 use std::sync::mpsc;
 use multimap::MultiMap;
 
+use std::collections::VecDeque;
+
 mod file;
 mod rule;
 mod hash;
@@ -32,11 +34,13 @@ fn run_command(
     thread::spawn(
         move || -> Output
         {
+            let mut command_queue = VecDeque::from(record.command);
+
             let mut command =
-            if let Some(first) = record.command.pop_front()
+            if let Some(first) = command_queue.pop_front()
             {
                 let mut command = Command::new(first);
-                while let Some(argument) = record.command.pop_front()
+                while let Some(argument) = command_queue.pop_front()
                 {
                     command.arg(argument);
                 }
@@ -137,7 +141,7 @@ fn main()
 
                                     let mut handles = Vec::new();
                                     let mut index : usize = 0;
-                                    while let Some(record) = records.pop_front()
+                                    for record in records.drain(..)
                                     {
                                         let sender_vec = match senders.remove(&index)
                                         {
