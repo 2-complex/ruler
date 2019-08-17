@@ -7,10 +7,9 @@ use clap::{Arg, App};
 use std::process::{Output, Command};
 use std::thread::{self, JoinHandle};
 
-use std::io::{self, Write};
-
 use std::sync::mpsc::{Sender, Receiver};
 use std::sync::mpsc;
+use std::str::from_utf8;
 use multimap::MultiMap;
 
 use std::collections::VecDeque;
@@ -22,64 +21,160 @@ mod hash;
 use self::rule::Record;
 use self::hash::{Hash, HashFactory};
 
+struct CommandResult
+{
+    out : String,
+    err : String,
+    code : Option<i32>,
+    success : bool,
+}
+
+impl CommandResult
+{
+    fn from_output(output: Output) -> CommandResult
+    {
+        CommandResult
+        {
+            out : match from_utf8(&output.stdout)
+            {
+                Ok(text) => text,
+                Err(_) => "<data not utf8>",
+            }.to_string(),
+
+            err : match from_utf8(&output.stderr)
+            {
+                Ok(text) => text,
+                Err(_) => "<data not utf8>",
+            }.to_string(),
+
+            code : output.status.code(),
+            success : output.status.success(),
+        }
+    }
+
+    fn new() -> CommandResult
+    {
+        CommandResult
+        {
+            out : "".to_string(),
+            err : "".to_string(),
+            code : Some(0),
+            success : true,
+        }
+    }
+}
+
 fn run_command(
-    mut record: Record,
+    record: Record,
     senders : Vec<(usize, Sender<Hash>)>,
-    receivers : Vec<Receiver<Hash>>,
-    _protected_connection : Arc<Mutex<Connection>> )
-    -> JoinHandle<Output>
+    receivers : Vec<Receiver<Hash>> )
+    -> JoinHandle<Result<CommandResult, String>>
 {
     let mut factory = HashFactory::new_from_str(&record.all());
 
     thread::spawn(
-        move || -> Output
+        move || -> Result<CommandResult, String>
         {
-            let mut command_queue = VecDeque::from(record.command);
+            let mut command_queue = VecDeque::from(record.command.clone());
 
-            let mut command =
-            if let Some(first) = command_queue.pop_front()
+            let command_opt = match command_queue.pop_front()
             {
-                let mut command = Command::new(first);
-                while let Some(argument) = command_queue.pop_front()
+                Some(first) =>
                 {
-                    command.arg(argument);
-                }
-                command
-            }
-            else
-            {
-                Command::new("echo hello")
+                    let mut command = Command::new(first);
+                    while let Some(argument) = command_queue.pop_front()
+                    {
+                        command.arg(argument);
+                    }
+                    Some(command)
+                },
+                None => None
             };
+
+
+            println!("pass A {}\n", receivers.len());
 
             for rcv in receivers
             {
-                factory.input_hash( rcv.recv().unwrap() );
+                match rcv.recv()
+                {
+                    Ok(h) => factory.input_hash(h),
+                    Err(why) =>
+                    {
+                        eprintln!("ERROR {}", why);
+                    },
+                }
             }
 
-            let out = command.output().expect("failed to execute process");
+            println!("pass B\n");
+
+            let result =
+            match command_opt
+            {
+                Some(mut command) =>
+                {
+                    match command.output()
+                    {
+                        Ok(out) => Ok(CommandResult::from_output(out)),
+                        Err(why)=>
+                        {
+                            return Err(format!("Error in command to build: {}\n{}", record.targets.join(" "), why))
+                        },
+                    }
+                },
+                None => Ok(CommandResult::new()),
+            };
 
             for (sub_index, sender) in senders
             {
+                println!("sending hash of {}", &record.targets[sub_index]);
+
                 match HashFactory::new_from_filepath(&record.targets[sub_index])
                 {
                     Ok(mut hash) =>
                     {
-                        sender.send(hash.result());
-                    }
+                        match sender.send(hash.result())
+                        {
+                            Ok(_) => {},
+                            Err(_error) => eprintln!("CHANNEL SEND ERROR"),
+                        }
+                    },
                     Err(_error) =>
                     {
                         eprintln!("FILE IO ERROR");
-                    }
+                    },
                 }
             }
 
-            out
+            result
         }
     )
 }
 
-use sqlite::Connection;
-use std::sync::{Arc, Mutex};
+fn make_multimaps(records : &Vec<Record>)
+    -> (
+        MultiMap<usize, (usize, Sender<Hash>)>,
+        MultiMap<usize, (Receiver<Hash>)>
+    )
+{
+    let mut senders : MultiMap<usize, (usize, Sender<Hash>)> = MultiMap::new();
+    let mut receivers : MultiMap<usize, (Receiver<Hash>)> = MultiMap::new();
+
+    for (target_index, record) in records.iter().enumerate()
+    {
+        for (source_index, sub_index) in record.source_indices.iter()
+        {
+            let (sender, receiver) : (Sender<Hash>, Receiver<Hash>) = mpsc::channel();
+
+            println!("{} : {} ({}) -> {}", record.targets[0], *source_index, *sub_index, target_index);
+
+            senders.insert(*source_index, (*sub_index, sender));
+            receivers.insert(target_index, receiver);
+        }
+    }
+
+    (senders, receivers)
+}
 
 fn main()
 {
@@ -119,28 +214,11 @@ fn main()
                                 Err(why) => eprintln!("ERROR: {}", why),
                                 Ok(mut records) =>
                                 {
-                                    let mut senders : MultiMap<usize, (usize, Sender<Hash>)> = MultiMap::new();
-                                    let mut receivers : MultiMap<usize, (Receiver<Hash>)> = MultiMap::new();
-
-                                    for (target_index, record) in records.iter().enumerate()
-                                    {
-                                        for (source_index, sub_index) in record.source_indices.iter()
-                                        {
-                                            let (sender, receiver) : (Sender<Hash>, Receiver<Hash>) = mpsc::channel();
-                                            senders.insert(*source_index, (*sub_index, sender));
-                                            receivers.insert(target_index, receiver);
-                                        }
-                                    }
-
-                                    let connection = sqlite::open("history.db").unwrap();
-                                    connection.execute(
-                                        "CREATE TABLE IF NOT EXISTS history (source varchar(88), target varchar(88), UNIQUE(source) );"
-                                    ).unwrap();
-
-                                    let protected_connection = Arc::new(Mutex::new(connection));
+                                    let (mut senders, mut receivers) = make_multimaps(&records);
 
                                     let mut handles = Vec::new();
                                     let mut index : usize = 0;
+
                                     for record in records.drain(..)
                                     {
                                         let sender_vec = match senders.remove(&index)
@@ -159,29 +237,42 @@ fn main()
                                             run_command(
                                                 record,
                                                 sender_vec,
-                                                receiver_vec,
-                                                protected_connection.clone()
+                                                receiver_vec
                                             )
                                         );
 
                                         index+=1;
                                     }
 
-                                    for h in handles
+                                    for handle in handles
                                     {
-                                        match h.join()
+                                        match handle.join()
                                         {
                                             Err(_) =>
                                             {
                                                 eprintln!("ERROR");
                                             },
-                                            Ok(output) =>
+                                            Ok(command_result) =>
                                             {
-                                                println!("status: {}", output.status);
-                                                println!("out:");
-                                                io::stdout().write_all(&output.stdout).unwrap();
-                                                println!("err:");
-                                                io::stderr().write_all(&output.stderr).unwrap();
+                                                match command_result
+                                                {
+                                                    Ok(r) =>
+                                                    {
+                                                        println!("success: {}", r.success);
+                                                        println!("code: {}", match r.code
+                                                        {
+                                                            Some(code) => format!("{}", code),
+                                                            None => "None".to_string(),
+                                                        });
+
+                                                        println!("output: {}", r.out);
+                                                        println!("error: {}", r.err);
+                                                    },
+                                                    Err(why) =>
+                                                    {
+                                                        eprintln!("ERROR {}", why);
+                                                    },
+                                                }
                                             }
                                         }
                                     }

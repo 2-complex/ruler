@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::collections::VecDeque;
 use std::fmt;
 
 pub struct Rule
@@ -46,6 +45,29 @@ impl Record
         return "asdfasdfasdf".to_string();
     }
 }
+
+impl fmt::Display for Record
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result
+    {
+        for t in self.targets.iter()
+        {
+            write!(f, "{}\n", t).unwrap();
+        }
+        write!(f, ":\n").unwrap();
+        for (t, u) in self.source_indices.iter()
+        {
+            write!(f, "({}, {})\n", t, u).unwrap();
+        }
+        write!(f, ":\n").unwrap();
+        for t in self.command.iter()
+        {
+            write!(f, "{}\n", t).unwrap();
+        }
+        write!(f, ":\n")
+    }
+}
+
 
 struct EndpointPair
 {
@@ -108,7 +130,7 @@ use self::Mode::Sources;
 use self::Mode::Command;
 use self::Mode::NewLine;
 
-pub fn parse(mut content: String) -> Result<Vec<Rule>, String>
+pub fn parse(content: String) -> Result<Vec<Rule>, String>
 {
     let mut rules = Vec::new();
     let mut targets = vec![];
@@ -189,6 +211,7 @@ pub fn parse(mut content: String) -> Result<Vec<Rule>, String>
 struct Frame
 {
     record: Record,
+    index: usize,
     visited: bool,
 }
 
@@ -241,7 +264,7 @@ fn rules_to_record_buffer(mut rules : Vec<Rule>) -> Result<(
 
 pub fn topological_sort(
     rules : Vec<Rule>,
-    goal_target : &str) -> Result<VecDeque<Record>, String>
+    goal_target : &str) -> Result<Vec<Record>, String>
 {
     match rules_to_record_buffer(rules)
     {
@@ -251,28 +274,33 @@ pub fn topological_sort(
             let mut current_buffer_index = record_buffer.len();
 
             let mut stack : Vec<Frame> = Vec::new();
+
             match to_buffer_index.get(goal_target)
             {
                 Some((index, _)) =>
+                {
                     stack.push(
                         Frame
                         {
                             record: record_buffer[*index].take().unwrap(),
                             visited: false,
+                            index: *index,
                         }
-                    ),
+                    );
+                },
                 None => return Err(format!("Target missing from rules: {}", goal_target)),
             }
 
-            let mut result : VecDeque<Record> = VecDeque::new();
-            let mut index_bijection : Vec<usize> = Vec::new();
+            let mut result : Vec<Record> = Vec::new();
+            let mut index_bijection : HashMap<usize, usize> = HashMap::new();
 
+            // Now do a straight-forward depth-first traversal using 'stack'
             while let Some(frame) = stack.pop()
             {
                 if frame.visited
                 {
-                    index_bijection.push(result.len());
-                    result.push_back(frame.record);
+                    index_bijection.insert(frame.index, result.len());
+                    result.push(frame.record);
                 }
                 else
                 {
@@ -291,13 +319,32 @@ pub fn topological_sort(
                                         {
                                             record: record,
                                             visited: false,
+                                            index: *buffer_index,
                                         }
                                     );
+                                }
+                                else
+                                {
+                                    // I yearn for more efficiency here.
+
+                                    if frame.index == *buffer_index
+                                    {
+                                        return Err("Self-dependent rule".to_string());
+                                    }
+
+                                    for f in stack.iter()
+                                    {
+                                        if f.index == *buffer_index
+                                        {
+                                            return Err("Circular dependence in rules".to_string());
+                                        }
+                                    }
                                 }
                             },
                             None =>
                             {
-                                result.push_back(
+                                index_bijection.insert(current_buffer_index, result.len());
+                                result.push(
                                     Record
                                     {
                                         targets: vec![source.clone()],
@@ -306,7 +353,6 @@ pub fn topological_sort(
                                         source_indices: vec![],
                                     }
                                 );
-                                index_bijection.push(result.len());
                                 record_buffer.push(None);
                                 to_buffer_index.insert(source.to_string(), (current_buffer_index, 0));
                                 current_buffer_index+=1;
@@ -318,11 +364,15 @@ pub fn topological_sort(
                         Frame
                         {
                             record: frame.record,
+                            index: frame.index,
                             visited: true
                         }
                     );
 
-                    stack.append(&mut buffer);
+                    while let Some(f) = buffer.pop()
+                    {
+                        stack.push(f);
+                    }
                 }
             }
 
@@ -332,7 +382,7 @@ pub fn topological_sort(
                 for source in record.sources.drain(..)
                 {
                     let (buffer_index, sub_index) = to_buffer_index.get(&source).unwrap();
-                    record.source_indices.push((index_bijection[*buffer_index], *sub_index));
+                    record.source_indices.push((*index_bijection.get(buffer_index).unwrap(), *sub_index));
                 }
             }
 
@@ -342,6 +392,7 @@ pub fn topological_sort(
 
 }
 
+#[cfg(test)]
 mod tests
 {
     use crate::rule::rules_to_record_buffer;
@@ -572,6 +623,160 @@ mod tests
     }
 
     #[test]
+    fn topological_sort_four_rules_diamond()
+    {
+        match topological_sort(
+            vec![
+                Rule
+                {
+                    targets: vec!["math".to_string()],
+                    sources: vec![],
+                    command: vec![],
+                },
+                Rule
+                {
+                    targets: vec!["physics".to_string()],
+                    sources: vec!["math".to_string()],
+                    command: vec!["build physics".to_string()],
+                },
+                Rule
+                {
+                    targets: vec!["graphics".to_string()],
+                    sources: vec!["math".to_string()],
+                    command: vec!["build graphics".to_string()],
+                },
+                Rule
+                {
+                    targets: vec!["game".to_string()],
+                    sources: vec!["physics".to_string(), "graphics".to_string()],
+                    command: vec!["build game".to_string()],
+                },
+            ],
+            "game")
+        {
+            Ok(v) =>
+            {
+                assert_eq!(v.len(), 4);
+                assert_eq!(v[0].targets[0], "math");
+                assert_eq!(v[1].targets[0], "physics");
+                assert_eq!(v[2].targets[0], "graphics");
+                assert_eq!(v[3].targets[0], "game");
+
+                assert_eq!(v[0].source_indices.len(), 0);
+                assert_eq!(v[1].source_indices.len(), 1);
+                assert_eq!(v[1].source_indices[0], (0, 0));
+                assert_eq!(v[2].source_indices.len(), 1);
+                assert_eq!(v[2].source_indices[0], (0, 0));
+                assert_eq!(v[3].source_indices.len(), 2);
+                assert_eq!(v[3].source_indices[0], (1, 0));
+                assert_eq!(v[3].source_indices[1], (2, 0));
+            }
+            Err(why) => panic!(format!("Expected success, got: {}", why)),
+        }
+    }
+
+    #[test]
+    fn topological_sort_poem()
+    {
+        match topological_sort(
+            vec![
+                Rule
+                {
+                    targets: vec!["stanza1".to_string()],
+                    sources: vec!["chorus".to_string(), "verse1".to_string()],
+                    command: vec!["poemcat verse1 chorus".to_string()],
+                },
+                Rule
+                {
+                    targets: vec!["stanza2".to_string()],
+                    sources: vec!["chorus".to_string(), "verse2".to_string()],
+                    command: vec!["poemcat verse2 chorus".to_string()],
+                },
+                Rule
+                {
+                    targets: vec!["poem".to_string()],
+                    sources: vec!["stanza1".to_string(), "stanza2".to_string()],
+                    command: vec!["poemcat stanza1 stanza2".to_string()],
+                },
+            ],
+            "poem")
+        {
+            Ok(v) =>
+            {
+                assert_eq!(v.len(), 6);
+                assert_eq!(v[0].targets[0], "chorus");
+                assert_eq!(v[1].targets[0], "verse1");
+                assert_eq!(v[2].targets[0], "stanza1");
+                assert_eq!(v[3].targets[0], "verse2");
+                assert_eq!(v[4].targets[0], "stanza2");
+                assert_eq!(v[5].targets[0], "poem");
+
+                assert_eq!(v[0].source_indices.len(), 0);
+                assert_eq!(v[1].source_indices.len(), 0);
+                assert_eq!(v[3].source_indices.len(), 0);
+
+                assert_eq!(v[2].source_indices, [(0, 0), (1, 0)]);
+                assert_eq!(v[4].source_indices, [(0, 0), (3, 0)]);
+                assert_eq!(v[5].source_indices, [(2, 0), (4, 0)]);
+            }
+            Err(why) => panic!(format!("Expected success, got: {}", why)),
+        }
+    }
+
+
+    #[test]
+    fn topological_sort_circular()
+    {
+        match topological_sort(
+            vec![
+                Rule
+                {
+                    targets: vec!["Quine".to_string()],
+                    sources: vec!["Hofstadter".to_string()],
+                    command: vec!["poemcat Hofstadter".to_string()],
+                },
+                Rule
+                {
+                    targets: vec!["Hofstadter".to_string()],
+                    sources: vec!["Quine".to_string()],
+                    command: vec!["poemcat Quine".to_string()],
+                },
+            ],
+            "Quine")
+        {
+            Ok(_) => panic!("Unexpected success topologically sorting with a circular dependence"),
+            Err(why) =>
+            {
+                assert_eq!(why, "Circular dependence in rules");
+            },
+        }
+    }
+
+
+    #[test]
+    fn topological_sort_self_reference()
+    {
+        match topological_sort(
+            vec![
+                Rule
+                {
+                    targets: vec!["Hofstadter".to_string()],
+                    sources: vec!["Hofstadter".to_string()],
+                    command: vec!["poemcat Hofstadter".to_string()],
+                },
+            ],
+            "Hofstadter")
+        {
+            Ok(_) => panic!("Unexpected success topologically sorting with a self-dependent rule"),
+            Err(why) =>
+            {
+                assert_eq!(why, "Self-dependent rule");
+            },
+        }
+    }
+
+
+    #[test]
     fn topological_sort_make_records_for_sources()
     {
         match topological_sort(
@@ -780,7 +985,7 @@ mod tests
     {
         match parse("\na\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\nf\n:\n".to_string())
         {
-            Ok(v) => panic!(format!("Unexpected success")),
+            Ok(_) => panic!(format!("Unexpected success")),
             Err(why) =>
             {
                 assert_eq!(why, "Unexpected empty line (1)");
@@ -793,7 +998,7 @@ mod tests
     {
         match parse("a\n:\nb\n\n:\nc\n:\n\nd\n:\ne\n:\nf\n:\n".to_string())
         {
-            Ok(v) => panic!(format!("Unexpected success")),
+            Ok(_) => panic!(format!("Unexpected success")),
             Err(why) =>
             {
                 assert_eq!(why, "Unexpected empty line (4)");
@@ -806,7 +1011,7 @@ mod tests
     {
         match parse("a\n:\nb\n:\nc\n:\n\n\nd\n:\ne\n:\nf\n:\n".to_string())
         {
-            Ok(v) => panic!(format!("Unexpected success")),
+            Ok(_) => panic!(format!("Unexpected success")),
             Err(why) =>
             {
                 assert_eq!(why, "Unexpected empty line (8)");
@@ -819,7 +1024,7 @@ mod tests
     {
         match parse("a\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\nf\n:\n\n".to_string())
         {
-            Ok(v) => panic!(format!("Unexpected success")),
+            Ok(_) => panic!(format!("Unexpected success")),
             Err(why) =>
             {
                 assert_eq!(why, "Unexpected end of file mid-targets");
