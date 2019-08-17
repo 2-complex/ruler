@@ -32,7 +32,12 @@ pub struct HashFactory
 
 impl HashFactory
 {
-    pub fn new_from_str(first_input: &str) -> HashFactory
+    pub fn new() -> HashFactory
+    {
+        HashFactory{ dig : Sha512::new() }
+    }
+
+    pub fn from_str(first_input: &str) -> HashFactory
     {
         let mut d = Sha512::new();
         d.input(first_input.as_bytes());
@@ -42,6 +47,11 @@ impl HashFactory
     pub fn input_hash(&mut self, input: Hash)
     {
         self.dig.input(&input.sha);
+    }
+
+    pub fn input_str(&mut self, input: &str)
+    {
+        self.dig.input(input.as_bytes());
     }
 
     pub fn result(&mut self) -> Hash
@@ -54,7 +64,7 @@ impl HashFactory
         }
     }
 
-    pub fn new_from_filepath(path : &str) -> Result<HashFactory, std::io::Error>
+    pub fn from_filepath(path : &str) -> Result<HashFactory, std::io::Error>
     {
         match File::open(path)
         {

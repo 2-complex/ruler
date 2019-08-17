@@ -38,13 +38,13 @@ impl CommandResult
             out : match from_utf8(&output.stdout)
             {
                 Ok(text) => text,
-                Err(_) => "<data not utf8>",
+                Err(_) => "<non-utf8 data>",
             }.to_string(),
 
             err : match from_utf8(&output.stderr)
             {
                 Ok(text) => text,
-                Err(_) => "<data not utf8>",
+                Err(_) => "<non-utf8 data>",
             }.to_string(),
 
             code : output.status.code(),
@@ -70,12 +70,11 @@ fn run_command(
     receivers : Vec<Receiver<Hash>> )
     -> JoinHandle<Result<CommandResult, String>>
 {
-    let mut factory = HashFactory::new_from_str(&record.all());
-
     thread::spawn(
         move || -> Result<CommandResult, String>
         {
             let mut command_queue = VecDeque::from(record.command.clone());
+            let mut factory = record.hash_factory;
 
             let command_opt = match command_queue.pop_front()
             {
@@ -91,9 +90,6 @@ fn run_command(
                 None => None
             };
 
-
-            println!("pass A {}\n", receivers.len());
-
             for rcv in receivers
             {
                 match rcv.recv()
@@ -105,8 +101,6 @@ fn run_command(
                     },
                 }
             }
-
-            println!("pass B\n");
 
             let result =
             match command_opt
@@ -127,9 +121,7 @@ fn run_command(
 
             for (sub_index, sender) in senders
             {
-                println!("sending hash of {}", &record.targets[sub_index]);
-
-                match HashFactory::new_from_filepath(&record.targets[sub_index])
+                match HashFactory::from_filepath(&record.targets[sub_index])
                 {
                     Ok(mut hash) =>
                     {
@@ -165,9 +157,6 @@ fn make_multimaps(records : &Vec<Record>)
         for (source_index, sub_index) in record.source_indices.iter()
         {
             let (sender, receiver) : (Sender<Hash>, Receiver<Hash>) = mpsc::channel();
-
-            println!("{} : {} ({}) -> {}", record.targets[0], *source_index, *sub_index, target_index);
-
             senders.insert(*source_index, (*sub_index, sender));
             receivers.insert(target_index, receiver);
         }

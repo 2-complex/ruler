@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::fmt;
 
+use crate::hash::HashFactory;
+
 pub struct Rule
 {
     pub targets : Vec<String>,
@@ -13,6 +15,7 @@ pub struct Record
     pub targets: Vec<String>,
     pub source_indices: Vec<(usize, usize)>,
     pub command : Vec<String>,
+    pub hash_factory : HashFactory,
     sources: Vec<String>,
 }
 
@@ -38,11 +41,76 @@ impl fmt::Display for Rule
     }
 }
 
+impl Rule
+{
+    /*
+    fn all(&self) -> String
+    {
+        [
+            self.targets.join("\n"),
+            self.sources.join("\n"),
+            self.command.join("\n"),
+        ].join("\n:\n")
+    }
+    */
+}
+
 impl Record
 {
-    pub fn all(&self) -> String
+    fn from_source(source: &str) -> Record
     {
-        return "asdfasdfasdf".to_string();
+        let mut hash_factory = HashFactory::from_str(source);
+        hash_factory.input_str("\n:\n:\n:\n");
+
+        Record
+        {
+            targets: vec![source.to_string()],
+            sources: vec![],
+            command: vec![],
+            hash_factory: hash_factory,
+            source_indices: vec![],
+        }
+    }
+
+    fn from_rule(mut rule : Rule) -> Record
+    {
+        rule.targets.sort();
+        rule.sources.sort();
+
+        let mut hash_factory = HashFactory::new();
+
+        for target in rule.targets.iter()
+        {
+            hash_factory.input_str(target);
+            hash_factory.input_str("\n");
+        }
+
+        hash_factory.input_str("\n:\n");
+
+        for source in rule.sources.iter()
+        {
+            hash_factory.input_str(source);
+            hash_factory.input_str("\n");
+        }
+
+        hash_factory.input_str("\n:\n");
+
+        for line in rule.command.iter()
+        {
+            hash_factory.input_str(line);
+            hash_factory.input_str("\n");
+        }
+
+        hash_factory.input_str("\n:\n");
+
+        Record
+        {
+            targets: rule.targets,
+            sources: rule.sources,
+            command: rule.command,
+            hash_factory: hash_factory,
+            source_indices: vec![],
+        }
     }
 }
 
@@ -245,16 +313,7 @@ fn rules_to_record_buffer(mut rules : Vec<Rule>) -> Result<(
             };
         }
 
-        record_buffer.push(Some(
-            Record
-            {
-                targets: rule.targets,
-                sources: rule.sources,
-                command: rule.command,
-                source_indices: vec![],
-            }
-        ));
-
+        record_buffer.push(Some(Record::from_rule(rule)));
         current_buffer_index+=1;
     }
 
@@ -344,15 +403,7 @@ pub fn topological_sort(
                             None =>
                             {
                                 index_bijection.insert(current_buffer_index, result.len());
-                                result.push(
-                                    Record
-                                    {
-                                        targets: vec![source.clone()],
-                                        sources: vec![],
-                                        command: vec![],
-                                        source_indices: vec![],
-                                    }
-                                );
+                                result.push(Record::from_source(source));
                                 record_buffer.push(None);
                                 to_buffer_index.insert(source.to_string(), (current_buffer_index, 0));
                                 current_buffer_index+=1;
@@ -437,8 +488,8 @@ mod tests
                 vec![
                     Rule
                     {
-                        targets: vec!["plant".to_string(), "fruit".to_string()],
-                        sources: vec!["soil".to_string(), "seed".to_string()],
+                        targets: vec!["plant".to_string(), "tangerine".to_string()],
+                        sources: vec!["seed".to_string(), "soil".to_string()],
                         command: vec!["water every day".to_string()],
                     },
                 ]
@@ -450,7 +501,7 @@ mod tests
                 assert_eq!(to_record_buffer_index.len(), 2);
 
                 assert_eq!(*to_record_buffer_index.get("plant").unwrap(), (0usize, 0usize));
-                assert_eq!(*to_record_buffer_index.get("fruit").unwrap(), (0usize, 1usize));
+                assert_eq!(*to_record_buffer_index.get("tangerine").unwrap(), (0usize, 1usize));
 
                 let (record_index, target_index) = to_record_buffer_index.get("plant").unwrap();
                 assert_eq!(*record_index, 0usize);
@@ -461,16 +512,16 @@ mod tests
                     None => panic!("Expected some record found None"),
                 }
 
-                let (record_index, target_index) = to_record_buffer_index.get("fruit").unwrap();
+                let (record_index, target_index) = to_record_buffer_index.get("tangerine").unwrap();
                 assert_eq!(*record_index, 0usize);
 
                 match &record_buffer[*record_index]
                 {
                     Some(record) =>
                     {
-                        assert_eq!(record.targets[*target_index], "fruit");
-                        assert_eq!(record.sources[0], "soil");
-                        assert_eq!(record.sources[1], "seed");
+                        assert_eq!(record.targets[*target_index], "tangerine");
+                        assert_eq!(record.sources[0], "seed");
+                        assert_eq!(record.sources[1], "soil");
                         match record.command.first()
                         {
                             Some(command) =>
@@ -483,7 +534,7 @@ mod tests
                     None => panic!("Expected some record found None"),
                 }
 
-                assert_eq!(*to_record_buffer_index.get("fruit").unwrap(), (0usize, 1usize));
+                assert_eq!(*to_record_buffer_index.get("tangerine").unwrap(), (0usize, 1usize));
             },
             Err(_) => panic!("Error on legit rules"),
         }
@@ -658,8 +709,8 @@ mod tests
             {
                 assert_eq!(v.len(), 4);
                 assert_eq!(v[0].targets[0], "math");
-                assert_eq!(v[1].targets[0], "physics");
-                assert_eq!(v[2].targets[0], "graphics");
+                assert_eq!(v[1].targets[0], "graphics");
+                assert_eq!(v[2].targets[0], "physics");
                 assert_eq!(v[3].targets[0], "game");
 
                 assert_eq!(v[0].source_indices.len(), 0);
@@ -790,7 +841,12 @@ mod tests
                 Rule
                 {
                     targets: vec!["plant".to_string()],
-                    sources: vec!["soil".to_string(), "water".to_string(), "seed".to_string(), "sunlight".to_string()],
+                    sources: vec![
+                        "seed".to_string(),
+                        "soil".to_string(),
+                        "sunlight".to_string(),
+                        "water".to_string(),
+                    ],
                     command: vec!["take care of plant".to_string()],
                 },
             ],
@@ -799,10 +855,10 @@ mod tests
             Ok(v) =>
             {
                 assert_eq!(v.len(), 6);
-                assert_eq!(v[0].targets[0], "soil");
-                assert_eq!(v[1].targets[0], "water");
-                assert_eq!(v[2].targets[0], "seed");
-                assert_eq!(v[3].targets[0], "sunlight");
+                assert_eq!(v[0].targets[0], "seed");
+                assert_eq!(v[1].targets[0], "soil");
+                assert_eq!(v[2].targets[0], "sunlight");
+                assert_eq!(v[3].targets[0], "water");
                 assert_eq!(v[4].targets[0], "plant");
                 assert_eq!(v[5].targets[0], "fruit");
             }
