@@ -16,10 +16,10 @@ use std::collections::VecDeque;
 
 mod file;
 mod rule;
-mod hash;
+mod data;
 
 use self::rule::Record;
-use self::hash::{Hash, HashFactory};
+use self::data::{Ticket, TicketFactory};
 
 struct CommandResult
 {
@@ -66,15 +66,15 @@ impl CommandResult
 
 fn run_command(
     record: Record,
-    senders : Vec<(usize, Sender<Hash>)>,
-    receivers : Vec<Receiver<Hash>> )
+    senders : Vec<(usize, Sender<Ticket>)>,
+    receivers : Vec<Receiver<Ticket>> )
     -> JoinHandle<Result<CommandResult, String>>
 {
     thread::spawn(
         move || -> Result<CommandResult, String>
         {
             let mut command_queue = VecDeque::from(record.command.clone());
-            let mut factory = record.hash_factory;
+            let mut factory = record.factory;
 
             let command_opt = match command_queue.pop_front()
             {
@@ -121,7 +121,7 @@ fn run_command(
 
             for (sub_index, sender) in senders
             {
-                match HashFactory::from_filepath(&record.targets[sub_index])
+                match TicketFactory::from_filepath(&record.targets[sub_index])
                 {
                     Ok(mut hash) =>
                     {
@@ -145,18 +145,18 @@ fn run_command(
 
 fn make_multimaps(records : &Vec<Record>)
     -> (
-        MultiMap<usize, (usize, Sender<Hash>)>,
-        MultiMap<usize, (Receiver<Hash>)>
+        MultiMap<usize, (usize, Sender<Ticket>)>,
+        MultiMap<usize, (Receiver<Ticket>)>
     )
 {
-    let mut senders : MultiMap<usize, (usize, Sender<Hash>)> = MultiMap::new();
-    let mut receivers : MultiMap<usize, (Receiver<Hash>)> = MultiMap::new();
+    let mut senders : MultiMap<usize, (usize, Sender<Ticket>)> = MultiMap::new();
+    let mut receivers : MultiMap<usize, (Receiver<Ticket>)> = MultiMap::new();
 
     for (target_index, record) in records.iter().enumerate()
     {
         for (source_index, sub_index) in record.source_indices.iter()
         {
-            let (sender, receiver) : (Sender<Hash>, Receiver<Hash>) = mpsc::channel();
+            let (sender, receiver) : (Sender<Ticket>, Receiver<Ticket>) = mpsc::channel();
             senders.insert(*source_index, (*sub_index, sender));
             receivers.insert(target_index, receiver);
         }

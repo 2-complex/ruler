@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use crate::hash::HashFactory;
+use crate::data::TicketFactory;
 
 pub struct Rule
 {
@@ -15,7 +15,7 @@ pub struct Record
     pub targets: Vec<String>,
     pub source_indices: Vec<(usize, usize)>,
     pub command : Vec<String>,
-    pub hash_factory : HashFactory,
+    pub factory : TicketFactory,
     sources: Vec<String>,
 }
 
@@ -59,15 +59,15 @@ impl Record
 {
     fn from_source(source: &str) -> Record
     {
-        let mut hash_factory = HashFactory::from_str(source);
-        hash_factory.input_str("\n:\n:\n:\n");
+        let mut factory = TicketFactory::from_str(source);
+        factory.input_str("\n:\n:\n:\n");
 
         Record
         {
             targets: vec![source.to_string()],
             sources: vec![],
             command: vec![],
-            hash_factory: hash_factory,
+            factory: factory,
             source_indices: vec![],
         }
     }
@@ -77,38 +77,38 @@ impl Record
         rule.targets.sort();
         rule.sources.sort();
 
-        let mut hash_factory = HashFactory::new();
+        let mut factory = TicketFactory::new();
 
         for target in rule.targets.iter()
         {
-            hash_factory.input_str(target);
-            hash_factory.input_str("\n");
+            factory.input_str(target);
+            factory.input_str("\n");
         }
 
-        hash_factory.input_str("\n:\n");
+        factory.input_str("\n:\n");
 
         for source in rule.sources.iter()
         {
-            hash_factory.input_str(source);
-            hash_factory.input_str("\n");
+            factory.input_str(source);
+            factory.input_str("\n");
         }
 
-        hash_factory.input_str("\n:\n");
+        factory.input_str("\n:\n");
 
         for line in rule.command.iter()
         {
-            hash_factory.input_str(line);
-            hash_factory.input_str("\n");
+            factory.input_str(line);
+            factory.input_str("\n");
         }
 
-        hash_factory.input_str("\n:\n");
+        factory.input_str("\n:\n");
 
         Record
         {
             targets: rule.targets,
             sources: rule.sources,
             command: rule.command,
-            hash_factory: hash_factory,
+            factory: factory,
             source_indices: vec![],
         }
     }
@@ -1088,4 +1088,3 @@ mod tests
         };
     }
 }
-
