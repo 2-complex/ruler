@@ -196,29 +196,10 @@ mod test
     #[test]
     fn ticket_serialize_round_trip()
     {
-        match File::create("time2.txt")
-        {
-            Ok(mut file) =>
-            {
-                match file.write_all("Time wounds all heels.\n".as_bytes())
-                {
-                    Ok(p) => assert_eq!(p, ()),
-                    Err(_) => panic!("Could not write to test file"),
-                }
-            },
-            Err(err) => panic!("Could not open file for writing {}", err),
-        }
+        let ticket = TicketFactory::from_str("apples").result();
 
-        match TicketFactory::from_file("time2.txt")
-        {
-            Ok(mut factory) =>
-            {
-                let mut new_factory = TicketFactory::from_str("time.txt\n:\n:\n:\n");
-                new_factory.input_ticket(factory.result());
-                assert_eq!(new_factory.result().base64(),
-                    "7lAZ/RuoGg94IX7DdR4tS/lM17+URq12BcvHrL9OHCggM4u51VKzp5cVXWn5cUkz8ArjOTpnPEwRtJyWznIfGg==");
-            },
-            Err(why) => panic!("Failed to open test file time2.txt: {}", why),
-        }
+        let encoded: Vec<u8> = bincode::serialize(&ticket).unwrap();
+        let decoded: Ticket = bincode::deserialize(&encoded[..]).unwrap();
+        assert_eq!(ticket, decoded);
     }
 }
