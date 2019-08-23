@@ -204,8 +204,10 @@ pub fn parse(content: String) -> Result<Vec<Rule>, String>
 
 struct Frame
 {
-    record: Record,
+    targets: Vec<String>,
     sources: Vec<String>,
+    command: Vec<String>,
+    ticket: Ticket,
     index: usize,
     visited: bool,
 }
@@ -218,14 +220,10 @@ impl Frame
         factory.input_str("\n:\n:\n:\n");
         Frame
         {
-            record: Record
-            {
-                targets: vec![source.to_string()],
-                source_indices: vec![],
-                command: vec![],
-                ticket: factory.result(),
-            },
+            targets: vec![source.to_string()],
             sources: vec![],
+            command: vec![],
+            ticket: factory.result(),
             index: index,
             visited: true,
         }
@@ -264,16 +262,11 @@ impl Frame
 
         Frame
         {
-            record: Record
-            {
-                targets: rule.targets,
-                source_indices: vec![],
-                command: rule.command,
-                ticket: factory.result(),
-            },
-
-            index: index,
+            targets: rule.targets,
             sources: rule.sources,
+            command: rule.command,
+            ticket: factory.result(),
+            index: index,
             visited: false,
         }
     }
@@ -400,9 +393,11 @@ pub fn topological_sort(
                     stack.push(
                         Frame
                         {
-                            record: frame.record,
-                            index: frame.index,
+                            targets: frame.targets,
                             sources: frame.sources,
+                            command: frame.command,
+                            ticket: frame.ticket,
+                            index: frame.index,
                             visited: true
                         }
                     );
@@ -428,10 +423,10 @@ pub fn topological_sort(
                 result.push(
                     Record
                     {
-                        targets: frame.record.targets,
+                        targets: frame.targets,
                         source_indices: source_indices,
-                        command: frame.record.command,
-                        ticket: frame.record.ticket,
+                        command: frame.command,
+                        ticket: frame.ticket,
                     }
                 );
             }
@@ -507,7 +502,7 @@ mod tests
 
                 match &frame_buffer[*record_index]
                 {
-                    Some(frame) => assert_eq!(frame.record.targets[*target_index], "plant"),
+                    Some(frame) => assert_eq!(frame.targets[*target_index], "plant"),
                     None => panic!("Expected some record found None"),
                 }
 
@@ -518,10 +513,10 @@ mod tests
                 {
                     Some(frame) =>
                     {
-                        assert_eq!(frame.record.targets[*target_index], "tangerine");
+                        assert_eq!(frame.targets[*target_index], "tangerine");
                         assert_eq!(frame.sources[0], "seed");
                         assert_eq!(frame.sources[1], "soil");
-                        match frame.record.command.first()
+                        match frame.command.first()
                         {
                             Some(command) =>
                             {
