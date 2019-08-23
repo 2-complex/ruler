@@ -80,7 +80,6 @@ pub struct Ticket
     sha: Vec<u8>,
 }
 
-
 impl Ticket
 {
     #[allow(dead_code)]
@@ -105,6 +104,8 @@ impl Hash for Ticket
 mod test
 {
     use crate::ticket::TicketFactory;
+    use std::fs::File;
+    use std::io::prelude::*;
 
     #[test]
     fn ticket_factory_string()
@@ -139,7 +140,20 @@ mod test
     #[test]
     fn ticket_factory_file()
     {
-        match TicketFactory::from_file("time.txt")
+        match File::create("time0.txt")
+        {
+            Ok(mut file) =>
+            {
+                match file.write_all("Time wounds all heels.\n".as_bytes())
+                {
+                    Ok(p) => assert_eq!(p, ()),
+                    Err(_) => panic!("Could not write to test file"),
+                }
+            },
+            Err(err) => panic!("Could not open file for writing {}", err),
+        }
+
+        match TicketFactory::from_file("time0.txt")
         {
             Ok(mut factory) =>
             {
@@ -153,7 +167,49 @@ mod test
     #[test]
     fn ticket_factory_hashes()
     {
-        match TicketFactory::from_file("time.txt")
+        match File::create("time1.txt")
+        {
+            Ok(mut file) =>
+            {
+                match file.write_all("Time wounds all heels.\n".as_bytes())
+                {
+                    Ok(p) => assert_eq!(p, ()),
+                    Err(_) => panic!("Could not write to test file"),
+                }
+            },
+            Err(err) => panic!("Could not open file for writing {}", err),
+        }
+
+        match TicketFactory::from_file("time1.txt")
+        {
+            Ok(mut factory) =>
+            {
+                let mut new_factory = TicketFactory::from_str("time1.txt\n:\n:\n:\n");
+                new_factory.input_ticket(factory.result());
+                assert_eq!(new_factory.result().base64(),
+                    "CcCQWumbtg7N3xkZEAv+GlmKKe5XRJGzz+0fbdeG5poAnHSTVTjM2jCo5xu7/9r4GiYcevWaG2mesTMoB6NK6g==");
+            },
+            Err(why) => panic!("Failed to open test file time1.txt: {}", why),
+        }
+    }
+
+    #[test]
+    fn ticket_serialize_round_trip()
+    {
+        match File::create("time2.txt")
+        {
+            Ok(mut file) =>
+            {
+                match file.write_all("Time wounds all heels.\n".as_bytes())
+                {
+                    Ok(p) => assert_eq!(p, ()),
+                    Err(_) => panic!("Could not write to test file"),
+                }
+            },
+            Err(err) => panic!("Could not open file for writing {}", err),
+        }
+
+        match TicketFactory::from_file("time2.txt")
         {
             Ok(mut factory) =>
             {
@@ -162,7 +218,7 @@ mod test
                 assert_eq!(new_factory.result().base64(),
                     "7lAZ/RuoGg94IX7DdR4tS/lM17+URq12BcvHrL9OHCggM4u51VKzp5cVXWn5cUkz8ArjOTpnPEwRtJyWznIfGg==");
             },
-            Err(why) => panic!("Failed to open test file time.txt: {}", why),
+            Err(why) => panic!("Failed to open test file time2.txt: {}", why),
         }
     }
 }
