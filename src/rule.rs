@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use crate::data::TicketFactory;
+use crate::ticket::TicketFactory;
 
 pub struct Rule
 {
@@ -16,7 +16,6 @@ pub struct Record
     pub source_indices: Vec<(usize, usize)>,
     pub command : Vec<String>,
     pub factory : TicketFactory,
-    sources: Vec<String>,
 }
 
 impl fmt::Display for Rule
@@ -53,65 +52,6 @@ impl Rule
         ].join("\n:\n")
     }
     */
-}
-
-impl Record
-{
-    fn from_source(source: &str) -> Record
-    {
-        let mut factory = TicketFactory::from_str(source);
-        factory.input_str("\n:\n:\n:\n");
-
-        Record
-        {
-            targets: vec![source.to_string()],
-            sources: vec![],
-            command: vec![],
-            factory: factory,
-            source_indices: vec![],
-        }
-    }
-
-    fn from_rule(mut rule : Rule) -> Record
-    {
-        rule.targets.sort();
-        rule.sources.sort();
-
-        let mut factory = TicketFactory::new();
-
-        for target in rule.targets.iter()
-        {
-            factory.input_str(target);
-            factory.input_str("\n");
-        }
-
-        factory.input_str("\n:\n");
-
-        for source in rule.sources.iter()
-        {
-            factory.input_str(source);
-            factory.input_str("\n");
-        }
-
-        factory.input_str("\n:\n");
-
-        for line in rule.command.iter()
-        {
-            factory.input_str(line);
-            factory.input_str("\n");
-        }
-
-        factory.input_str("\n:\n");
-
-        Record
-        {
-            targets: rule.targets,
-            sources: rule.sources,
-            command: rule.command,
-            factory: factory,
-            source_indices: vec![],
-        }
-    }
 }
 
 impl fmt::Display for Record
@@ -279,25 +219,96 @@ pub fn parse(content: String) -> Result<Vec<Rule>, String>
 struct Frame
 {
     record: Record,
+    sources: Vec<String>,
     index: usize,
     visited: bool,
+}
+
+impl Frame
+{
+    fn from_source_and_index(source : &str, index : usize) -> Frame
+    {
+        let mut factory = TicketFactory::from_str(source);
+        factory.input_str("\n:\n:\n:\n");
+
+        Frame
+        {
+            record: Record
+            {
+                targets: vec![source.to_string()],
+                source_indices: vec![],
+                command: vec![],
+                factory: factory,
+            },
+            sources: vec![],
+            index: index,
+            visited: true,
+        }
+    }
+
+    fn from_rule_and_index(mut rule : Rule, index : usize) -> Frame
+    {
+        rule.targets.sort();
+        rule.sources.sort();
+
+        let mut factory = TicketFactory::new();
+
+        for target in rule.targets.iter()
+        {
+            factory.input_str(target);
+            factory.input_str("\n");
+        }
+
+        factory.input_str("\n:\n");
+
+        for source in rule.sources.iter()
+        {
+            factory.input_str(source);
+            factory.input_str("\n");
+        }
+
+        factory.input_str("\n:\n");
+
+        for line in rule.command.iter()
+        {
+            factory.input_str(line);
+            factory.input_str("\n");
+        }
+
+        factory.input_str("\n:\n");
+
+        Frame
+        {
+            record: Record
+            {
+                targets: rule.targets,
+                command: rule.command,
+                factory: factory,
+                source_indices: vec![],
+            },
+
+            index: index,
+            sources: rule.sources,
+            visited: false,
+        }
+    }
 }
 
 /*  Consume Rules, and in their place, make Records.
     In each Record, leave 'source_indices' empty.
 
     Returns:
-        record_buffer:
-            A vector of optional records corresponding to original rules
+        frame_buffer:
+            A vector of optional frames corresponding to original rules
         to_buffer_index:
-            A map that tells us the index in record_buffer of the
+            A map that tells us the index in frame_buffer of the
             record that has the given string as a target */
-fn rules_to_record_buffer(mut rules : Vec<Rule>) -> Result<(
-        Vec<Option<Record>>,
+fn rules_to_frame_buffer(mut rules : Vec<Rule>) -> Result<(
+        Vec<Option<Frame>>,
         HashMap<String, (usize, usize)>
     ), String>
 {
-    let mut record_buffer : Vec<Option<Record>> = Vec::new();
+    let mut frame_buffer : Vec<Option<Frame>> = Vec::new();
     let mut to_buffer_index : HashMap<String, (usize, usize)> = HashMap::new();
 
     let mut current_buffer_index = 0usize;
@@ -313,11 +324,11 @@ fn rules_to_record_buffer(mut rules : Vec<Rule>) -> Result<(
             };
         }
 
-        record_buffer.push(Some(Record::from_rule(rule)));
+        frame_buffer.push(Some(Frame::from_rule_and_index(rule, current_buffer_index)));
         current_buffer_index+=1;
     }
 
-    Ok((record_buffer, to_buffer_index))
+    Ok((frame_buffer, to_buffer_index))
 }
 
 
@@ -325,12 +336,12 @@ pub fn topological_sort(
     rules : Vec<Rule>,
     goal_target : &str) -> Result<Vec<Record>, String>
 {
-    match rules_to_record_buffer(rules)
+    match rules_to_frame_buffer(rules)
     {
         Err(why) => return Err(why),
-        Ok((mut record_buffer, mut to_buffer_index)) =>
+        Ok((mut frame_buffer, mut to_buffer_index)) =>
         {
-            let mut current_buffer_index = record_buffer.len();
+            let mut current_buffer_index = frame_buffer.len();
 
             let mut stack : Vec<Frame> = Vec::new();
 
@@ -338,19 +349,16 @@ pub fn topological_sort(
             {
                 Some((index, _)) =>
                 {
-                    stack.push(
-                        Frame
-                        {
-                            record: record_buffer[*index].take().unwrap(),
-                            visited: false,
-                            index: *index,
-                        }
-                    );
+                    match frame_buffer[*index].take()
+                    {
+                        Some(frame) => stack.push(frame),
+                        None => return Err(format!("Target missing from rules in weird way: {}", goal_target)),
+                    }
                 },
                 None => return Err(format!("Target missing from rules: {}", goal_target)),
             }
 
-            let mut result : Vec<Record> = Vec::new();
+            let mut frames_in_order : Vec<Frame> = Vec::new();
             let mut index_bijection : HashMap<usize, usize> = HashMap::new();
 
             // Now do a straight-forward depth-first traversal using 'stack'
@@ -358,29 +366,22 @@ pub fn topological_sort(
             {
                 if frame.visited
                 {
-                    index_bijection.insert(frame.index, result.len());
-                    result.push(frame.record);
+                    index_bijection.insert(frame.index, frames_in_order.len());
+                    frames_in_order.push(frame);
                 }
                 else
                 {
                     let mut buffer = Vec::new();
 
-                    for source in frame.record.sources.iter()
+                    for source in frame.sources.iter()
                     {
                         match to_buffer_index.get(source)
                         {
                             Some((buffer_index, _sub_index)) =>
                             {
-                                if let Some(record) = record_buffer[*buffer_index].take()
+                                if let Some(frame) = frame_buffer[*buffer_index].take()
                                 {
-                                    buffer.push(
-                                        Frame
-                                        {
-                                            record: record,
-                                            visited: false,
-                                            index: *buffer_index,
-                                        }
-                                    );
+                                    buffer.push(frame);
                                 }
                                 else
                                 {
@@ -402,9 +403,9 @@ pub fn topological_sort(
                             },
                             None =>
                             {
-                                index_bijection.insert(current_buffer_index, result.len());
-                                result.push(Record::from_source(source));
-                                record_buffer.push(None);
+                                index_bijection.insert(current_buffer_index, frames_in_order.len());
+                                frames_in_order.push(Frame::from_source_and_index(source, current_buffer_index));
+                                frame_buffer.push(None);
                                 to_buffer_index.insert(source.to_string(), (current_buffer_index, 0));
                                 current_buffer_index+=1;
                             },
@@ -416,6 +417,7 @@ pub fn topological_sort(
                         {
                             record: frame.record,
                             index: frame.index,
+                            sources: frame.sources,
                             visited: true
                         }
                     );
@@ -428,13 +430,25 @@ pub fn topological_sort(
             }
 
             /*  Finally, remap the sources of all the records to indices in the new result vector itself.*/
-            for record in result.iter_mut()
+            let mut result = Vec::new();
+            for mut frame in frames_in_order.drain(..)
             {
-                for source in record.sources.drain(..)
+                let mut source_indices = Vec::new();
+                for source in frame.sources.drain(..)
                 {
                     let (buffer_index, sub_index) = to_buffer_index.get(&source).unwrap();
-                    record.source_indices.push((*index_bijection.get(buffer_index).unwrap(), *sub_index));
+                    source_indices.push((*index_bijection.get(buffer_index).unwrap(), *sub_index));
                 }
+
+                result.push(
+                    Record
+                    {
+                        targets: frame.record.targets,
+                        source_indices: source_indices,
+                        command: frame.record.command,
+                        factory: frame.record.factory,
+                    }
+                );
             }
 
             Ok(result)
@@ -446,7 +460,7 @@ pub fn topological_sort(
 #[cfg(test)]
 mod tests
 {
-    use crate::rule::rules_to_record_buffer;
+    use crate::rule::rules_to_frame_buffer;
     use crate::rule::topological_sort;
     use crate::rule::{EndpointPair, split_along_endpoints, parse, get_line_endpoints};
     use crate::rule::Rule;
@@ -468,23 +482,23 @@ mod tests
     }
 
     #[test]
-    fn rules_to_record_buffer_empty_to_empty()
+    fn rules_to_frame_buffer_empty_to_empty()
     {
-        match rules_to_record_buffer(vec![])
+        match rules_to_frame_buffer(vec![])
         {
-            Ok((record_buffer, to_record_buffer_index)) =>
+            Ok((frame_buffer, to_frame_buffer_index)) =>
             {
-                assert_eq!(record_buffer.len(), 0);
-                assert_eq!(to_record_buffer_index.len(), 0);
+                assert_eq!(frame_buffer.len(), 0);
+                assert_eq!(to_frame_buffer_index.len(), 0);
             },
             Err(_) => panic!("Error on empty vector"),
         }
     }
 
     #[test]
-    fn rules_to_record_buffer_one_to_one()
+    fn rules_to_frame_buffer_one_to_one()
     {
-        match rules_to_record_buffer(
+        match rules_to_frame_buffer(
                 vec![
                     Rule
                     {
@@ -495,34 +509,34 @@ mod tests
                 ]
             )
         {
-            Ok((record_buffer, to_record_buffer_index)) =>
+            Ok((frame_buffer, to_frame_buffer_index)) =>
             {
-                assert_eq!(record_buffer.len(), 1);
-                assert_eq!(to_record_buffer_index.len(), 2);
+                assert_eq!(frame_buffer.len(), 1);
+                assert_eq!(to_frame_buffer_index.len(), 2);
 
-                assert_eq!(*to_record_buffer_index.get("plant").unwrap(), (0usize, 0usize));
-                assert_eq!(*to_record_buffer_index.get("tangerine").unwrap(), (0usize, 1usize));
+                assert_eq!(*to_frame_buffer_index.get("plant").unwrap(), (0usize, 0usize));
+                assert_eq!(*to_frame_buffer_index.get("tangerine").unwrap(), (0usize, 1usize));
 
-                let (record_index, target_index) = to_record_buffer_index.get("plant").unwrap();
+                let (record_index, target_index) = to_frame_buffer_index.get("plant").unwrap();
                 assert_eq!(*record_index, 0usize);
 
-                match &record_buffer[*record_index]
+                match &frame_buffer[*record_index]
                 {
-                    Some(record) => assert_eq!(record.targets[*target_index], "plant"),
+                    Some(frame) => assert_eq!(frame.record.targets[*target_index], "plant"),
                     None => panic!("Expected some record found None"),
                 }
 
-                let (record_index, target_index) = to_record_buffer_index.get("tangerine").unwrap();
+                let (record_index, target_index) = to_frame_buffer_index.get("tangerine").unwrap();
                 assert_eq!(*record_index, 0usize);
 
-                match &record_buffer[*record_index]
+                match &frame_buffer[*record_index]
                 {
-                    Some(record) =>
+                    Some(frame) =>
                     {
-                        assert_eq!(record.targets[*target_index], "tangerine");
-                        assert_eq!(record.sources[0], "seed");
-                        assert_eq!(record.sources[1], "soil");
-                        match record.command.first()
+                        assert_eq!(frame.record.targets[*target_index], "tangerine");
+                        assert_eq!(frame.sources[0], "seed");
+                        assert_eq!(frame.sources[1], "soil");
+                        match frame.record.command.first()
                         {
                             Some(command) =>
                             {
@@ -534,7 +548,7 @@ mod tests
                     None => panic!("Expected some record found None"),
                 }
 
-                assert_eq!(*to_record_buffer_index.get("tangerine").unwrap(), (0usize, 1usize));
+                assert_eq!(*to_frame_buffer_index.get("tangerine").unwrap(), (0usize, 1usize));
             },
             Err(_) => panic!("Error on legit rules"),
         }
@@ -542,9 +556,9 @@ mod tests
     }
 
     #[test]
-    fn rules_to_record_buffer_two_to_two()
+    fn rules_to_frame_buffer_two_to_two()
     {
-        match rules_to_record_buffer(
+        match rules_to_frame_buffer(
             vec![
                 Rule
                 {
@@ -561,22 +575,22 @@ mod tests
             ]
         )
         {
-            Ok((record_buffer, to_record_buffer_index)) =>
+            Ok((frame_buffer, to_frame_buffer_index)) =>
             {
-                assert_eq!(record_buffer.len(), 2);
-                assert_eq!(to_record_buffer_index.len(), 2);
+                assert_eq!(frame_buffer.len(), 2);
+                assert_eq!(to_frame_buffer_index.len(), 2);
 
-                assert_eq!(*to_record_buffer_index.get("fruit").unwrap(), (0usize, 0usize));
-                assert_eq!(*to_record_buffer_index.get("plant").unwrap(), (1usize, 0usize));
+                assert_eq!(*to_frame_buffer_index.get("fruit").unwrap(), (0usize, 0usize));
+                assert_eq!(*to_frame_buffer_index.get("plant").unwrap(), (1usize, 0usize));
             },
             Err(_) => panic!("Error on legit rules"),
         }
     }
 
     #[test]
-    fn rules_to_record_buffer_redundancy_error()
+    fn rules_to_frame_buffer_redundancy_error()
     {
-        match rules_to_record_buffer(
+        match rules_to_frame_buffer(
             vec![
                 Rule
                 {

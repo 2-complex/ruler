@@ -1,12 +1,11 @@
 extern crate bincode;
-extern crate crypto;
+extern crate serde;
 
-use std::collections::HashMap;
-use sqlite::{Connection, State};
 use crypto::sha2::Sha512;
 use base64::encode;
 use crypto::digest::Digest;
 use std::hash::{Hash, Hasher};
+use serde::{Serialize, Deserialize};
 use std::fs::File;
 use std::io::Read;
 
@@ -29,7 +28,7 @@ impl TicketFactory
         TicketFactory{ dig : d }
     }
 
-    pub fn input_hash(&mut self, input: Ticket)
+    pub fn input_ticket(&mut self, input: Ticket)
     {
         self.dig.input(&input.sha);
     }
@@ -49,7 +48,7 @@ impl TicketFactory
         }
     }
 
-    pub fn from_filepath(path : &str) -> Result<TicketFactory, std::io::Error>
+    pub fn from_file(path : &str) -> Result<TicketFactory, std::io::Error>
     {
         match File::open(path)
         {
@@ -75,9 +74,7 @@ impl TicketFactory
     }
 }
 
-use serde::{Serialize, Deserialize};
-
-#[derive(Serialize, Deserialize, PartialEq)]
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct Ticket
 {
     sha: Vec<u8>,
@@ -93,13 +90,6 @@ impl Ticket
     }
 }
 
-
-#[derive(Serialize, Deserialize, PartialEq)]
-pub struct Memory
-{
-    to_target_hashes : HashMap<Ticket, Vec<Ticket>>,
-}
-
 impl Eq for Ticket {}
 
 impl Hash for Ticket
@@ -110,35 +100,11 @@ impl Hash for Ticket
     }
 }
 
-fn open_connection()
-{
-    let connection = sqlite::open("history.db").unwrap();
-    connection.execute(
-        "CREATE TABLE IF NOT EXISTS history (source varchar(88), target varchar(88), UNIQUE(source) );"
-    ).unwrap();
-}
-
-fn get_target_hash(connection : &Connection, sha_str : &str) -> String
-{
-    let mut statement = connection
-        .prepare("SELECT * FROM history WHERE source = ?")
-        .unwrap();
-
-    statement.bind(1, sha_str).unwrap();
-
-    match statement.next().unwrap()
-    {
-        State::Row => statement.read::<String>(1).unwrap(),
-        _ => String::new(),
-    }
-}
 
 #[cfg(test)]
-mod tests
+mod test
 {
-    use std::collections::HashMap;
-    use crate::data::{TicketFactory, Ticket};
-    use crate::data::Memory;
+    use crate::ticket::TicketFactory;
 
     #[test]
     fn ticket_factory_string()
@@ -150,26 +116,53 @@ mod tests
     }
 
     #[test]
-    fn data_serialization()
+    fn ticket_from_string2()
     {
-        let mut to_target_hashes : HashMap<Ticket, Vec<Ticket>> = HashMap::new();
-        to_target_hashes.insert(
-            TicketFactory::from_str("a").result(),
-            vec![
-                TicketFactory::from_str("b").result(),
-                TicketFactory::from_str("c").result(),
-                TicketFactory::from_str("d").result()
-            ]
-        );
+        let ticket = TicketFactory::from_str("Time wounds all heels.\n").result();
+        assert_eq!(ticket.base64(),
+            "PRemaMHXvOuGAx87EOGZY1/cGUv4udBiqVmgP8nwVX93njjGOdE41zf4rV9PAbiJp/i6ucukKrvFp3zldP42wA==");
+    }
 
-        let memory = Memory
+    #[test]
+    fn ticket_from_string_from_new()
+    {
+        let mut factory = TicketFactory::new();
+        factory.input_str("Time ");
+        factory.input_str("wounds ");
+        factory.input_str("all ");
+        factory.input_str("heels.\n");
+        let ticket = factory.result();
+        assert_eq!(ticket.base64(),
+            "PRemaMHXvOuGAx87EOGZY1/cGUv4udBiqVmgP8nwVX93njjGOdE41zf4rV9PAbiJp/i6ucukKrvFp3zldP42wA==");
+    }
+
+    #[test]
+    fn ticket_factory_file()
+    {
+        match TicketFactory::from_file("time.txt")
         {
-            to_target_hashes : to_target_hashes
-        };
+            Ok(mut factory) =>
+            {
+                assert_eq!(factory.result().base64(),
+                    "PRemaMHXvOuGAx87EOGZY1/cGUv4udBiqVmgP8nwVX93njjGOdE41zf4rV9PAbiJp/i6ucukKrvFp3zldP42wA==");
+            },
+            Err(why) => panic!("Failed to open test file time.txt: {}", why),
+        }
+    }
 
-        let bytes: Vec<u8> = bincode::serialize(&memory).unwrap();
-        let decoded_memory: Memory = bincode::deserialize(&bytes[..]).unwrap();
-
-        assert!(memory == decoded_memory);
+    #[test]
+    fn ticket_factory_hashes()
+    {
+        match TicketFactory::from_file("time.txt")
+        {
+            Ok(mut factory) =>
+            {
+                let mut new_factory = TicketFactory::from_str("time.txt\n:\n:\n:\n");
+                new_factory.input_ticket(factory.result());
+                assert_eq!(new_factory.result().base64(),
+                    "7lAZ/RuoGg94IX7DdR4tS/lM17+URq12BcvHrL9OHCggM4u51VKzp5cVXWn5cUkz8ArjOTpnPEwRtJyWznIfGg==");
+            },
+            Err(why) => panic!("Failed to open test file time.txt: {}", why),
+        }
     }
 }

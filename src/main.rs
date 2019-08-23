@@ -4,141 +4,34 @@ extern crate multimap;
 
 use clap::{Arg, App};
 
-use std::process::{Output, Command};
 use std::thread::{self, JoinHandle};
 
 use std::sync::mpsc::{Sender, Receiver};
 use std::sync::mpsc;
-use std::str::from_utf8;
 use multimap::MultiMap;
 
-use std::collections::VecDeque;
 
 mod file;
 mod rule;
 mod data;
+mod ticket;
+mod work;
 
 use self::rule::Record;
-use self::data::{Ticket, TicketFactory};
+use self::ticket::Ticket;
+use self::work::{CommandResult, Station, do_command};
 
-struct CommandResult
-{
-    out : String,
-    err : String,
-    code : Option<i32>,
-    success : bool,
-}
-
-impl CommandResult
-{
-    fn from_output(output: Output) -> CommandResult
-    {
-        CommandResult
-        {
-            out : match from_utf8(&output.stdout)
-            {
-                Ok(text) => text,
-                Err(_) => "<non-utf8 data>",
-            }.to_string(),
-
-            err : match from_utf8(&output.stderr)
-            {
-                Ok(text) => text,
-                Err(_) => "<non-utf8 data>",
-            }.to_string(),
-
-            code : output.status.code(),
-            success : output.status.success(),
-        }
-    }
-
-    fn new() -> CommandResult
-    {
-        CommandResult
-        {
-            out : "".to_string(),
-            err : "".to_string(),
-            code : Some(0),
-            success : true,
-        }
-    }
-}
-
-fn run_command(
+fn spawn_command(
     record: Record,
     senders : Vec<(usize, Sender<Ticket>)>,
-    receivers : Vec<Receiver<Ticket>> )
+    receivers : Vec<Receiver<Ticket>>,
+    station : Station )
     -> JoinHandle<Result<CommandResult, String>>
 {
     thread::spawn(
         move || -> Result<CommandResult, String>
         {
-            let mut command_queue = VecDeque::from(record.command.clone());
-            let mut factory = record.factory;
-
-            let command_opt = match command_queue.pop_front()
-            {
-                Some(first) =>
-                {
-                    let mut command = Command::new(first);
-                    while let Some(argument) = command_queue.pop_front()
-                    {
-                        command.arg(argument);
-                    }
-                    Some(command)
-                },
-                None => None
-            };
-
-            for rcv in receivers
-            {
-                match rcv.recv()
-                {
-                    Ok(h) => factory.input_hash(h),
-                    Err(why) =>
-                    {
-                        eprintln!("ERROR {}", why);
-                    },
-                }
-            }
-
-            let result =
-            match command_opt
-            {
-                Some(mut command) =>
-                {
-                    match command.output()
-                    {
-                        Ok(out) => Ok(CommandResult::from_output(out)),
-                        Err(why)=>
-                        {
-                            return Err(format!("Error in command to build: {}\n{}", record.targets.join(" "), why))
-                        },
-                    }
-                },
-                None => Ok(CommandResult::new()),
-            };
-
-            for (sub_index, sender) in senders
-            {
-                match TicketFactory::from_filepath(&record.targets[sub_index])
-                {
-                    Ok(mut hash) =>
-                    {
-                        match sender.send(hash.result())
-                        {
-                            Ok(_) => {},
-                            Err(_error) => eprintln!("CHANNEL SEND ERROR"),
-                        }
-                    },
-                    Err(_error) =>
-                    {
-                        eprintln!("FILE IO ERROR");
-                    },
-                }
-            }
-
-            result
+            do_command(record, senders, receivers, station)
         }
     )
 }
@@ -208,6 +101,7 @@ fn main()
                                     let mut handles = Vec::new();
                                     let mut index : usize = 0;
 
+
                                     for record in records.drain(..)
                                     {
                                         let sender_vec = match senders.remove(&index)
@@ -222,11 +116,13 @@ fn main()
                                             None => vec![],
                                         };
 
+                                        let station = Station{};
                                         handles.push(
-                                            run_command(
+                                            spawn_command(
                                                 record,
                                                 sender_vec,
-                                                receiver_vec
+                                                receiver_vec,
+                                                station
                                             )
                                         );
 
@@ -271,8 +167,6 @@ fn main()
                     }
                 },
             }
-
-
         },
         None =>
         {
