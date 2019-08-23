@@ -103,7 +103,7 @@ impl Hash for Ticket
 #[cfg(test)]
 mod test
 {
-    use crate::ticket::TicketFactory;
+    use crate::ticket::{Ticket, TicketFactory};
     use std::fs::File;
     use std::io::prelude::*;
 
