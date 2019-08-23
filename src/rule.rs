@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use crate::ticket::TicketFactory;
+use crate::ticket::{Ticket, TicketFactory};
 
 pub struct Rule
 {
@@ -15,7 +15,7 @@ pub struct Record
     pub targets: Vec<String>,
     pub source_indices: Vec<(usize, usize)>,
     pub command : Vec<String>,
-    pub factory : TicketFactory,
+    pub ticket : Ticket,
 }
 
 impl fmt::Display for Rule
@@ -216,7 +216,6 @@ impl Frame
     {
         let mut factory = TicketFactory::from_str(source);
         factory.input_str("\n:\n:\n:\n");
-
         Frame
         {
             record: Record
@@ -224,7 +223,7 @@ impl Frame
                 targets: vec![source.to_string()],
                 source_indices: vec![],
                 command: vec![],
-                factory: factory,
+                ticket: factory.result(),
             },
             sources: vec![],
             index: index,
@@ -268,9 +267,9 @@ impl Frame
             record: Record
             {
                 targets: rule.targets,
-                command: rule.command,
-                factory: factory,
                 source_indices: vec![],
+                command: rule.command,
+                ticket: factory.result(),
             },
 
             index: index,
@@ -432,7 +431,7 @@ pub fn topological_sort(
                         targets: frame.record.targets,
                         source_indices: source_indices,
                         command: frame.record.command,
-                        factory: frame.record.factory,
+                        ticket: frame.record.ticket,
                     }
                 );
             }
