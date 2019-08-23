@@ -40,20 +40,6 @@ impl fmt::Display for Rule
     }
 }
 
-impl Rule
-{
-    /*
-    fn all(&self) -> String
-    {
-        [
-            self.targets.join("\n"),
-            self.sources.join("\n"),
-            self.command.join("\n"),
-        ].join("\n:\n")
-    }
-    */
-}
-
 impl fmt::Display for Record
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result

@@ -13,7 +13,6 @@ use multimap::MultiMap;
 
 mod file;
 mod rule;
-mod data;
 mod ticket;
 mod work;
 
