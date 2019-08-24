@@ -74,7 +74,7 @@ impl TicketFactory
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct Ticket
 {
     sha: Vec<u8>,
@@ -197,7 +197,6 @@ mod test
     fn ticket_serialize_round_trip()
     {
         let ticket = TicketFactory::from_str("apples").result();
-
         let encoded: Vec<u8> = bincode::serialize(&ticket).unwrap();
         let decoded: Ticket = bincode::deserialize(&encoded[..]).unwrap();
         assert_eq!(ticket, decoded);

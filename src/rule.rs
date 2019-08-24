@@ -10,6 +10,24 @@ pub struct Rule
     pub command : Vec<String>,
 }
 
+impl Rule
+{
+    fn new(
+        mut targets : Vec<String>,
+        mut sources : Vec<String>,
+        command : Vec<String>) -> Rule
+    {
+        targets.sort();
+        sources.sort();
+        Rule
+        {
+            targets: targets,
+            sources: sources,
+            command: command
+        }
+    }
+}
+
 pub struct Record
 {
     pub targets: Vec<String>,
@@ -164,14 +182,7 @@ pub fn parse(content: String) -> Result<Vec<Rule>, String>
                     ":" =>
                     {
                         mode = NewLine;
-                        rules.push(
-                            Rule
-                            {
-                                targets : targets,
-                                sources : sources,
-                                command : command,
-                            }
-                        );
+                        rules.push(Rule::new(targets, sources, command));
                         targets = vec![];
                         sources = vec![];
                         command = vec![];
@@ -229,11 +240,8 @@ impl Frame
         }
     }
 
-    fn from_rule_and_index(mut rule : Rule, index : usize) -> Frame
+    fn from_rule_and_index(rule : Rule, index : usize) -> Frame
     {
-        rule.targets.sort();
-        rule.sources.sort();
-
         let mut factory = TicketFactory::new();
 
         for target in rule.targets.iter()
@@ -703,8 +711,8 @@ mod tests
             {
                 assert_eq!(v.len(), 4);
                 assert_eq!(v[0].targets[0], "math");
-                assert_eq!(v[1].targets[0], "graphics");
-                assert_eq!(v[2].targets[0], "physics");
+                assert_eq!(v[1].targets[0], "physics");
+                assert_eq!(v[2].targets[0], "graphics");
                 assert_eq!(v[3].targets[0], "game");
 
                 assert_eq!(v[0].source_indices.len(), 0);

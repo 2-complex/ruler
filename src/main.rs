@@ -14,6 +14,7 @@ mod file;
 mod rule;
 mod ticket;
 mod work;
+mod memory;
 
 use self::rule::Record;
 use self::ticket::Ticket;
