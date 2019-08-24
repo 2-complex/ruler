@@ -1,6 +1,9 @@
+extern crate filesystem;
+
 use crate::ticket::{Ticket, TicketFactory};
 use crate::rule::Record;
 
+use filesystem::{FileSystem, OsFileSystem, FakeFileSystem};
 use std::process::{Output, Command};
 use std::sync::mpsc::{Sender, Receiver};
 use std::str::from_utf8;
@@ -49,28 +52,37 @@ impl CommandResult
     }
 }
 
-pub struct Station
+pub struct Station<FSType: FileSystem>
 {
+    file_system: FSType,
 }
 
-impl Station
+impl<FSType: FileSystem> Station<FSType>
 {
-    fn remember_target_tickets(&self, _source_ticket : &Ticket) -> Vec<Ticket>
+    pub fn new(file_system : FSType) -> Station<FSType>
+    {
+        Station
+        {
+            file_system : file_system
+        }
+    }
+
+    pub fn remember_target_tickets(&self, _source_ticket : &Ticket) -> Vec<Ticket>
     {
         vec![TicketFactory::new().result()]
     }
 
-    fn get_target_ticket(&self, _target_path : &str) -> Ticket
+    pub fn get_target_ticket(&self, _target_path : &str) -> Ticket
     {
         TicketFactory::from_str("abc").result()
     }
 }
 
-pub fn do_command(
+pub fn do_command<FSType: FileSystem>(
     record: Record,
     senders : Vec<(usize, Sender<Ticket>)>,
     receivers : Vec<Receiver<Ticket>>,
-    station : Station )
+    station : Station<FSType> )
     -> Result<CommandResult, String>
 {
     let mut factory = TicketFactory::new();
@@ -81,7 +93,6 @@ pub fn do_command(
         {
             Ok(ticket) => 
             {
-                println!("{}", ticket.base64());
                 factory.input_ticket(ticket);
             },
             Err(why) => return Err(format!("ERROR {}", why)),
@@ -159,6 +170,8 @@ mod test
     use crate::work::{Station, do_command};
     use crate::ticket::{TicketFactory};
 
+    use filesystem::{FileSystem, FakeFileSystem};
+    use std::path::Path;
     use std::fs::File;
     use std::io::prelude::*;
     use std::sync::mpsc;
@@ -166,6 +179,8 @@ mod test
     #[test]
     fn do_empty_command()
     {
+        let file_system = FakeFileSystem::new();
+
         match do_command(
             Record
             {
@@ -176,7 +191,7 @@ mod test
             },
             vec![],
             vec![],
-            Station{})
+            Station::new(file_system))
         {
             Ok(result) =>
             {
@@ -196,18 +211,9 @@ mod test
         let (sender_b, receiver_b) = mpsc::channel();
         let (sender_c, receiver_c) = mpsc::channel();
 
-        match File::create("A.txt")
-        {
-            Ok(mut file) =>
-            {
-                match file.write_all(b"")
-                {
-                    Ok(p) => assert_eq!(p, ()),
-                    Err(_) => panic!("Could not write to test file"),
-                }
-            },
-            Err(err) => panic!("Could not open file for writing {}", err),
-        }
+        let file_system = FakeFileSystem::new();
+
+        file_system.write_file(Path::new(&"A.txt"), "");
 
         match sender_a.send(TicketFactory::from_str("apples").result())
         {
@@ -231,7 +237,7 @@ mod test
             },
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
-            Station{})
+            Station::new(file_system))
         {
             Ok(result) =>
             {
@@ -252,6 +258,5 @@ mod test
             Err(err) => panic!("Command failed: {}", err),
         }
     }
-
 
 }

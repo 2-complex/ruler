@@ -170,7 +170,37 @@ mod test
         {
             Some(history) =>
             {
+                assert_eq!(history, history_a);
                 match history.get(&TicketFactory::from_str("sourceA").result())
+                {
+                    Some(target_tickets) =>
+                    {
+                        assert_eq!(target_tickets.len(), 3);
+                    },
+                    None => panic!("Important event missing from hisotry"),
+                }
+
+                match history.get(&TicketFactory::from_str("sourceB").result())
+                {
+                    Some(_target_tickets) => panic!("Important event missing from hisotry"),
+                    None => {},
+                }
+            },
+            None=> panic!("Rule added to memory mysteriously gone"),
+        }
+
+        match memory.remove(&TicketFactory::from_str("ruleA").result())
+        {
+            Some(_history) => panic!("Removed rule still there"),
+            None => {},
+        }
+
+        match memory.remove(&TicketFactory::from_str("ruleB").result())
+        {
+            Some(history) =>
+            {
+                assert_eq!(history, history_b);
+                match history.get(&TicketFactory::from_str("sourceB").result())
                 {
                     Some(target_tickets) =>
                     {

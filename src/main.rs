@@ -1,11 +1,13 @@
 extern crate clap;
 extern crate sqlite;
 extern crate multimap;
+extern crate filesystem;
 
 use clap::{Arg, App};
 
 use std::thread::{self, JoinHandle};
 
+use filesystem::{FileSystem, OsFileSystem, FakeFileSystem};
 use std::sync::mpsc::{Sender, Receiver};
 use std::sync::mpsc;
 use multimap::MultiMap;
@@ -20,11 +22,11 @@ use self::rule::Record;
 use self::ticket::Ticket;
 use self::work::{CommandResult, Station, do_command};
 
-fn spawn_command(
+fn spawn_command<FSType: FileSystem + Send + 'static>(
     record: Record,
     senders : Vec<(usize, Sender<Ticket>)>,
     receivers : Vec<Receiver<Ticket>>,
-    station : Station )
+    station : Station<FSType> )
     -> JoinHandle<Result<CommandResult, String>>
 {
     thread::spawn(
@@ -69,9 +71,11 @@ fn main()
              .index(1)
              .help("path to build rules file"))
         .arg(Arg::from_usage("-t --target=[TARGET] 'Sets which target to build'"))
+        .arg(Arg::from_usage("-t --memory=[MEMORY] 'Where to read/write cached file content data'"))
         .get_matches();
 
     let rulefile = matches.value_of("RULEFILE").unwrap();
+    // let memoryfile = matches.value_of("MEMORY").unwrap();
 
     match matches.value_of("target")
     {
@@ -90,6 +94,7 @@ fn main()
                         Err(why) => eprintln!("ERROR: {}", why),
                         Ok(rules) =>
                         {
+                            let osFileSystem = OsFileSystem::new();
                             match rule::topological_sort(rules, &target)
                             {
                                 Err(why) => eprintln!("ERROR: {}", why),
@@ -115,7 +120,7 @@ fn main()
                                             None => vec![],
                                         };
 
-                                        let station = Station{};
+                                        let station = Station::new(osFileSystem.clone());
                                         handles.push(
                                             spawn_command(
                                                 record,
