@@ -77,7 +77,14 @@ pub fn do_command<FSType: FileSystem>(
     let mut target_tickets = Vec::new();
     for target_path in record.targets.iter()
     {
-        target_tickets.push(station.get_target_ticket(target_path));
+        match station.get_target_ticket(target_path)
+        {
+            Ok(ticket) =>
+            {
+                target_tickets.push(ticket);
+            },
+            Err(why) => return Err(format!("TICKET ALIGNMENT ERROR {}", why)),
+        }
     }
 
     let result =
@@ -121,11 +128,11 @@ pub fn do_command<FSType: FileSystem>(
 
     for (sub_index, sender) in senders
     {
-        match TicketFactory::from_file(&record.targets[sub_index])
+        match station.get_target_ticket(&record.targets[sub_index])
         {
-            Ok(mut hash) =>
+            Ok(mut ticket) =>
             {
-                match sender.send(hash.result())
+                match sender.send(ticket)
                 {
                     Ok(_) => {},
                     Err(_error) => eprintln!("CHANNEL SEND ERROR"),
@@ -153,7 +160,8 @@ mod test
     #[test]
     fn do_empty_command()
     {
-        let file_system = FakeFileSystem::new();
+        let mut file_system = FakeFileSystem::new();
+        file_system.write_file("A", "A-content");
 
         match do_command(
             Record
@@ -174,7 +182,7 @@ mod test
                 assert_eq!(result.code, Some(0));
                 assert_eq!(result.success, true);
             },
-            Err(_) => panic!("Command failed"),
+            Err(why) => panic!("Command failed: {}", why),
         }
     }
 

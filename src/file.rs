@@ -49,7 +49,7 @@ mod test
             {
                 match fs.read_file_to_string(&Path::new("A.txt"))
                 {
-                    Ok(content) => Ok(()),
+                    Ok(_content) => Ok(()),
                     Err(_) => Err(format!("No file found")),
                 }
             }

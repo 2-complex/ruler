@@ -6,8 +6,7 @@ use base64::encode;
 use crypto::digest::Digest;
 use std::hash::{Hash, Hasher};
 use serde::{Serialize, Deserialize};
-use std::fs::File;
-use std::io::Read;
+use filesystem::FileSystem;
 
 pub struct TicketFactory
 {
@@ -48,29 +47,24 @@ impl TicketFactory
         }
     }
 
-    pub fn from_file(path : &str) -> Result<TicketFactory, std::io::Error>
+    pub fn from_file<FSType: FileSystem>(
+        file_system: &FSType,
+        path : &str)
+        -> Result<TicketFactory, std::io::Error>
     {
-        match File::open(path)
+        let mut dig = Sha512::new();
+        let mut buffer = Vec::new();
+
+        match file_system.read_file_into(path, &mut buffer)
         {
-            Ok(mut file) =>
+            Ok(packet_size) =>
             {
-                let mut dig = Sha512::new();
-                let mut buf = [0u8; 256];
-
-                loop
-                {
-                    match file.read(&mut buf)
-                    {
-                        Ok(0) => break,
-                        Ok(packet_size) => dig.input(&buf[..packet_size]),
-                        Err(why) => return Err(why),
-                    }
-                }
-
+                dig.input(&buffer);
                 Ok(TicketFactory{dig : dig})
             },
-            Err(why) => Err(why),
+            Err(why) => return Err(why),
         }
+
     }
 }
 
@@ -104,8 +98,7 @@ impl Hash for Ticket
 mod test
 {
     use crate::ticket::{Ticket, TicketFactory};
-    use std::fs::File;
-    use std::io::prelude::*;
+    use filesystem::{FileSystem, FakeFileSystem};
 
     #[test]
     fn ticket_factory_string()
@@ -140,20 +133,14 @@ mod test
     #[test]
     fn ticket_factory_file()
     {
-        match File::create("time0.txt")
+        let mut file_system = FakeFileSystem::new();
+        match file_system.write_file("time0.txt", "Time wounds all heels.\n")
         {
-            Ok(mut file) =>
-            {
-                match file.write_all("Time wounds all heels.\n".as_bytes())
-                {
-                    Ok(p) => assert_eq!(p, ()),
-                    Err(_) => panic!("Could not write to test file"),
-                }
-            },
-            Err(err) => panic!("Could not open file for writing {}", err),
+            Ok(_) => {},
+            Err(why) => panic!("Failed to create temp file: {}", why),
         }
 
-        match TicketFactory::from_file("time0.txt")
+        match TicketFactory::from_file(&file_system, "time0.txt")
         {
             Ok(mut factory) =>
             {
@@ -167,20 +154,10 @@ mod test
     #[test]
     fn ticket_factory_hashes()
     {
-        match File::create("time1.txt")
-        {
-            Ok(mut file) =>
-            {
-                match file.write_all("Time wounds all heels.\n".as_bytes())
-                {
-                    Ok(p) => assert_eq!(p, ()),
-                    Err(_) => panic!("Could not write to test file"),
-                }
-            },
-            Err(err) => panic!("Could not open file for writing {}", err),
-        }
+        let mut file_system = FakeFileSystem::new();
+        file_system.write_file("time1.txt", "Time wounds all heels.\n");
 
-        match TicketFactory::from_file("time1.txt")
+        match TicketFactory::from_file(&file_system, "time1.txt")
         {
             Ok(mut factory) =>
             {

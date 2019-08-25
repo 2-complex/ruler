@@ -23,7 +23,7 @@ use self::rule::Record;
 use self::ticket::Ticket;
 use self::work::{CommandResult, do_command};
 use self::station::Station;
-use self::memory::{Memory, RuleHistory};
+use self::memory::Memory;
 
 fn spawn_command<FSType: FileSystem + Send + 'static>(
     record: Record,
@@ -104,7 +104,7 @@ fn main()
                                 Err(why) => eprintln!("ERROR: {}", why),
                                 Ok(rules) =>
                                 {
-                                    let osFileSystem = OsFileSystem::new();
+                                    let os_file_system = OsFileSystem::new();
                                     match rule::topological_sort(rules, &target)
                                     {
                                         Err(why) => eprintln!("ERROR: {}", why),
