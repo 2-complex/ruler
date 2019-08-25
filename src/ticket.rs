@@ -57,7 +57,7 @@ impl TicketFactory
 
         match file_system.read_file_into(path, &mut buffer)
         {
-            Ok(packet_size) =>
+            Ok(_) =>
             {
                 dig.input(&buffer);
                 Ok(TicketFactory{dig : dig})
@@ -133,7 +133,7 @@ mod test
     #[test]
     fn ticket_factory_file()
     {
-        let mut file_system = FakeFileSystem::new();
+        let file_system = FakeFileSystem::new();
         match file_system.write_file("time0.txt", "Time wounds all heels.\n")
         {
             Ok(_) => {},
@@ -154,8 +154,12 @@ mod test
     #[test]
     fn ticket_factory_hashes()
     {
-        let mut file_system = FakeFileSystem::new();
-        file_system.write_file("time1.txt", "Time wounds all heels.\n");
+        let file_system = FakeFileSystem::new();
+        match file_system.write_file("time1.txt", "Time wounds all heels.\n")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File write operation failed"),
+        }
 
         match TicketFactory::from_file(&file_system, "time1.txt")
         {

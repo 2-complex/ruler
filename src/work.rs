@@ -77,7 +77,7 @@ pub fn do_command<FSType: FileSystem>(
     let mut target_tickets = Vec::new();
     for target_path in record.targets.iter()
     {
-        match station.get_target_ticket(target_path)
+        match station.get_file_ticket(target_path)
         {
             Ok(ticket) =>
             {
@@ -87,8 +87,9 @@ pub fn do_command<FSType: FileSystem>(
         }
     }
 
-    let result =
-    if station.remember_target_tickets(&factory.result()) != target_tickets
+    let remembered_target_tickets = station.remember_target_tickets(&factory.result());
+
+    let result = if target_tickets != remembered_target_tickets
     {
         let mut command_queue = VecDeque::from(record.command.clone());
         let command_opt = match command_queue.pop_front()
@@ -128,9 +129,9 @@ pub fn do_command<FSType: FileSystem>(
 
     for (sub_index, sender) in senders
     {
-        match station.get_target_ticket(&record.targets[sub_index])
+        match station.get_file_ticket(&record.targets[sub_index])
         {
-            Ok(mut ticket) =>
+            Ok(ticket) =>
             {
                 match sender.send(ticket)
                 {
@@ -160,8 +161,12 @@ mod test
     #[test]
     fn do_empty_command()
     {
-        let mut file_system = FakeFileSystem::new();
-        file_system.write_file("A", "A-content");
+        let file_system = FakeFileSystem::new();
+        match file_system.write_file("A", "A-content")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File write operation failed"),
+        }
 
         match do_command(
             Record
@@ -195,7 +200,11 @@ mod test
 
         let file_system = FakeFileSystem::new();
 
-        file_system.write_file(Path::new(&"A.txt"), "");
+        match file_system.write_file(Path::new(&"A.txt"), "")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File write operation failed"),
+        }
 
         match sender_a.send(TicketFactory::from_str("apples").result())
         {
