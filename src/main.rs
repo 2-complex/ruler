@@ -7,7 +7,7 @@ use clap::{Arg, App};
 
 use std::thread::{self, JoinHandle};
 
-use filesystem::{FileSystem, OsFileSystem, FakeFileSystem};
+use filesystem::{FileSystem, OsFileSystem};
 use std::sync::mpsc::{Sender, Receiver};
 use std::sync::mpsc;
 use multimap::MultiMap;
@@ -17,10 +17,13 @@ mod rule;
 mod ticket;
 mod work;
 mod memory;
+mod station;
 
 use self::rule::Record;
 use self::ticket::Ticket;
-use self::work::{CommandResult, Station, do_command};
+use self::work::{CommandResult, do_command};
+use self::station::Station;
+use self::memory::{Memory, RuleHistory};
 
 fn spawn_command<FSType: FileSystem + Send + 'static>(
     record: Record,
@@ -75,102 +78,114 @@ fn main()
         .get_matches();
 
     let rulefile = matches.value_of("RULEFILE").unwrap();
-    // let memoryfile = matches.value_of("MEMORY").unwrap();
+    let memoryfile = matches.value_of("MEMORY").unwrap();
+    let mut os_file_system = OsFileSystem::new();
 
     match matches.value_of("target")
     {
         Some(target) =>
         {
             println!("Reading rulefile: {}", rulefile);
+            println!("Reading memory file: {}", memoryfile);
             println!("Building target: {}", target);
 
-            match file::read(&rulefile.to_string())
+            match Memory::from_file(&mut os_file_system, memoryfile)
             {
                 Err(why) => eprintln!("ERROR: {}", why),
-                Ok(content) =>
+                Ok(mut memory) =>
                 {
-                    match rule::parse(content)
+                    match file::read(&rulefile.to_string())
                     {
                         Err(why) => eprintln!("ERROR: {}", why),
-                        Ok(rules) =>
+                        Ok(content) =>
                         {
-                            let osFileSystem = OsFileSystem::new();
-                            match rule::topological_sort(rules, &target)
+                            match rule::parse(content)
                             {
                                 Err(why) => eprintln!("ERROR: {}", why),
-                                Ok(mut records) =>
+                                Ok(rules) =>
                                 {
-                                    let (mut senders, mut receivers) = make_multimaps(&records);
-
-                                    let mut handles = Vec::new();
-                                    let mut index : usize = 0;
-
-
-                                    for record in records.drain(..)
+                                    let osFileSystem = OsFileSystem::new();
+                                    match rule::topological_sort(rules, &target)
                                     {
-                                        let sender_vec = match senders.remove(&index)
+                                        Err(why) => eprintln!("ERROR: {}", why),
+                                        Ok(mut records) =>
                                         {
-                                            Some(v) => v,
-                                            None => vec![],
-                                        };
+                                            let (mut senders, mut receivers) = make_multimaps(&records);
 
-                                        let receiver_vec = match receivers.remove(&index)
-                                        {
-                                            Some(v) => v,
-                                            None => vec![],
-                                        };
+                                            let mut handles = Vec::new();
+                                            let mut index : usize = 0;
 
-                                        let station = Station::new(osFileSystem.clone());
-                                        handles.push(
-                                            spawn_command(
-                                                record,
-                                                sender_vec,
-                                                receiver_vec,
-                                                station
-                                            )
-                                        );
-
-                                        index+=1;
-                                    }
-
-                                    for handle in handles
-                                    {
-                                        match handle.join()
-                                        {
-                                            Err(_) =>
+                                            for record in records.drain(..)
                                             {
-                                                eprintln!("ERROR");
-                                            },
-                                            Ok(command_result) =>
-                                            {
-                                                match command_result
+                                                let sender_vec = match senders.remove(&index)
                                                 {
-                                                    Ok(r) =>
-                                                    {
-                                                        println!("success: {}", r.success);
-                                                        println!("code: {}", match r.code
-                                                        {
-                                                            Some(code) => format!("{}", code),
-                                                            None => "None".to_string(),
-                                                        });
+                                                    Some(v) => v,
+                                                    None => vec![],
+                                                };
 
-                                                        println!("output: {}", r.out);
-                                                        println!("error: {}", r.err);
-                                                    },
-                                                    Err(why) =>
+                                                let receiver_vec = match receivers.remove(&index)
+                                                {
+                                                    Some(v) => v,
+                                                    None => vec![],
+                                                };
+
+                                                let station = Station::new(
+                                                    os_file_system.clone(),
+                                                    memory.get_rule_history(&record.ticket));
+                                                handles.push(
+                                                    spawn_command(
+                                                        record,
+                                                        sender_vec,
+                                                        receiver_vec,
+                                                        station
+                                                    )
+                                                );
+
+                                                index+=1;
+                                            }
+
+                                            for handle in handles
+                                            {
+                                                match handle.join()
+                                                {
+                                                    Err(_) =>
                                                     {
-                                                        eprintln!("ERROR {}", why);
+                                                        eprintln!("ERROR");
                                                     },
+                                                    Ok(command_result) =>
+                                                    {
+                                                        match command_result
+                                                        {
+                                                            Ok(r) =>
+                                                            {
+                                                                println!("success: {}", r.success);
+                                                                println!("code: {}", match r.code
+                                                                {
+                                                                    Some(code) => format!("{}", code),
+                                                                    None => "None".to_string(),
+                                                                });
+
+                                                                println!("output: {}", r.out);
+                                                                println!("error: {}", r.err);
+                                                            },
+                                                            Err(why) =>
+                                                            {
+                                                                eprintln!("ERROR {}", why);
+                                                            },
+                                                        }
+                                                    }
                                                 }
                                             }
-                                        }
+                                        },
                                     }
-                                },
+                                }
                             }
-                        }
+                        },
                     }
-                },
+
+                }
             }
+
         },
         None =>
         {

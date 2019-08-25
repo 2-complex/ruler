@@ -1,17 +1,23 @@
 use crate::ticket::{Ticket};
 
+extern crate filesystem;
+use filesystem::FileSystem;
+
 use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
+use std::fs::File;
+use std::io::Read;
+use std::path::Path;
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
-struct RuleHistory
+pub struct RuleHistory
 {
     source_to_targets : HashMap<Ticket, Vec<Ticket>>
 }
 
 impl RuleHistory
 {
-    fn new() -> RuleHistory
+    pub fn new() -> RuleHistory
     {
         RuleHistory
         {
@@ -19,25 +25,59 @@ impl RuleHistory
         }
     }
 
-    fn insert(&mut self, source_ticket: Ticket, target_tickets: Vec<Ticket>)
+    pub fn insert(&mut self, source_ticket: Ticket, target_tickets: Vec<Ticket>)
     {
         self.source_to_targets.insert(source_ticket, target_tickets);
     }
 
-    fn get(&self, source_ticket: &Ticket) -> Option<&Vec<Ticket>>
+    pub fn get(&self, source_ticket: &Ticket) -> Option<&Vec<Ticket>>
     {
         self.source_to_targets.get(source_ticket)
     }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
-struct Memory
+pub struct Memory
 {
     rule_histories : HashMap<Ticket, RuleHistory>
 }
 
 impl Memory
 {
+    pub fn from_file<FSType: FileSystem>(
+        file_system: &mut FSType,
+        path_as_str : &str)
+        -> Result<Memory, String>
+    {
+        let path = Path::new(&path_as_str);
+
+        if file_system.is_file(path)
+        {
+            match file_system.read_file(path)
+            {
+                Err(_) => Err(format!("Cannot read memory file: {}", path_as_str)),
+                Ok(content) =>
+                {
+                    match bincode::deserialize(&content)
+                    {
+                        Ok(memory) => Ok(memory),
+                        Err(_) => Err(format!("Cannot interpret memory file: {}", path_as_str)),
+                    }
+                }
+            }
+        }
+        else
+        {
+            let memory = Memory::new();
+
+            match file_system.write_file(path, bincode::serialize(&memory).unwrap())
+            {
+                Err(_) => Err(format!("Cannot create memory file: {}", path_as_str)),
+                Ok(()) => Ok(memory),
+            }
+        }
+    }
+
     fn new() -> Memory
     {
         Memory
@@ -58,9 +98,13 @@ impl Memory
         rule_history.insert(source_ticket, target_tickets);
     }
 
-    fn remove(&mut self, rule_ticket: &Ticket) -> Option<RuleHistory>
+    pub fn get_rule_history(&mut self, rule_ticket: &Ticket) -> RuleHistory
     {
-        self.rule_histories.remove(rule_ticket)
+        match self.rule_histories.remove(rule_ticket)
+        {
+            Some(rule_history) => rule_history,
+            None => RuleHistory::new(),
+        }
     }
 }
 
@@ -71,7 +115,7 @@ mod test
     use crate::ticket::{TicketFactory};
 
     #[test]
-    fn round_trip()
+    fn round_trip_memory()
     {
         let mut mem = Memory::new();
         mem.insert(
@@ -166,50 +210,36 @@ mod test
                 TicketFactory::from_str("target3B").result(),
             ].to_vec());
 
-        match memory.remove(&TicketFactory::from_str("ruleA").result())
-        {
-            Some(history) =>
-            {
-                assert_eq!(history, history_a);
-                match history.get(&TicketFactory::from_str("sourceA").result())
-                {
-                    Some(target_tickets) =>
-                    {
-                        assert_eq!(target_tickets.len(), 3);
-                    },
-                    None => panic!("Important event missing from hisotry"),
-                }
+        let history = memory.get_rule_history(&TicketFactory::from_str("ruleA").result());
 
-                match history.get(&TicketFactory::from_str("sourceB").result())
-                {
-                    Some(_target_tickets) => panic!("Important event missing from hisotry"),
-                    None => {},
-                }
+        assert_eq!(history, history_a);
+        match history.get(&TicketFactory::from_str("sourceA").result())
+        {
+            Some(target_tickets) =>
+            {
+                assert_eq!(target_tickets.len(), 3);
             },
-            None=> panic!("Rule added to memory mysteriously gone"),
+            None => panic!("Important event missing from hisotry"),
         }
 
-        match memory.remove(&TicketFactory::from_str("ruleA").result())
+        match history.get(&TicketFactory::from_str("sourceB").result())
         {
-            Some(_history) => panic!("Removed rule still there"),
+            Some(_target_tickets) => panic!("Important event missing from hisotry"),
             None => {},
         }
 
-        match memory.remove(&TicketFactory::from_str("ruleB").result())
+        let empty_history = memory.get_rule_history(&TicketFactory::from_str("ruleA").result());
+        assert_eq!(empty_history, RuleHistory::new());
+
+        let history = memory.get_rule_history(&TicketFactory::from_str("ruleB").result());
+        assert_eq!(history, history_b);
+        match history.get(&TicketFactory::from_str("sourceB").result())
         {
-            Some(history) =>
+            Some(target_tickets) =>
             {
-                assert_eq!(history, history_b);
-                match history.get(&TicketFactory::from_str("sourceB").result())
-                {
-                    Some(target_tickets) =>
-                    {
-                        assert_eq!(target_tickets.len(), 3);
-                    },
-                    None => panic!("Important event missing from hisotry"),
-                }
+                assert_eq!(target_tickets.len(), 3);
             },
-            None=> panic!("Rule added to memory mysteriously gone"),
+            None => panic!("Important event missing from hisotry"),
         }
     }
 }

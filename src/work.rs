@@ -2,8 +2,9 @@ extern crate filesystem;
 
 use crate::ticket::{Ticket, TicketFactory};
 use crate::rule::Record;
+use crate::station::Station;
 
-use filesystem::{FileSystem, OsFileSystem, FakeFileSystem};
+use filesystem::FileSystem;
 use std::process::{Output, Command};
 use std::sync::mpsc::{Sender, Receiver};
 use std::str::from_utf8;
@@ -49,32 +50,6 @@ impl CommandResult
             code : Some(0),
             success : true,
         }
-    }
-}
-
-pub struct Station<FSType: FileSystem>
-{
-    file_system: FSType,
-}
-
-impl<FSType: FileSystem> Station<FSType>
-{
-    pub fn new(file_system : FSType) -> Station<FSType>
-    {
-        Station
-        {
-            file_system : file_system
-        }
-    }
-
-    pub fn remember_target_tickets(&self, _source_ticket : &Ticket) -> Vec<Ticket>
-    {
-        vec![TicketFactory::new().result()]
-    }
-
-    pub fn get_target_ticket(&self, _target_path : &str) -> Ticket
-    {
-        TicketFactory::from_str("abc").result()
     }
 }
 
@@ -168,12 +143,11 @@ mod test
 {
     use crate::rule::Record;
     use crate::work::{Station, do_command};
-    use crate::ticket::{TicketFactory};
+    use crate::ticket::TicketFactory;
+    use crate::memory::RuleHistory;
 
     use filesystem::{FileSystem, FakeFileSystem};
     use std::path::Path;
-    use std::fs::File;
-    use std::io::prelude::*;
     use std::sync::mpsc;
 
     #[test]
@@ -189,9 +163,9 @@ mod test
                 ticket: TicketFactory::new().result(),
                 command: vec![],
             },
-            vec![],
-            vec![],
-            Station::new(file_system))
+            Vec::new(),
+            Vec::new(),
+            Station::new(file_system, RuleHistory::new()))
         {
             Ok(result) =>
             {
@@ -237,7 +211,7 @@ mod test
             },
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
-            Station::new(file_system))
+            Station::new(file_system, RuleHistory::new()))
         {
             Ok(result) =>
             {
@@ -258,5 +232,4 @@ mod test
             Err(err) => panic!("Command failed: {}", err),
         }
     }
-
 }
