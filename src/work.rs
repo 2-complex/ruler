@@ -81,7 +81,6 @@ pub fn do_command<FSType: FileSystem, ExecType: Executor>(
     let mut target_tickets = Vec::new();
     for target_path in record.targets.iter()
     {
-        println!("getting file ticket: target_path = {}", target_path);
         match station.get_file_ticket(target_path)
         {
             Ok(ticket) =>
@@ -160,8 +159,6 @@ mod test
     {
         fn execute_command(&self, command_list : Vec<String>) -> Result<CommandResult, String>
         {
-            println!("hello executing command");
-
             let n = command_list.len();
             let mut output = String::new();
 
@@ -304,7 +301,7 @@ mod test
     }
 
     #[test]
-    fn basic_poem_concatination()
+    fn poem_concatination()
     {
         let (sender_a, receiver_a) = mpsc::channel();
         let (sender_b, receiver_b) = mpsc::channel();
@@ -351,6 +348,97 @@ mod test
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
             Station::new(file_system.clone(), RuleHistory::new()),
+            FakeExecutor::new(file_system.clone()))
+        {
+            Ok(result) =>
+            {
+                assert_eq!(result.out, "");
+                assert_eq!(result.err, "");
+                assert_eq!(result.code, Some(0));
+                assert_eq!(result.success, true);
+
+                match receiver_c.recv()
+                {
+                    Ok(ticket) =>
+                    {
+                        assert_eq!(
+                            ticket,
+                            TicketFactory::from_str("Roses are red\nViolets are violet\n").result());
+                    }
+                    Err(_) => panic!("Unexpected fail to receive"),
+                }
+            },
+            Err(err) => panic!("Command failed: {}", err),
+        }
+    }
+
+    #[test]
+    fn poem_already_correct()
+    {
+        let (sender_a, receiver_a) = mpsc::channel();
+        let (sender_b, receiver_b) = mpsc::channel();
+        let (sender_c, receiver_c) = mpsc::channel();
+
+        let mut rule_history = RuleHistory::new();
+
+        let mut factory = TicketFactory::new();
+        factory.input_ticket(TicketFactory::from_str("Roses are red\n").result());
+        factory.input_ticket(TicketFactory::from_str("Violets are violet\n").result());
+
+        rule_history.insert(
+            factory.result(),
+            vec![
+                TicketFactory::from_str("Roses are red\nViolets are violet\n").result()
+            ]
+        );
+
+        let file_system = FakeFileSystem::new();
+
+        match file_system.write_file(Path::new(&"verse1.txt"), "Roses are red\n")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File write operation failed"),
+        }
+
+        match file_system.write_file(Path::new(&"verse2.txt"), "Violets are violet\n")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File write operation failed"),
+        }
+
+        match file_system.write_file(Path::new(&"poem.txt"), "Roses are red\nViolets are violet\n")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File write operation failed"),
+        }
+
+        match sender_a.send(TicketFactory::from_str("Roses are red\n").result())
+        {
+            Ok(p) => assert_eq!(p, ()),
+            Err(e) => panic!("Unexpected error sending: {}", e),
+        }
+
+        match sender_b.send(TicketFactory::from_str("Violets are violet\n").result())
+        {
+            Ok(p) => assert_eq!(p, ()),
+            Err(e) => panic!("Unexpected error sending: {}", e),
+        }
+
+        match do_command(
+            Record
+            {
+                targets: vec!["poem.txt".to_string()],
+                source_indices: vec![],
+                ticket: TicketFactory::new().result(),
+                command: vec![
+                    "error".to_string(),
+                    "poem is already correct".to_string(),
+                    "this command should not run".to_string(),
+                    "the end".to_string()],
+            },
+            vec![(0, sender_c)],
+            vec![receiver_a, receiver_b],
+            Station::new(file_system.clone(), rule_history),
             FakeExecutor::new(file_system.clone()))
         {
             Ok(result) =>

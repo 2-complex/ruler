@@ -7,6 +7,7 @@ use crypto::digest::Digest;
 use std::hash::{Hash, Hasher};
 use serde::{Serialize, Deserialize};
 use filesystem::FileSystem;
+use std::fmt;
 
 pub struct TicketFactory
 {
@@ -85,10 +86,50 @@ pub struct Ticket
 
 impl Ticket
 {
-    #[allow(dead_code)]
     pub fn base64(&self) -> String
     {
         format!("{}", encode(&self.sha))
+    }
+
+    pub fn from_strings(
+        targets: &Vec<String>,
+        sources: &Vec<String>,
+        command: &Vec<String>) -> Ticket
+    {
+        let mut factory = TicketFactory::new();
+
+        for target in targets.iter()
+        {
+            factory.input_str(target);
+            factory.input_str("\n");
+        }
+
+        factory.input_str("\n:\n");
+
+        for source in sources.iter()
+        {
+            factory.input_str(source);
+            factory.input_str("\n");
+        }
+
+        factory.input_str("\n:\n");
+
+        for line in command.iter()
+        {
+            factory.input_str(line);
+            factory.input_str("\n");
+        }
+
+        factory.input_str("\n:\n");
+        factory.result()
+    }
+}
+
+impl fmt::Display for Ticket
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result
+    {
+        write!(f, "{}", self.base64())
     }
 }
 

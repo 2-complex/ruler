@@ -242,38 +242,17 @@ impl Frame
 
     fn from_rule_and_index(rule : Rule, index : usize) -> Frame
     {
-        let mut factory = TicketFactory::new();
-
-        for target in rule.targets.iter()
-        {
-            factory.input_str(target);
-            factory.input_str("\n");
-        }
-
-        factory.input_str("\n:\n");
-
-        for source in rule.sources.iter()
-        {
-            factory.input_str(source);
-            factory.input_str("\n");
-        }
-
-        factory.input_str("\n:\n");
-
-        for line in rule.command.iter()
-        {
-            factory.input_str(line);
-            factory.input_str("\n");
-        }
-
-        factory.input_str("\n:\n");
+        let ticket = Ticket::from_strings(
+            &rule.targets,
+            &rule.sources,
+            &rule.command);
 
         Frame
         {
             targets: rule.targets,
             sources: rule.sources,
             command: rule.command,
-            ticket: factory.result(),
+            ticket: ticket,
             index: index,
             visited: false,
         }
