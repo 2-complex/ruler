@@ -6,7 +6,7 @@ use crate::station::Station;
 use crate::executor::{CommandResult, Executor};
 
 use filesystem::FileSystem;
-use std::process::{Output, Command};
+use std::process::Command;
 use std::sync::mpsc::{Sender, Receiver};
 use std::collections::VecDeque;
 
@@ -81,6 +81,7 @@ pub fn do_command<FSType: FileSystem, ExecType: Executor>(
     let mut target_tickets = Vec::new();
     for target_path in record.targets.iter()
     {
+        println!("getting file ticket: target_path = {}", target_path);
         match station.get_file_ticket(target_path)
         {
             Ok(ticket) =>
@@ -159,8 +160,11 @@ mod test
     {
         fn execute_command(&self, command_list : Vec<String>) -> Result<CommandResult, String>
         {
+            println!("hello executing command");
+
             let n = command_list.len();
             let mut output = String::new();
+
 
             if n > 1
             {
@@ -168,6 +172,7 @@ mod test
                 {
                     "mycat" =>
                     {
+                        println!("mycat something: {}", command_list[n-1]);
                         for f in command_list[1..(n-1)].iter()
                         {
                             match self.file_system.read_file(f)
@@ -184,8 +189,15 @@ mod test
                             }
                         }
 
-                        self.file_system.write_file(Path::new(&command_list[n-1]), output);
-                        Ok(CommandResult::new())
+                        println!("about to concat into file: {}", command_list[n-1]);
+                        match self.file_system.write_file(Path::new(&command_list[n-1]), output)
+                        {
+                            Ok(_) => Ok(CommandResult::new()),
+                            Err(why) =>
+                            {
+                                Err(format!("Filed to cat into file: {}: {}", command_list[n-1], why))
+                            }
+                        }
                     },
                     _=> Err(format!("Non command given: {}", command_list[0]))
                 }
@@ -206,8 +218,6 @@ mod test
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
         }
-
-        let executor = FakeExecutor::new(file_system.clone());
 
         match do_command(
             Record
@@ -285,6 +295,78 @@ mod test
                     Ok(ticket) =>
                     {
                         assert_eq!(ticket, TicketFactory::new().result());
+                    }
+                    Err(_) => panic!("Unexpected fail to receive"),
+                }
+            },
+            Err(err) => panic!("Command failed: {}", err),
+        }
+    }
+
+    #[test]
+    fn basic_poem_concatination()
+    {
+        let (sender_a, receiver_a) = mpsc::channel();
+        let (sender_b, receiver_b) = mpsc::channel();
+        let (sender_c, receiver_c) = mpsc::channel();
+
+        let file_system = FakeFileSystem::new();
+
+        match file_system.write_file(Path::new(&"verse1.txt"), "Roses are red\n")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File write operation failed"),
+        }
+
+        match file_system.write_file(Path::new(&"verse2.txt"), "Violets are violet\n")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File write operation failed"),
+        }
+
+        match sender_a.send(TicketFactory::from_str("Roses are red\n").result())
+        {
+            Ok(p) => assert_eq!(p, ()),
+            Err(e) => panic!("Unexpected error sending: {}", e),
+        }
+
+        match sender_b.send(TicketFactory::from_str("Violets are violet\n").result())
+        {
+            Ok(p) => assert_eq!(p, ()),
+            Err(e) => panic!("Unexpected error sending: {}", e),
+        }
+
+        match do_command(
+            Record
+            {
+                targets: vec!["poem.txt".to_string()],
+                source_indices: vec![],
+                ticket: TicketFactory::new().result(),
+                command: vec![
+                    "mycat".to_string(),
+                    "verse1.txt".to_string(),
+                    "verse2.txt".to_string(),
+                    "poem.txt".to_string()],
+            },
+            vec![(0, sender_c)],
+            vec![receiver_a, receiver_b],
+            Station::new(file_system.clone(), RuleHistory::new()),
+            FakeExecutor::new(file_system.clone()))
+        {
+            Ok(result) =>
+            {
+                assert_eq!(result.out, "");
+                assert_eq!(result.err, "");
+                assert_eq!(result.code, Some(0));
+                assert_eq!(result.success, true);
+
+                match receiver_c.recv()
+                {
+                    Ok(ticket) =>
+                    {
+                        assert_eq!(
+                            ticket,
+                            TicketFactory::from_str("Roses are red\nViolets are violet\n").result());
                     }
                     Err(_) => panic!("Unexpected fail to receive"),
                 }

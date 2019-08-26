@@ -20,6 +20,14 @@ impl TicketFactory
         TicketFactory{ dig : Sha512::new() }
     }
 
+    pub fn does_not_exist() -> Ticket
+    {
+        Ticket
+        {
+            sha : Vec::new()
+        }
+    }
+
     pub fn from_str(first_input: &str) -> TicketFactory
     {
         let mut d = Sha512::new();
@@ -46,6 +54,7 @@ impl TicketFactory
             sha : out_sha
         }
     }
+
 
     pub fn from_file<FSType: FileSystem>(
         file_system: &FSType,

@@ -1,8 +1,5 @@
-extern crate filesystem;
-
 use std::str::from_utf8;
-use std::process::{Output, Command};
-use filesystem::FileSystem;
+use std::process::Output;
 
 pub struct CommandResult
 {

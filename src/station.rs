@@ -2,7 +2,6 @@ extern crate filesystem;
 
 use crate::memory::RuleHistory;
 use crate::ticket::{Ticket, TicketFactory};
-use crate::executor::CommandResult;
 
 use filesystem::FileSystem;
 
@@ -37,10 +36,17 @@ impl<FSType: FileSystem> Station<FSType>
 
     pub fn get_file_ticket(&self, target_path : &str) -> Result<Ticket, std::io::Error>
     {
-        match TicketFactory::from_file(&self.file_system, target_path)
+        if !self.file_system.is_file(target_path) && !self.file_system.is_dir(target_path)
         {
-            Ok(mut factory) => Ok(factory.result()),
-            Err(err) => Err(err),
+            Ok(TicketFactory::does_not_exist())
+        }
+        else
+        {
+            match TicketFactory::from_file(&self.file_system, target_path)
+            {
+                Ok(mut factory) => Ok(factory.result()),
+                Err(err) => Err(err),
+            }
         }
     }
 }
