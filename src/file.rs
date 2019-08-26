@@ -35,10 +35,25 @@ mod test
     {
         let fs = OsFileSystem::new();
 
-        match fs.read_file_to_string(&Path::new("A.txt"))
+        match fs.write_file(&Path::new("temp-file-A.txt"), "stuff")
         {
             Ok(_) => {},
+            Err(_) => panic!("File would not open for writing"),
+        }
+
+        match fs.read_file_to_string(&Path::new("temp-file-A.txt"))
+        {
+            Ok(content) =>
+            {
+                assert_eq!(content, "stuff");
+            },
             Err(_) => panic!("File not found"),
+        }
+
+        match fs.remove_file(&Path::new("temp-file-A.txt"))
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File failed to remove"),
         }
     }
 

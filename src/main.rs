@@ -18,10 +18,12 @@ mod ticket;
 mod work;
 mod memory;
 mod station;
+mod executor;
 
 use self::rule::Record;
 use self::ticket::Ticket;
-use self::work::{CommandResult, do_command};
+use self::executor::CommandResult;
+use self::work::{OsExecutor, do_command};
 use self::station::Station;
 use self::memory::Memory;
 
@@ -35,7 +37,12 @@ fn spawn_command<FSType: FileSystem + Send + 'static>(
     thread::spawn(
         move || -> Result<CommandResult, String>
         {
-            do_command(record, senders, receivers, station)
+            do_command(
+                record,
+                senders,
+                receivers,
+                station,
+                OsExecutor::new())
         }
     )
 }
@@ -131,7 +138,9 @@ fn main()
 
                                                 let station = Station::new(
                                                     os_file_system.clone(),
-                                                    memory.get_rule_history(&record.ticket));
+                                                    memory.get_rule_history(&record.ticket)
+                                                );
+
                                                 handles.push(
                                                     spawn_command(
                                                         record,

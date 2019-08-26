@@ -1,6 +1,9 @@
 extern crate filesystem;
+
 use crate::memory::RuleHistory;
 use crate::ticket::{Ticket, TicketFactory};
+use crate::executor::CommandResult;
+
 use filesystem::FileSystem;
 
 pub struct Station<FSType: FileSystem>
@@ -9,11 +12,12 @@ pub struct Station<FSType: FileSystem>
     file_system: FSType,
 }
 
-static EMPTY_TARGETS: &[Ticket; 0] = &[];
-
 impl<FSType: FileSystem> Station<FSType>
 {
-    pub fn new(file_system : FSType, rule_history: RuleHistory) -> Station<FSType>
+    pub fn new(
+        file_system : FSType,
+        rule_history: RuleHistory)
+        -> Station<FSType>
     {
         Station
         {
@@ -27,7 +31,7 @@ impl<FSType: FileSystem> Station<FSType>
         match self.rule_history.get(source_ticket)
         {
             Some(tickets) => tickets,
-            None => EMPTY_TARGETS,
+            None => &[],
         }
     }
 
