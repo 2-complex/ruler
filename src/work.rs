@@ -106,6 +106,14 @@ pub fn do_command<FSType: FileSystem, ExecType: Executor>(
         Ok(CommandResult::new())
     };
 
+    for target_path in record.targets.iter()
+    {
+        if ! station.is_file(&target_path)
+        {
+            return Err(format!("File not found: {}", target_path))
+        }
+    }
+
     for (sub_index, sender) in senders
     {
         match station.get_file_ticket(&record.targets[sub_index])
@@ -460,6 +468,40 @@ mod test
                 }
             },
             Err(err) => panic!("Command failed: {}", err),
+        }
+    }
+
+    #[test]
+    fn file_not_there()
+    {
+        let file_system = FakeFileSystem::new();
+
+        match file_system.write_file(Path::new(&"some-other-file.txt"), "Arbitrary content\n")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File write operation failed"),
+        }
+
+        match do_command(
+            Record
+            {
+                targets: vec!["verse1.txt".to_string()],
+                source_indices: vec![],
+                ticket: TicketFactory::new().result(),
+                command: vec![],
+            },
+            vec![],
+            vec![],
+            Station::new(file_system.clone(), RuleHistory::new()),
+            FakeExecutor::new(file_system.clone()))
+        {
+            Ok(result) =>
+            {
+                panic!("Expected failure when file not present")
+            },
+            Err(_err) =>
+            {
+            },
         }
     }
 }
