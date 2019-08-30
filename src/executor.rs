@@ -1,7 +1,7 @@
 use std::str::from_utf8;
 use std::process::Output;
 
-pub struct CommandResult
+pub struct CommandLineOutput
 {
     pub out : String,
     pub err : String,
@@ -9,11 +9,11 @@ pub struct CommandResult
     pub success : bool,
 }
 
-impl CommandResult
+impl CommandLineOutput
 {
-    pub fn new() -> CommandResult
+    pub fn new() -> CommandLineOutput
     {
-        CommandResult
+        CommandLineOutput
         {
             out : "".to_string(),
             err : "".to_string(),
@@ -22,9 +22,9 @@ impl CommandResult
         }
     }
 
-    pub fn from_output(output: Output) -> CommandResult
+    pub fn from_output(output: Output) -> CommandLineOutput
     {
-        CommandResult
+        CommandLineOutput
         {
             out : match from_utf8(&output.stdout)
             {
@@ -46,5 +46,5 @@ impl CommandResult
 
 pub trait Executor
 {
-    fn execute_command(&self, command_list: Vec<String>) -> Result<CommandResult, String>;
+    fn execute_command(&self, command_list: Vec<String>) -> Result<CommandLineOutput, String>;
 }

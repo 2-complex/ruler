@@ -19,23 +19,24 @@ mod work;
 mod memory;
 mod station;
 mod executor;
+mod packet;
 
 use self::rule::Record;
-use self::ticket::Ticket;
-use self::executor::CommandResult;
+use self::packet::Packet;
+use self::executor::CommandLineOutput;
 use self::work::{OsExecutor, do_command};
 use self::station::Station;
 use self::memory::Memory;
 
 fn spawn_command<FSType: FileSystem + Send + 'static>(
     record: Record,
-    senders : Vec<(usize, Sender<Ticket>)>,
-    receivers : Vec<Receiver<Ticket>>,
+    senders : Vec<(usize, Sender<Packet>)>,
+    receivers : Vec<Receiver<Packet>>,
     station : Station<FSType> )
-    -> JoinHandle<Result<CommandResult, String>>
+    -> JoinHandle<Result<CommandLineOutput, String>>
 {
     thread::spawn(
-        move || -> Result<CommandResult, String>
+        move || -> Result<CommandLineOutput, String>
         {
             do_command(
                 record,
@@ -49,18 +50,18 @@ fn spawn_command<FSType: FileSystem + Send + 'static>(
 
 fn make_multimaps(records : &Vec<Record>)
     -> (
-        MultiMap<usize, (usize, Sender<Ticket>)>,
-        MultiMap<usize, (Receiver<Ticket>)>
+        MultiMap<usize, (usize, Sender<Packet>)>,
+        MultiMap<usize, (Receiver<Packet>)>
     )
 {
-    let mut senders : MultiMap<usize, (usize, Sender<Ticket>)> = MultiMap::new();
-    let mut receivers : MultiMap<usize, (Receiver<Ticket>)> = MultiMap::new();
+    let mut senders : MultiMap<usize, (usize, Sender<Packet>)> = MultiMap::new();
+    let mut receivers : MultiMap<usize, (Receiver<Packet>)> = MultiMap::new();
 
     for (target_index, record) in records.iter().enumerate()
     {
         for (source_index, sub_index) in record.source_indices.iter()
         {
-            let (sender, receiver) : (Sender<Ticket>, Receiver<Ticket>) = mpsc::channel();
+            let (sender, receiver) : (Sender<Packet>, Receiver<Packet>) = mpsc::channel();
             senders.insert(*source_index, (*sub_index, sender));
             receivers.insert(target_index, receiver);
         }

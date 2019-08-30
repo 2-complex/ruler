@@ -1,9 +1,10 @@
 extern crate filesystem;
 
-use crate::ticket::{Ticket, TicketFactory};
+use crate::packet::Packet;
+use crate::ticket::TicketFactory;
 use crate::rule::Record;
 use crate::station::Station;
-use crate::executor::{CommandResult, Executor};
+use crate::executor::{CommandLineOutput, Executor};
 
 use filesystem::FileSystem;
 use std::process::Command;
@@ -24,7 +25,7 @@ impl OsExecutor
 
 impl Executor for OsExecutor
 {
-    fn execute_command(&self, command_list: Vec<String>) -> Result<CommandResult, String>
+    fn execute_command(&self, command_list: Vec<String>) -> Result<CommandLineOutput, String>
     {
         let mut command_queue = VecDeque::from(command_list.clone());
         let command_opt = match command_queue.pop_front()
@@ -47,22 +48,39 @@ impl Executor for OsExecutor
             {
                 match command.output()
                 {
-                    Ok(out) => Ok(CommandResult::from_output(out)),
+                    Ok(out) => Ok(CommandLineOutput::from_output(out)),
                     Err(why) => Err(why.to_string()),
                 }
             },
-            None => Ok(CommandResult::new()),
+            None => Ok(CommandLineOutput::new()),
         }
     }
 }
 
+fn send_error_to_all(
+    error : String,
+    senders : Vec<(usize, Sender<Packet>)>)
+    -> Result<CommandLineOutput, String>
+{
+    for (_sub_index, sender) in senders
+    {
+        match sender.send(Packet::from_error(error.clone()))
+        {
+            Ok(_) => {},
+            Err(why) => return Err(format!("Sender malfunction.  Something awful.  {}", why)),
+        }
+    }
+
+    Err("Received error from source rule".to_string())
+}
+
 pub fn do_command<FSType: FileSystem, ExecType: Executor>(
-    record: Record,
-    senders : Vec<(usize, Sender<Ticket>)>,
-    receivers : Vec<Receiver<Ticket>>,
+    record : Record,
+    senders : Vec<(usize, Sender<Packet>)>,
+    receivers : Vec<Receiver<Packet>>,
     station : Station<FSType>,
-    executor: ExecType)
-    -> Result<CommandResult, String>
+    executor : ExecType)
+    -> Result<CommandLineOutput, String>
 {
     let mut factory = TicketFactory::new();
 
@@ -70,9 +88,13 @@ pub fn do_command<FSType: FileSystem, ExecType: Executor>(
     {
         match rcv.recv()
         {
-            Ok(ticket) => 
+            Ok(packet) => 
             {
-                factory.input_ticket(ticket);
+                match packet.get_ticket()
+                {
+                    Ok(ticket) => factory.input_ticket(ticket),
+                    Err(error) => return send_error_to_all(error, senders),
+                }
             },
             Err(why) => return Err(format!("ERROR {}", why)),
         }
@@ -98,12 +120,15 @@ pub fn do_command<FSType: FileSystem, ExecType: Executor>(
         match executor.execute_command(record.command)
         {
             Ok(command_result) => Ok(command_result),
-            Err(why) => Err(format!("Error in command to build: {}\n{}", record.targets.join(" "), why)),
+            Err(why) =>
+            {
+                return Err(format!("Error in command to build: {} {}", record.targets.join(" "), why))
+            },
         }
     }
     else
     {
-        Ok(CommandResult::new())
+        Ok(CommandLineOutput::new())
     };
 
     for target_path in record.targets.iter()
@@ -114,13 +139,16 @@ pub fn do_command<FSType: FileSystem, ExecType: Executor>(
         }
     }
 
+
     for (sub_index, sender) in senders
     {
+        // Someone should cache the value of the ticket as an optimization,
+        // it could be here, or it could be in station, but someone..
         match station.get_file_ticket(&record.targets[sub_index])
         {
             Ok(ticket) =>
             {
-                match sender.send(ticket)
+                match sender.send(Packet::from_ticket(ticket))
                 {
                     Ok(_) => {},
                     Err(_error) => eprintln!("CHANNEL SEND ERROR"),
@@ -140,12 +168,14 @@ mod test
     use crate::work::{Station, do_command};
     use crate::ticket::TicketFactory;
     use crate::memory::RuleHistory;
-    use crate::executor::{Executor, CommandResult};
+    use crate::executor::{Executor, CommandLineOutput};
+    use crate::packet::Packet;
 
     use filesystem::{FileSystem, FakeFileSystem};
     use std::path::Path;
-    use std::sync::mpsc;
+    use std::sync::mpsc::{self, Sender, Receiver};
     use std::str::from_utf8;
+    use std::thread::{self, JoinHandle};
 
     struct FakeExecutor
     {
@@ -165,11 +195,10 @@ mod test
 
     impl Executor for FakeExecutor
     {
-        fn execute_command(&self, command_list : Vec<String>) -> Result<CommandResult, String>
+        fn execute_command(&self, command_list : Vec<String>) -> Result<CommandLineOutput, String>
         {
             let n = command_list.len();
             let mut output = String::new();
-
 
             if n > 1
             {
@@ -177,27 +206,31 @@ mod test
                 {
                     "mycat" =>
                     {
-                        println!("mycat something: {}", command_list[n-1]);
-                        for f in command_list[1..(n-1)].iter()
+                        for file in command_list[1..(n-1)].iter()
                         {
-                            match self.file_system.read_file(f)
+                            match self.file_system.read_file(file)
                             {
                                 Ok(content) =>
                                 {
                                     match from_utf8(&content)
                                     {
-                                        Ok(content_string) => output.push_str(content_string),
-                                        Err(_) => return Err(format!("File contained non utf8 bytes: {}", f)),
+                                        Ok(content_string) =>
+                                        {
+                                            output.push_str(content_string);
+                                        }
+                                        Err(_) => return Err(format!("File contained non utf8 bytes: {}", file)),
                                     }
                                 }
-                                Err(_) => return Err(format!("File failed to open: {}", f)),
+                                Err(_) =>
+                                {
+                                    return Err(format!("File failed to open: {}", file));
+                                }
                             }
                         }
 
-                        println!("about to concat into file: {}", command_list[n-1]);
                         match self.file_system.write_file(Path::new(&command_list[n-1]), output)
                         {
-                            Ok(_) => Ok(CommandResult::new()),
+                            Ok(_) => Ok(CommandLineOutput::new()),
                             Err(why) =>
                             {
                                 Err(format!("Filed to cat into file: {}: {}", command_list[n-1], why))
@@ -209,7 +242,7 @@ mod test
             }
             else
             {
-                Ok(CommandResult::new())
+                Ok(CommandLineOutput::new())
             }
         }
     }
@@ -263,13 +296,13 @@ mod test
             Err(_) => panic!("File write operation failed"),
         }
 
-        match sender_a.send(TicketFactory::from_str("apples").result())
+        match sender_a.send(Packet::from_ticket(TicketFactory::from_str("apples").result()))
         {
             Ok(p) => assert_eq!(p, ()),
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        match sender_b.send(TicketFactory::from_str("bananas").result())
+        match sender_b.send(Packet::from_ticket(TicketFactory::from_str("bananas").result()))
         {
             Ok(p) => assert_eq!(p, ()),
             Err(e) => panic!("Unexpected error sending: {}", e),
@@ -297,9 +330,13 @@ mod test
 
                 match receiver_c.recv()
                 {
-                    Ok(ticket) =>
+                    Ok(packet) =>
                     {
-                        assert_eq!(ticket, TicketFactory::new().result());
+                        match packet.get_ticket()
+                        {
+                            Ok(ticket) => assert_eq!(ticket, TicketFactory::new().result()),
+                            Err(why) => panic!("Unexpected error doing command: {}", why),
+                        }
                     }
                     Err(_) => panic!("Unexpected fail to receive"),
                 }
@@ -329,13 +366,13 @@ mod test
             Err(_) => panic!("File write operation failed"),
         }
 
-        match sender_a.send(TicketFactory::from_str("Roses are red\n").result())
+        match sender_a.send(Packet::from_ticket(TicketFactory::from_str("Roses are red\n").result()))
         {
             Ok(p) => assert_eq!(p, ()),
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        match sender_b.send(TicketFactory::from_str("Violets are violet\n").result())
+        match sender_b.send(Packet::from_ticket(TicketFactory::from_str("Violets are violet\n").result()))
         {
             Ok(p) => assert_eq!(p, ()),
             Err(e) => panic!("Unexpected error sending: {}", e),
@@ -367,11 +404,18 @@ mod test
 
                 match receiver_c.recv()
                 {
-                    Ok(ticket) =>
+                    Ok(packet) =>
                     {
-                        assert_eq!(
-                            ticket,
-                            TicketFactory::from_str("Roses are red\nViolets are violet\n").result());
+                        match packet.get_ticket()
+                        {
+                            Ok(ticket) =>
+                            {
+                                assert_eq!(
+                                    ticket,
+                                    TicketFactory::from_str("Roses are red\nViolets are violet\n").result());
+                            },
+                            Err(_) => panic!("Failed to receive ticket"),
+                        }
                     }
                     Err(_) => panic!("Unexpected fail to receive"),
                 }
@@ -420,13 +464,13 @@ mod test
             Err(_) => panic!("File write operation failed"),
         }
 
-        match sender_a.send(TicketFactory::from_str("Roses are red\n").result())
+        match sender_a.send(Packet::from_ticket(TicketFactory::from_str("Roses are red\n").result()))
         {
             Ok(p) => assert_eq!(p, ()),
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        match sender_b.send(TicketFactory::from_str("Violets are violet\n").result())
+        match sender_b.send(Packet::from_ticket(TicketFactory::from_str("Violets are violet\n").result()))
         {
             Ok(p) => assert_eq!(p, ()),
             Err(e) => panic!("Unexpected error sending: {}", e),
@@ -458,11 +502,21 @@ mod test
 
                 match receiver_c.recv()
                 {
-                    Ok(ticket) =>
+                    Ok(packet) =>
                     {
-                        assert_eq!(
-                            ticket,
-                            TicketFactory::from_str("Roses are red\nViolets are violet\n").result());
+                        match packet.get_ticket()
+                        {
+                            Ok(ticket) =>
+                            {
+                                assert_eq!(
+                                    ticket,
+                                    TicketFactory::from_str("Roses are red\nViolets are violet\n").result());
+                            },
+                            Err(message) =>
+                            {
+                                panic!("Failed to receive ticket: {}", message);
+                            },
+                        }
                     }
                     Err(_) => panic!("Unexpected fail to receive"),
                 }
@@ -495,13 +549,180 @@ mod test
             Station::new(file_system.clone(), RuleHistory::new()),
             FakeExecutor::new(file_system.clone()))
         {
-            Ok(result) =>
+            Ok(_) =>
             {
                 panic!("Expected failure when file not present")
             },
-            Err(_err) =>
+            Err(err) =>
             {
+                assert_eq!(err, "File not found: verse1.txt");
             },
+        }
+    }
+
+    fn spawn_command<FSType: FileSystem + Send + 'static>(
+        record: Record,
+        senders : Vec<(usize, Sender<Packet>)>,
+        receivers : Vec<Receiver<Packet>>,
+        station : Station<FSType>,
+        executor: FakeExecutor )
+        -> JoinHandle<Result<CommandLineOutput, String>>
+    {
+        thread::spawn(
+            move || -> Result<CommandLineOutput, String>
+            {
+                do_command(
+                    record,
+                    senders,
+                    receivers,
+                    station,
+                    executor)
+            }
+        )
+    }
+
+    #[test]
+    fn one_dependence()
+    {
+        let file_system = FakeFileSystem::new();
+
+        match file_system.write_file(Path::new(&"verse1.txt"), "I wish I were a windowsill")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File write operation failed"),
+        }
+
+        let (sender, receiver) = mpsc::channel();
+
+        let handle1 = spawn_command(
+            Record
+            {
+                targets: vec!["stanza1.txt".to_string()],
+                source_indices: vec![],
+                ticket: TicketFactory::new().result(),
+                command: vec![
+                    "mycat".to_string(),
+                    "verse1.txt".to_string(),
+                    "stanza1.txt".to_string()
+                ],
+            },
+            vec![(0, sender)],
+            vec![],
+            Station::new(file_system.clone(), RuleHistory::new()),
+            FakeExecutor::new(file_system.clone())
+        );
+
+        let handle2 = spawn_command(
+            Record
+            {
+                targets: vec!["poem.txt".to_string()],
+                source_indices: vec![],
+                ticket: TicketFactory::new().result(),
+                command: vec![
+                    "mycat".to_string(),
+                    "stanza1.txt".to_string(),
+                    "poem.txt".to_string()
+                ],
+            },
+            vec![],
+            vec![receiver],
+            Station::new(file_system.clone(), RuleHistory::new()),
+            FakeExecutor::new(file_system.clone())
+        );
+
+        match handle1.join()
+        {
+            Ok(_) =>
+            {
+                assert_eq!(from_utf8(&file_system.read_file("verse1.txt").unwrap()).unwrap(), "I wish I were a windowsill");
+            },
+            Err(_) => panic!("First thread failed"),
+        }
+
+        match handle2.join()
+        {
+            Ok(_) =>
+            {
+                assert_eq!(from_utf8(&file_system.read_file("verse1.txt").unwrap()).unwrap(), "I wish I were a windowsill");
+            },
+            Err(_) => panic!("Second thread failed"),
+        }
+    }
+
+
+    #[test]
+    fn one_dependence_with_error()
+    {
+        let file_system = FakeFileSystem::new();
+
+        match file_system.write_file(Path::new(&"some-other-file.txt"), "Arbitrary content\n")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File write operation failed"),
+        }
+
+        let (sender, receiver) = mpsc::channel();
+
+        let handle1 = spawn_command(
+            Record
+            {
+                targets: vec!["stanza1.txt".to_string()],
+                source_indices: vec![],
+                ticket: TicketFactory::new().result(),
+                command: vec![
+                    "mycat".to_string(),
+                    "verse1.txt".to_string(),
+                    "stanza1.txt".to_string()
+                ],
+            },
+            vec![(0, sender)],
+            vec![],
+            Station::new(file_system.clone(), RuleHistory::new()),
+            FakeExecutor::new(file_system.clone())
+        );
+
+        let handle2 = spawn_command(
+            Record
+            {
+                targets: vec!["poem.txt".to_string()],
+                source_indices: vec![],
+                ticket: TicketFactory::new().result(),
+                command: vec![
+                    "mycat".to_string(),
+                    "stanza1.txt".to_string(),
+                    "poem.txt".to_string()
+                ],
+            },
+            vec![],
+            vec![receiver],
+            Station::new(file_system.clone(), RuleHistory::new()),
+            FakeExecutor::new(file_system.clone())
+        );
+
+        match handle1.join()
+        {
+            Ok(thread_result) =>
+            {
+                match thread_result
+                {
+                    Ok(_) => panic!("First thread failed to error"),
+                    Err(_) => {},
+                }
+            }
+            Err(_) => panic!("First thread join failed"),
+        }
+
+        match handle2.join()
+        {
+            Ok(thread_result) =>
+            {
+                match thread_result
+                {
+                    Ok(_) => panic!("Second thread failed to error"),
+                    Err(_) => {},
+                }
+            },
+            Err(_) => panic!("Second thread join failed"),
         }
     }
 }
