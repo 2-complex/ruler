@@ -24,7 +24,7 @@ mod packet;
 use self::rule::Record;
 use self::packet::Packet;
 use self::executor::CommandLineOutput;
-use self::work::{OsExecutor, do_command};
+use self::work::{OsExecutor, OsMetadataGetter, do_command};
 use self::station::Station;
 use self::memory::Memory;
 
@@ -43,7 +43,8 @@ fn spawn_command<FSType: FileSystem + Send + 'static>(
                 senders,
                 receivers,
                 station,
-                OsExecutor::new())
+                OsExecutor::new(),
+                OsMetadataGetter::new())
         }
     )
 }
