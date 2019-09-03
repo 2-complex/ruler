@@ -226,6 +226,23 @@ mod test
                             }
                         }
                     },
+
+                    "rm" =>
+                    {
+                        for file in command_list[1..n].iter()
+                        {
+                            match self.file_system.remove_file(file)
+                            {
+                                Ok(()) => {}
+                                Err(_) =>
+                                {
+                                    return Err(format!("File failed to delete: {}", file));
+                                }
+                            }
+                        }
+
+                        Ok(CommandLineOutput::new())
+                    },
                     _=> Err(format!("Non command given: {}", command_list[0]))
                 }
             }
@@ -544,6 +561,40 @@ mod test
             Station::new(
                 to_info(vec!["verse1.txt".to_string()]),
                 vec![],
+                RuleHistory::new(),
+                file_system.clone(),
+                FakeMetadataGetter::new()
+            ),
+            vec![],
+            vec![],
+            FakeExecutor::new(file_system.clone()))
+        {
+            Ok(_) =>
+            {
+                panic!("Expected failure when file not present")
+            },
+            Err(err) =>
+            {
+                assert_eq!(err, "File not found: verse1.txt");
+            },
+        }
+    }
+
+    #[test]
+    fn target_removed_by_command()
+    {
+        let file_system = FakeFileSystem::new();
+
+        match file_system.write_file(Path::new(&"verse1.txt"), "Arbitrary content\n")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File write operation failed"),
+        }
+
+        match do_command(
+            Station::new(
+                to_info(vec!["verse1.txt".to_string()]),
+                vec!["rm".to_string(), "verse1.txt".to_string()],
                 RuleHistory::new(),
                 file_system.clone(),
                 FakeMetadataGetter::new()

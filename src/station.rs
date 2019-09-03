@@ -66,11 +66,6 @@ Station<
             None => &[],
         }
     }
-
-    pub fn is_file(&self, path : &str) -> bool
-    {
-        self.file_system.is_file(path)
-    }
 }
 
 pub fn get_file_ticket<
