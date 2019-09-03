@@ -80,21 +80,38 @@ fn main()
         .version("0.1.0")
         .author("Peterson Trethewey <ptrethewey@roblox.com>")
         .about("You know when you have files that depend on other files?  This is for that situation.")
-        .arg(Arg::with_name("RULEFILE")
+        .arg(Arg::with_name("COMMAND")
              .required(true)
              .takes_value(true)
              .index(1)
              .help("path to build rules file"))
+        .arg(Arg::from_usage("-r --rules=[RULES] 'Sets a rule file to use'"))
         .arg(Arg::from_usage("-t --target=[TARGET] 'Sets which target to build'"))
-        .arg(Arg::from_usage("-t --memory=[MEMORY] 'Where to read/write cached file content data'"))
+        .arg(Arg::from_usage("-m --memory=[MEMORY] 'Where to read/write cached file content data'"))
         .get_matches();
 
-    let rulefile = matches.value_of("RULEFILE").unwrap();
-    let memoryfile = matches.value_of("MEMORY").unwrap();
     let mut os_file_system = OsFileSystem::new();
+
+    let memoryfile =
+    match matches.value_of("memory")
+    {
+        Some(value) => value,
+        None => "my.memory",
+    };
+
+    let rulefile =
+    match matches.value_of("rules")
+    {
+        Some(value) => value,
+        None => panic!("No rules!"),
+    };
 
     match matches.value_of("target")
     {
+        None =>
+        {
+            eprintln!("ERROR no target to build");
+        },
         Some(target) =>
         {
             println!("Reading rulefile: {}", rulefile);
@@ -214,10 +231,6 @@ fn main()
                 }
             }
 
-        },
-        None =>
-        {
-            eprintln!("ERROR no target to build");
         },
     };
 }
