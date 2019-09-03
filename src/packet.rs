@@ -17,15 +17,6 @@ impl Packet
         }
     }
 
-    pub fn from_error(message: String) -> Packet
-    {
-        Packet
-        {
-            ticket_opt: None,
-            error_message: message,
-        }
-    }
-
     pub fn get_ticket(self) -> Result<Ticket, String>
     {
         match self.ticket_opt

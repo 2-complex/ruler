@@ -20,31 +20,34 @@ mod memory;
 mod station;
 mod executor;
 mod packet;
+mod metadata;
 
 use self::rule::Record;
 use self::packet::Packet;
 use self::executor::CommandLineOutput;
-use self::work::{OsExecutor, OsMetadataGetter, do_command};
-use self::station::Station;
+use self::work::{OsExecutor, do_command};
+use self::metadata::{MetadataGetter, OsMetadataGetter};
+use self::station::{Station, TargetFileInfo};
 use self::memory::Memory;
 
-fn spawn_command<FSType: FileSystem + Send + 'static>(
-    record: Record,
+fn spawn_command<
+    FileSystemType: FileSystem + Send + 'static,
+    MetadataGetterType: MetadataGetter + Send + 'static>
+(
+    station : Station<FileSystemType, MetadataGetterType>,
     senders : Vec<(usize, Sender<Packet>)>,
     receivers : Vec<Receiver<Packet>>,
-    station : Station<FSType> )
-    -> JoinHandle<Result<CommandLineOutput, String>>
+) -> JoinHandle<Result<CommandLineOutput, String>>
 {
     thread::spawn(
         move || -> Result<CommandLineOutput, String>
         {
             do_command(
-                record,
+                station,
                 senders,
                 receivers,
-                station,
-                OsExecutor::new(),
-                OsMetadataGetter::new())
+                OsExecutor::new()
+            )
         }
     )
 }
@@ -124,7 +127,7 @@ fn main()
                                             let mut handles = Vec::new();
                                             let mut index : usize = 0;
 
-                                            for record in records.drain(..)
+                                            for mut record in records.drain(..)
                                             {
                                                 let sender_vec = match senders.remove(&index)
                                                 {
@@ -138,17 +141,31 @@ fn main()
                                                     None => vec![],
                                                 };
 
+                                                let mut target_infos = Vec::new();
+                                                for target_path in record.targets.drain(..)
+                                                {
+                                                    target_infos.push(
+                                                        TargetFileInfo
+                                                        {
+                                                            history : memory.get_target_history(&target_path),
+                                                            path : target_path,
+                                                        }
+                                                    );
+                                                }
+
                                                 let station = Station::new(
+                                                    target_infos,
+                                                    record.command,
+                                                    memory.get_rule_history(&record.ticket),
                                                     os_file_system.clone(),
-                                                    memory.get_rule_history(&record.ticket)
+                                                    OsMetadataGetter::new(),
                                                 );
 
                                                 handles.push(
                                                     spawn_command(
-                                                        record,
+                                                        station,
                                                         sender_vec,
                                                         receiver_vec,
-                                                        station
                                                     )
                                                 );
 

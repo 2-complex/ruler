@@ -1,4 +1,4 @@
-use crate::ticket::{Ticket};
+use crate::ticket::{TicketFactory, Ticket};
 
 extern crate filesystem;
 use filesystem::FileSystem;
@@ -10,7 +10,7 @@ use std::path::Path;
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct RuleHistory
 {
-    source_to_targets : HashMap<Ticket, Vec<Ticket>>
+    source_to_targets : HashMap<Ticket, Vec<Ticket>>,
 }
 
 impl RuleHistory
@@ -32,12 +32,53 @@ impl RuleHistory
     {
         self.source_to_targets.get(source_ticket)
     }
+
+    pub fn remember_target_tickets(&self, source_ticket : &Ticket) -> &[Ticket]
+    {
+        match self.get(source_ticket)
+        {
+            Some(tickets) => tickets,
+            None => &[],
+        }
+    }
 }
+
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+pub struct TargetHistory
+{
+    pub ticket : Ticket,
+    pub timestamp : u64,
+}
+
+impl TargetHistory
+{
+    pub fn empty() -> TargetHistory
+    {
+        TargetHistory
+        {
+            ticket : TicketFactory::new().result(),
+            timestamp : 0,
+        }
+    }
+
+    pub fn new(
+        ticket : Ticket,
+        timestamp : u64) -> TargetHistory
+    {
+        TargetHistory
+        {
+            ticket : ticket,
+            timestamp : timestamp,
+        }
+    }
+}
+
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct Memory
 {
-    rule_histories : HashMap<Ticket, RuleHistory>
+    rule_histories : HashMap<Ticket, RuleHistory>,
+    target_histories : HashMap<String, TargetHistory>,
 }
 
 impl Memory
@@ -80,7 +121,8 @@ impl Memory
     {
         Memory
         {
-            rule_histories: HashMap::new(),
+            rule_histories : HashMap::new(),
+            target_histories : HashMap::new(),
         }
     }
 
@@ -102,6 +144,15 @@ impl Memory
         {
             Some(rule_history) => rule_history,
             None => RuleHistory::new(),
+        }
+    }
+
+    pub fn get_target_history(&mut self, target_path: &str) -> TargetHistory
+    {
+        match self.target_histories.remove(target_path)
+        {
+            Some(target_history) => target_history,
+            None => TargetHistory::empty(),
         }
     }
 }

@@ -1,21 +1,15 @@
 extern crate filesystem;
-extern crate chrono;
-
-use chrono::offset::Utc;
-use chrono::DateTime;
 
 use crate::packet::Packet;
 use crate::ticket::TicketFactory;
-use crate::rule::Record;
-use crate::station::Station;
+use crate::station::{Station, get_file_ticket};
 use crate::executor::{CommandLineOutput, Executor};
+use crate::metadata::MetadataGetter;
 
 use filesystem::FileSystem;
 use std::process::Command;
 use std::sync::mpsc::{Sender, Receiver};
 use std::collections::VecDeque;
-use std::fs;
-use std::time::SystemTime;
 
 pub struct OsExecutor
 {
@@ -63,52 +57,11 @@ impl Executor for OsExecutor
     }
 }
 
-pub trait MetadataGetter
-{
-    fn get_modified(&self, path: &str) -> Result<SystemTime, String>;
-}
-
-pub struct OsMetadataGetter
-{
-}
-
-impl OsMetadataGetter
-{
-    pub fn new() -> OsMetadataGetter
-    {
-        OsMetadataGetter
-        {
-        }
-    }
-}
-
-impl MetadataGetter for OsMetadataGetter
-{
-    fn get_modified(&self, path: &str) -> Result<SystemTime, String>
-    {
-        match fs::metadata(path)
-        {
-            Ok(metadata) =>
-            {
-                match metadata.modified()
-                {
-                    Ok(timestamp) => Ok(timestamp),
-                    Err(_) => Err(format!("Could not get modified date for file: {}", path))
-                }
-            },
-            Err(_) => Err(format!("Could not get metadata for file: {}", path))
-        }
-    }
-}
-
-
-pub fn do_command<FSType: FileSystem, ExecType: Executor, MetadataGetterType: MetadataGetter>(
-    record : Record,
+pub fn do_command<FileSystemType: FileSystem, ExecType: Executor, MetadataGetterType: MetadataGetter>(
+    station : Station<FileSystemType, MetadataGetterType>,
     senders : Vec<(usize, Sender<Packet>)>,
     receivers : Vec<Receiver<Packet>>,
-    station : Station<FSType>,
-    executor : ExecType,
-    metadata_getter: MetadataGetterType)
+    executor : ExecType)
     -> Result<CommandLineOutput, String>
 {
     let mut factory = TicketFactory::new();
@@ -130,9 +83,12 @@ pub fn do_command<FSType: FileSystem, ExecType: Executor, MetadataGetterType: Me
     }
 
     let mut target_tickets = Vec::new();
-    for target_path in record.targets.iter()
+    for target_info in station.target_infos.iter()
     {
-        match station.get_file_ticket(target_path)
+        match get_file_ticket(
+            &station.file_system,
+            &station.metadata_getter,
+            target_info)
         {
             Ok(ticket) =>
             {
@@ -142,16 +98,16 @@ pub fn do_command<FSType: FileSystem, ExecType: Executor, MetadataGetterType: Me
         }
     }
 
-    let remembered_target_tickets = station.remember_target_tickets(&factory.result());
+    let remembered_target_tickets = station.rule_history.remember_target_tickets(&factory.result());
 
     let result = if target_tickets != remembered_target_tickets
     {
-        match executor.execute_command(record.command)
+        match executor.execute_command(station.command)
         {
             Ok(command_result) => Ok(command_result),
             Err(why) =>
             {
-                return Err(format!("Error in command to build: {} {}", record.targets.join(" "), why))
+                return Err(format!("Error executing command: {}", why))
             },
         }
     }
@@ -160,30 +116,23 @@ pub fn do_command<FSType: FileSystem, ExecType: Executor, MetadataGetterType: Me
         Ok(CommandLineOutput::new())
     };
 
-    for target_path in record.targets.iter()
+    // Make sure all the targets exist at this point.
+    for target_info in station.target_infos.iter()
     {
-        match metadata_getter.get_modified(&target_path)
+        if !station.file_system.is_file(&target_info.path) && !station.file_system.is_dir(&target_info.path)
         {
-            Ok(timestamp) =>
-            {
-                let datetime: DateTime<Utc> = timestamp.into();
-                println!("{} : {}", target_path, datetime.format("%d/%m/%Y %T"));
-            }
-            Err(_) => {},
-        }
-
-        if ! station.is_file(&target_path)
-        {
-            return Err(format!("File not found: {}", target_path))
+            return Err(format!("File not found: {}", target_info.path));
         }
     }
 
-
     for (sub_index, sender) in senders
     {
-        // Someone should cache the value of the ticket as an optimization,
-        // it could be here, or it could be in station, but someone..
-        match station.get_file_ticket(&record.targets[sub_index])
+        // Potential optimization: avoid calling get_file_ticket twice if
+        // the command didn't run.
+        match get_file_ticket(
+            &station.file_system,
+            &station.metadata_getter,
+            &station.target_infos[sub_index])
         {
             Ok(ticket) =>
             {
@@ -203,22 +152,20 @@ pub fn do_command<FSType: FileSystem, ExecType: Executor, MetadataGetterType: Me
 #[cfg(test)]
 mod test
 {
-    use crate::rule::Record;
-    use crate::work::{Station, do_command};
+    use crate::station::{Station, TargetFileInfo};
+    use crate::work::do_command;
     use crate::ticket::TicketFactory;
-    use crate::memory::RuleHistory;
+    use crate::memory::{RuleHistory, TargetHistory};
     use crate::executor::{Executor, CommandLineOutput};
     use crate::packet::Packet;
-    use crate::work::MetadataGetter;
+    use crate::metadata::{MetadataGetter, FakeMetadataGetter};
 
     use filesystem::{FileSystem, FakeFileSystem};
     use std::path::Path;
     use std::sync::mpsc::{self, Sender, Receiver};
     use std::str::from_utf8;
     use std::thread::{self, JoinHandle};
-    use std::collections::HashMap;
-    use std::time::SystemTime;
-
+ 
     struct FakeExecutor
     {
         file_system: FakeFileSystem
@@ -289,37 +236,25 @@ mod test
         }
     }
 
-    struct FakeMetadataGetter
+    fn to_info(mut targets : Vec<String>) -> Vec<TargetFileInfo>
     {
-        path_to_time: HashMap<String, SystemTime>,
-    }
+        let mut result = Vec::new();
 
-    impl FakeMetadataGetter
-    {
-        fn new() -> FakeMetadataGetter
+        for target_path in targets.drain(..)
         {
-            FakeMetadataGetter
-            {
-                path_to_time: HashMap::new(),
-            }
+            result.push(
+                TargetFileInfo
+                {
+                    path : target_path,
+                    history : TargetHistory::new(
+                        TicketFactory::new().result(),
+                        0,
+                    ),
+                }
+            );
         }
 
-        fn insert(&mut self, path: &str, time: SystemTime)
-        {
-            self.path_to_time.insert(path.to_string(), time);
-        }
-    }
-
-    impl MetadataGetter for FakeMetadataGetter
-    {
-        fn get_modified(&self, path: &str) -> Result<SystemTime, String>
-        {
-            match self.path_to_time.get(path)
-            {
-                Some(time) => Ok(*time),
-                None => Err(format!("Couldn't get modified date for {}", path)),
-            }
-        }
+        result
     }
 
     #[test]
@@ -333,18 +268,15 @@ mod test
         }
 
         match do_command(
-            Record
-            {
-                targets: vec!["A".to_string()],
-                source_indices: vec![],
-                ticket: TicketFactory::new().result(),
-                command: vec!["noop".to_string()],
-            },
+            Station::new(
+                to_info(vec!["A".to_string()]),
+                vec!["noop".to_string()],
+                RuleHistory::new(),
+                file_system.clone(),
+                FakeMetadataGetter::new()),
             Vec::new(),
             Vec::new(),
-            Station::new(file_system.clone(), RuleHistory::new()),
-            FakeExecutor::new(file_system.clone()),
-            FakeMetadataGetter::new())
+            FakeExecutor::new(file_system.clone()))
         {
             Ok(result) =>
             {
@@ -385,18 +317,15 @@ mod test
         }
 
         match do_command(
-            Record
-            {
-                targets: vec!["A.txt".to_string()],
-                source_indices: vec![],
-                ticket: TicketFactory::new().result(),
-                command: vec!["noop".to_string()],
-            },
+            Station::new(
+                to_info(vec!["A.txt".to_string()]),
+                vec!["noop".to_string()],
+                RuleHistory::new(),
+                file_system.clone(),
+                FakeMetadataGetter::new()),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
-            Station::new(file_system.clone(), RuleHistory::new()),
-            FakeExecutor::new(file_system.clone()),
-            FakeMetadataGetter::new())
+            FakeExecutor::new(file_system.clone()))
         {
             Ok(result) =>
             {
@@ -456,22 +385,20 @@ mod test
         }
 
         match do_command(
-            Record
-            {
-                targets: vec!["poem.txt".to_string()],
-                source_indices: vec![],
-                ticket: TicketFactory::new().result(),
-                command: vec![
+            Station::new(
+                to_info(vec!["poem.txt".to_string()]),
+                vec![
                     "mycat".to_string(),
                     "verse1.txt".to_string(),
                     "verse2.txt".to_string(),
-                    "poem.txt".to_string()],
-            },
+                    "poem.txt".to_string()
+                ],
+                RuleHistory::new(),
+                file_system.clone(),
+                FakeMetadataGetter::new()),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
-            Station::new(file_system.clone(), RuleHistory::new()),
-            FakeExecutor::new(file_system.clone()),
-            FakeMetadataGetter::new())
+            FakeExecutor::new(file_system.clone()))
         {
             Ok(result) =>
             {
@@ -555,22 +482,20 @@ mod test
         }
 
         match do_command(
-            Record
-            {
-                targets: vec!["poem.txt".to_string()],
-                source_indices: vec![],
-                ticket: TicketFactory::new().result(),
-                command: vec![
+            Station::new(
+                to_info(vec!["poem.txt".to_string()]),
+                vec![
                     "error".to_string(),
                     "poem is already correct".to_string(),
                     "this command should not run".to_string(),
                     "the end".to_string()],
-            },
+                rule_history,
+                file_system.clone(),
+                FakeMetadataGetter::new(),
+            ),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
-            Station::new(file_system.clone(), rule_history),
-            FakeExecutor::new(file_system.clone()),
-            FakeMetadataGetter::new())
+            FakeExecutor::new(file_system.clone()))
         {
             Ok(result) =>
             {
@@ -616,18 +541,16 @@ mod test
         }
 
         match do_command(
-            Record
-            {
-                targets: vec!["verse1.txt".to_string()],
-                source_indices: vec![],
-                ticket: TicketFactory::new().result(),
-                command: vec![],
-            },
+            Station::new(
+                to_info(vec!["verse1.txt".to_string()]),
+                vec![],
+                RuleHistory::new(),
+                file_system.clone(),
+                FakeMetadataGetter::new()
+            ),
             vec![],
             vec![],
-            Station::new(file_system.clone(), RuleHistory::new()),
-            FakeExecutor::new(file_system.clone()),
-            FakeMetadataGetter::new())
+            FakeExecutor::new(file_system.clone()))
         {
             Ok(_) =>
             {
@@ -640,25 +563,20 @@ mod test
         }
     }
 
-    fn spawn_command<FSType: FileSystem + Send + 'static>(
-        record: Record,
-        senders : Vec<(usize, Sender<Packet>)>,
-        receivers : Vec<Receiver<Packet>>,
-        station : Station<FSType>,
-        executor: FakeExecutor,
-        metadata_getter: FakeMetadataGetter)
-        -> JoinHandle<Result<CommandLineOutput, String>>
+    fn spawn_command<
+        FileSystemType: FileSystem + Send + 'static,
+        MetadataGetterType: MetadataGetter + Send + 'static
+        > (
+            station : Station<FileSystemType, MetadataGetterType>,
+            senders : Vec<(usize, Sender<Packet>)>,
+            receivers : Vec<Receiver<Packet>>,
+            executor: FakeExecutor
+        ) -> JoinHandle<Result<CommandLineOutput, String>>
     {
         thread::spawn(
             move || -> Result<CommandLineOutput, String>
             {
-                do_command(
-                    record,
-                    senders,
-                    receivers,
-                    station,
-                    executor,
-                    metadata_getter)
+                do_command(station, senders, receivers, executor)
             }
         )
     }
@@ -677,41 +595,37 @@ mod test
         let (sender, receiver) = mpsc::channel();
 
         let handle1 = spawn_command(
-            Record
-            {
-                targets: vec!["stanza1.txt".to_string()],
-                source_indices: vec![],
-                ticket: TicketFactory::new().result(),
-                command: vec![
+            Station::new(
+                to_info(vec!["stanza1.txt".to_string()]),
+                vec![
                     "mycat".to_string(),
                     "verse1.txt".to_string(),
                     "stanza1.txt".to_string()
                 ],
-            },
+                RuleHistory::new(),
+                file_system.clone(),
+                FakeMetadataGetter::new(),
+            ),
             vec![(0, sender)],
             vec![],
-            Station::new(file_system.clone(), RuleHistory::new()),
-            FakeExecutor::new(file_system.clone()),
-            FakeMetadataGetter::new()
+            FakeExecutor::new(file_system.clone())
         );
 
         let handle2 = spawn_command(
-            Record
-            {
-                targets: vec!["poem.txt".to_string()],
-                source_indices: vec![],
-                ticket: TicketFactory::new().result(),
-                command: vec![
+            Station::new(
+                to_info(vec!["poem.txt".to_string()]),
+                vec![
                     "mycat".to_string(),
                     "stanza1.txt".to_string(),
                     "poem.txt".to_string()
                 ],
-            },
+                RuleHistory::new(),
+                file_system.clone(),
+                FakeMetadataGetter::new(),
+            ),
             vec![],
             vec![receiver],
-            Station::new(file_system.clone(), RuleHistory::new()),
-            FakeExecutor::new(file_system.clone()),
-            FakeMetadataGetter::new()
+            FakeExecutor::new(file_system.clone())
         );
 
         match handle1.join()
@@ -754,41 +668,37 @@ mod test
         let (sender, receiver) = mpsc::channel();
 
         let handle1 = spawn_command(
-            Record
-            {
-                targets: vec!["stanza1.txt".to_string()],
-                source_indices: vec![],
-                ticket: TicketFactory::new().result(),
-                command: vec![
+            Station::new(
+                to_info(vec!["stanza1.txt".to_string()]),
+                vec![
                     "mycat".to_string(),
                     "verse1.txt".to_string(),
                     "stanza1.txt".to_string()
                 ],
-            },
+                RuleHistory::new(),
+                file_system.clone(),
+                FakeMetadataGetter::new(),
+            ),
             vec![(0, sender)],
             vec![],
-            Station::new(file_system.clone(), RuleHistory::new()),
-            FakeExecutor::new(file_system.clone()),
-            FakeMetadataGetter::new()
+            FakeExecutor::new(file_system.clone())
         );
 
         let handle2 = spawn_command(
-            Record
-            {
-                targets: vec!["poem.txt".to_string()],
-                source_indices: vec![],
-                ticket: TicketFactory::new().result(),
-                command: vec![
+            Station::new(
+                to_info(vec!["poem.txt".to_string()]),
+                vec![
                     "mycat".to_string(),
                     "stanza1.txt".to_string(),
                     "poem.txt".to_string()
                 ],
-            },
+                RuleHistory::new(),
+                file_system.clone(),
+                FakeMetadataGetter::new(),
+            ),
             vec![],
             vec![receiver],
-            Station::new(file_system.clone(), RuleHistory::new()),
-            FakeExecutor::new(file_system.clone()),
-            FakeMetadataGetter::new()
+            FakeExecutor::new(file_system.clone())
         );
 
         match handle1.join()
@@ -817,4 +727,5 @@ mod test
             Err(_) => panic!("Second thread join failed"),
         }
     }
+
 }

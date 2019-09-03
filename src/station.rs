@@ -1,27 +1,60 @@
 extern crate filesystem;
 
-use crate::memory::RuleHistory;
+use crate::memory::{RuleHistory, TargetHistory};
 use crate::ticket::{Ticket, TicketFactory};
+use crate::metadata::MetadataGetter;
 
 use filesystem::FileSystem;
+use std::time::{Duration, SystemTime, UNIX_EPOCH, SystemTimeError};
 
-pub struct Station<FSType: FileSystem>
+pub struct TargetFileInfo
 {
-    rule_history: RuleHistory,
-    file_system: FSType,
+    pub path : String,
+    pub history : TargetHistory,
 }
 
-impl<FSType: FileSystem> Station<FSType>
+pub struct Station<FileSystemType: FileSystem, MetadataGetterType: MetadataGetter>
+{
+    pub target_infos : Vec<TargetFileInfo>,
+    pub command : Vec<String>,
+    pub rule_history : RuleHistory,
+    pub file_system : FileSystemType,
+    pub metadata_getter : MetadataGetterType,
+}
+
+fn get_timestamp(system_time : SystemTime) -> Result<u64, SystemTimeError>
+{
+    match system_time.duration_since(SystemTime::UNIX_EPOCH)
+    {
+        Ok(duration) => Ok(1_000_000u64 * duration.as_secs() + u64::from(duration.subsec_nanos()) / 1000u64),
+        Err(e) => Err(e),
+    }
+}
+
+impl<
+    FileSystemType: FileSystem,
+    MetadataGetterType: MetadataGetter
+>
+Station<
+    FileSystemType,
+    MetadataGetterType
+>
 {
     pub fn new(
-        file_system : FSType,
-        rule_history: RuleHistory)
-        -> Station<FSType>
+        target_infos : Vec<TargetFileInfo>,
+        command : Vec<String>,
+        rule_history: RuleHistory,
+        file_system : FileSystemType,
+        metadata_getter: MetadataGetterType,
+        ) -> Station<FileSystemType, MetadataGetterType>
     {
         Station
         {
+            target_infos : target_infos,
+            command : command,
             rule_history: rule_history,
             file_system : file_system,
+            metadata_getter : metadata_getter,
         }
     }
 
@@ -38,31 +71,81 @@ impl<FSType: FileSystem> Station<FSType>
     {
         self.file_system.is_file(path)
     }
+}
 
-    pub fn get_file_ticket(&self, target_path : &str) -> Result<Ticket, std::io::Error>
+pub fn get_file_ticket<
+    FileSystemType: FileSystem,
+    MetadataGetterType: MetadataGetter>
+(
+    file_system : &FileSystemType,
+    metadata_getter : &MetadataGetterType,
+    target_info : &TargetFileInfo
+) -> Result<Ticket, std::io::Error>
+{
+    match metadata_getter.get_modified(&target_info.path)
     {
-        if !self.file_system.is_file(target_path) && !self.file_system.is_dir(target_path)
+        Ok(system_time) =>
         {
-            Ok(TicketFactory::does_not_exist())
-        }
-        else
-        {
-            match TicketFactory::from_file(&self.file_system, target_path)
+            match get_timestamp(system_time)
             {
-                Ok(mut factory) => Ok(factory.result()),
-                Err(err) => Err(err),
+                Ok(timestamp) =>
+                {
+                    if timestamp == target_info.history.timestamp
+                    {
+                        println!("About to get ticket out of history");
+                        return Ok(target_info.history.ticket.clone())
+                    }
+                },
+                Err(_) => {},
             }
+        },
+        Err(_) => {},
+    }
+
+    if !file_system.is_file(&target_info.path) && !file_system.is_dir(&target_info.path)
+    {
+        Ok(TicketFactory::does_not_exist())
+    }
+    else
+    {
+        match TicketFactory::from_file(file_system, &target_info.path)
+        {
+            Ok(mut factory) => Ok(factory.result()),
+            Err(err) => Err(err),
         }
     }
 }
+
 
 #[cfg(test)]
 mod test
 {
     use filesystem::{FileSystem, FakeFileSystem};
-    use crate::memory::RuleHistory;
-    use crate::station::Station;
+    use crate::memory::{RuleHistory, TargetHistory};
+    use crate::station::{Station, TargetFileInfo, get_file_ticket};
     use crate::ticket::TicketFactory;
+    use crate::metadata::{MetadataGetter, FakeMetadataGetter};
+
+    fn to_info(mut targets : Vec<String>) -> Vec<TargetFileInfo>
+    {
+        let mut result = Vec::new();
+
+        for target_path in targets.drain(..)
+        {
+            result.push(
+                TargetFileInfo
+                {
+                    path : target_path,
+                    history : TargetHistory::new(
+                        TicketFactory::new().result(),
+                        0,
+                    ),
+                }
+            );
+        }
+
+        result
+    }
 
     #[test]
     fn station_get_tickets_from_filesystem()
@@ -76,9 +159,26 @@ mod test
             Err(why) => panic!("Failed to make fake file: {}", why),
         }
 
-        let station = Station::new(file_system, rule_history);
+        let station = Station::new(
+            to_info(vec!["A".to_string()]),
+            vec!["noop".to_string()],
+            rule_history,
+            file_system.clone(),
+            FakeMetadataGetter::new(),
+        );
 
-        match station.get_file_ticket("quine.sh")
+        match get_file_ticket(
+            &file_system,
+            &FakeMetadataGetter::new(),
+            &TargetFileInfo
+            {
+                path : "quine.sh".to_string(),
+                history : TargetHistory
+                {
+                    ticket : TicketFactory::new().result(),
+                    timestamp : 0,
+                }
+            })
         {
             Ok(ticket) => assert_eq!(ticket, TicketFactory::from_str("cat $0").result()),
             Err(err) => panic!(format!("Could not get ticket: {}", err)),
@@ -111,15 +211,31 @@ mod test
             Err(why) => panic!("Failed to make fake file: {}", why),
         }
 
-        let station = Station::new(file_system, rule_history);
+        let station = Station::new(
+            to_info(vec!["A".to_string()]),
+            vec!["noop".to_string()],
+            rule_history,
+            file_system.clone(),
+            FakeMetadataGetter::new());
 
         // Then ask the station to get the ticket for the current source file:
 
-        match station.get_file_ticket("game.cpp")
+        match get_file_ticket(
+            &file_system,
+            &FakeMetadataGetter::new(),
+            &TargetFileInfo
+            {
+                path : "game.cpp".to_string(),
+                history : TargetHistory
+                {
+                    ticket : TicketFactory::new().result(),
+                    timestamp : 0,
+                }
+            })
         {
             Ok(ticket) =>
             {
-                // Make sure it's what we think it should be
+                // Make sure it matches the content of the file that we wrote
                 assert_eq!(ticket, TicketFactory::from_str(source_content).result());
 
                 // Then create a source ticket for all (one) sources
