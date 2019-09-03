@@ -1036,4 +1036,94 @@ mod test
     }
 
 
+    #[test]
+    fn one_target_correct_hash_incorrect_timestamp()
+    {
+        let file_system = FakeFileSystem::new();
+        let metadata_getter1 = FakeMetadataGetter::new();
+        let mut metadata_getter2 = FakeMetadataGetter::new();
+        let mut rule_history2 = RuleHistory::new();
+
+        match file_system.write_file(Path::new(&"verse1.txt"), "I wish I were a windowsill")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File write operation failed"),
+        }
+
+        match file_system.write_file(Path::new(&"poem.txt"), "Content wrong at first")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File write operation failed"),
+        }
+
+        metadata_getter2.insert_timestamp("poem.txt", 18);
+
+        let mut factory = TicketFactory::new();
+        factory.input_ticket(
+            TicketFactory::from_str("I wish I were a windowsill").result()
+        );
+
+        rule_history2.insert(
+            factory.result(),
+            vec![TicketFactory::from_str("I wish I were a windowsill").result()]);
+
+        let (sender, receiver) = mpsc::channel();
+
+        let handle1 = spawn_command(
+            Station::new(
+                to_info(vec!["verse1.txt".to_string()]),
+                vec![],
+                RuleHistory::new(),
+                file_system.clone(),
+                metadata_getter1,
+            ),
+            vec![(0, sender)],
+            vec![],
+            FakeExecutor::new(file_system.clone())
+        );
+
+        let handle2 = spawn_command(
+            Station::new(
+                vec![
+                    TargetFileInfo
+                    {
+                        path : "poem.txt".to_string(),
+                        history : TargetHistory::new(
+                            TicketFactory::from_str("I wish I were a windowsill").result(),
+                            17,
+                        ),
+                    }
+                ],
+                vec![
+                    "mycat".to_string(),
+                    "verse1.txt".to_string(),
+                    "poem.txt".to_string()
+                ],
+                rule_history2,
+                file_system.clone(),
+                metadata_getter2,
+            ),
+            vec![],
+            vec![receiver],
+            FakeExecutor::new(file_system.clone())
+        );
+
+        match handle1.join()
+        {
+            Ok(_) =>
+            {
+                assert_eq!(from_utf8(&file_system.read_file("verse1.txt").unwrap()).unwrap(), "I wish I were a windowsill");
+            },
+            Err(_) => panic!("First thread failed"),
+        }
+
+        match handle2.join()
+        {
+            Ok(_) =>
+            {
+                assert_eq!(from_utf8(&file_system.read_file("poem.txt").unwrap()).unwrap(), "I wish I were a windowsill");
+            },
+            Err(_) => panic!("Second thread failed"),
+        }
+    }
 }
