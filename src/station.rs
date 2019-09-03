@@ -87,7 +87,6 @@ pub fn get_file_ticket<
                 {
                     if timestamp == target_info.history.timestamp
                     {
-                        println!("About to get ticket out of history");
                         return Ok(target_info.history.ticket.clone())
                     }
                 },
