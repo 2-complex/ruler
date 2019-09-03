@@ -546,6 +546,7 @@ mod test
         }
     }
 
+
     #[test]
     fn file_not_there()
     {
@@ -692,8 +693,171 @@ mod test
         {
             Ok(_) =>
             {
+                assert_eq!(from_utf8(&file_system.read_file("poem.txt").unwrap()).unwrap(), "I wish I were a windowsill");
+            },
+            Err(_) => panic!("Second thread failed"),
+        }
+    }
+
+
+    #[test]
+    fn one_target_already_correct()
+    {
+        let file_system = FakeFileSystem::new();
+        let metadata_getter1 = FakeMetadataGetter::new();
+        let metadata_getter2 = FakeMetadataGetter::new();
+        let mut rule_history2 = RuleHistory::new();
+
+        match file_system.write_file(Path::new(&"verse1.txt"), "I wish I were a windowsill")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File write operation failed"),
+        }
+
+        match file_system.write_file(Path::new(&"poem.txt"), "I wish I were a windowsill")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File write operation failed"),
+        }
+
+        let mut factory = TicketFactory::new();
+        factory.input_ticket(
+            TicketFactory::from_str("I wish I were a windowsill").result()
+        );
+
+        rule_history2.insert(
+            factory.result(),
+            vec![TicketFactory::from_str("I wish I were a windowsill").result()]);
+
+        let (sender, receiver) = mpsc::channel();
+
+        let handle1 = spawn_command(
+            Station::new(
+                to_info(vec!["verse1.txt".to_string()]),
+                vec![],
+                RuleHistory::new(),
+                file_system.clone(),
+                metadata_getter1,
+            ),
+            vec![(0, sender)],
+            vec![],
+            FakeExecutor::new(file_system.clone())
+        );
+
+        let handle2 = spawn_command(
+            Station::new(
+                to_info(vec!["poem.txt".to_string()]),
+                vec![
+                    "error".to_string(),
+                    "this file should".to_string(),
+                    "already be correct".to_string()
+                ],
+                rule_history2,
+                file_system.clone(),
+                metadata_getter2,
+            ),
+            vec![],
+            vec![receiver],
+            FakeExecutor::new(file_system.clone())
+        );
+
+        match handle1.join()
+        {
+            Ok(_) =>
+            {
                 assert_eq!(from_utf8(&file_system.read_file("verse1.txt").unwrap()).unwrap(), "I wish I were a windowsill");
             },
+            Err(_) => panic!("First thread failed"),
+        }
+
+        match handle2.join()
+        {
+            Ok(_) =>
+            {
+                assert_eq!(from_utf8(&file_system.read_file("poem.txt").unwrap()).unwrap(), "I wish I were a windowsill");
+            },
+            Err(_) => panic!("Second thread failed"),
+        }
+    }
+
+
+    #[test]
+    fn one_target_not_there_error_in_command()
+    {
+        let file_system = FakeFileSystem::new();
+        let metadata_getter1 = FakeMetadataGetter::new();
+        let metadata_getter2 = FakeMetadataGetter::new();
+        let mut rule_history2 = RuleHistory::new();
+
+        match file_system.write_file(Path::new(&"verse1.txt"), "I wish I were a windowsill")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File write operation failed"),
+        }
+
+        let mut factory = TicketFactory::new();
+        factory.input_ticket(
+            TicketFactory::from_str("I wish I were a windowsill").result()
+        );
+
+        rule_history2.insert(
+            factory.result(),
+            vec![TicketFactory::from_str("I wish I were a windowsill").result()]);
+
+        let (sender, receiver) = mpsc::channel();
+
+        let handle1 = spawn_command(
+            Station::new(
+                to_info(vec!["verse1.txt".to_string()]),
+                vec![],
+                RuleHistory::new(),
+                file_system.clone(),
+                metadata_getter1,
+            ),
+            vec![(0, sender)],
+            vec![],
+            FakeExecutor::new(file_system.clone())
+        );
+
+        let handle2 = spawn_command(
+            Station::new(
+                to_info(vec!["poem.txt".to_string()]),
+                vec![
+                    "nonsense".to_string(),
+                    "should".to_string(),
+                    "error".to_string(),
+                ],
+                rule_history2,
+                file_system.clone(),
+                metadata_getter2,
+            ),
+            vec![],
+            vec![receiver],
+            FakeExecutor::new(file_system.clone())
+        );
+
+        match handle1.join()
+        {
+            Ok(_) =>
+            {
+                assert_eq!(from_utf8(&file_system.read_file("verse1.txt").unwrap()).unwrap(), "I wish I were a windowsill");
+            },
+            Err(_) => panic!("First thread failed"),
+        }
+
+        match handle2.join()
+        {
+            Ok(thread_result) =>
+            {
+                match thread_result
+                {
+                    Ok(_) => panic!("Second thread failed to error"),
+                    Err(_) =>
+                    {
+                        assert!(!file_system.is_file("poem.txt") && !file_system.is_dir("poem.txt"));
+                    },
+                }
+            }
             Err(_) => panic!("Second thread failed"),
         }
     }
@@ -778,5 +942,98 @@ mod test
             Err(_) => panic!("Second thread join failed"),
         }
     }
+
+
+    #[test]
+    fn one_target_already_correct_according_to_timestamp()
+    {
+        let file_system = FakeFileSystem::new();
+        let metadata_getter1 = FakeMetadataGetter::new();
+        let mut metadata_getter2 = FakeMetadataGetter::new();
+        let mut rule_history2 = RuleHistory::new();
+
+        match file_system.write_file(Path::new(&"verse1.txt"), "I wish I were a windowsill")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File write operation failed"),
+        }
+
+        match file_system.write_file(Path::new(&"poem.txt"), "Content actually wrong")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File write operation failed"),
+        }
+
+        metadata_getter2.insert_timestamp("poem.txt", 17);
+
+        let mut factory = TicketFactory::new();
+        factory.input_ticket(
+            TicketFactory::from_str("I wish I were a windowsill").result()
+        );
+
+        rule_history2.insert(
+            factory.result(),
+            vec![TicketFactory::from_str("I wish I were a windowsill").result()]);
+
+        let (sender, receiver) = mpsc::channel();
+
+        let handle1 = spawn_command(
+            Station::new(
+                to_info(vec!["verse1.txt".to_string()]),
+                vec![],
+                RuleHistory::new(),
+                file_system.clone(),
+                metadata_getter1,
+            ),
+            vec![(0, sender)],
+            vec![],
+            FakeExecutor::new(file_system.clone())
+        );
+
+        let handle2 = spawn_command(
+            Station::new(
+                vec![
+                    TargetFileInfo
+                    {
+                        path : "poem.txt".to_string(),
+                        history : TargetHistory::new(
+                            TicketFactory::from_str("I wish I were a windowsill").result(),
+                            17,
+                        ),
+                    }
+                ],
+                vec![
+                    "error".to_string(),
+                    "this file should".to_string(),
+                    "already be correct".to_string()
+                ],
+                rule_history2,
+                file_system.clone(),
+                metadata_getter2,
+            ),
+            vec![],
+            vec![receiver],
+            FakeExecutor::new(file_system.clone())
+        );
+
+        match handle1.join()
+        {
+            Ok(_) =>
+            {
+                assert_eq!(from_utf8(&file_system.read_file("verse1.txt").unwrap()).unwrap(), "I wish I were a windowsill");
+            },
+            Err(_) => panic!("First thread failed"),
+        }
+
+        match handle2.join()
+        {
+            Ok(_) =>
+            {
+                assert_eq!(from_utf8(&file_system.read_file("poem.txt").unwrap()).unwrap(), "Content actually wrong");
+            },
+            Err(_) => panic!("Second thread failed"),
+        }
+    }
+
 
 }

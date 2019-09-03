@@ -5,7 +5,7 @@ use crate::ticket::{Ticket, TicketFactory};
 use crate::metadata::MetadataGetter;
 
 use filesystem::FileSystem;
-use std::time::{Duration, SystemTime, UNIX_EPOCH, SystemTimeError};
+use std::time::{SystemTime, SystemTimeError};
 
 pub struct TargetFileInfo
 {
@@ -26,7 +26,7 @@ fn get_timestamp(system_time : SystemTime) -> Result<u64, SystemTimeError>
 {
     match system_time.duration_since(SystemTime::UNIX_EPOCH)
     {
-        Ok(duration) => Ok(1_000_000u64 * duration.as_secs() + u64::from(duration.subsec_nanos()) / 1000u64),
+        Ok(duration) => Ok(1_000_000u64 * duration.as_secs() + u64::from(duration.subsec_micros())),
         Err(e) => Err(e),
     }
 }
@@ -118,7 +118,7 @@ mod test
     use crate::memory::{RuleHistory, TargetHistory};
     use crate::station::{Station, TargetFileInfo, get_file_ticket};
     use crate::ticket::TicketFactory;
-    use crate::metadata::{MetadataGetter, FakeMetadataGetter};
+    use crate::metadata::FakeMetadataGetter;
 
     fn to_info(mut targets : Vec<String>) -> Vec<TargetFileInfo>
     {
@@ -144,7 +144,6 @@ mod test
     #[test]
     fn station_get_tickets_from_filesystem()
     {
-        let rule_history = RuleHistory::new();
         let file_system = FakeFileSystem::new();
 
         match file_system.write_file("quine.sh", "cat $0")
@@ -152,14 +151,6 @@ mod test
             Ok(_) => {},
             Err(why) => panic!("Failed to make fake file: {}", why),
         }
-
-        let station = Station::new(
-            to_info(vec!["A".to_string()]),
-            vec!["noop".to_string()],
-            rule_history,
-            file_system.clone(),
-            FakeMetadataGetter::new(),
-        );
 
         match get_file_ticket(
             &file_system,
