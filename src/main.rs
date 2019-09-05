@@ -1,7 +1,7 @@
 extern crate clap;
-extern crate sqlite;
-extern crate multimap;
 extern crate filesystem;
+extern crate multimap;
+extern crate sqlite;
 
 use clap::{Arg, App};
 
@@ -80,11 +80,6 @@ fn main()
         .version("0.1.0")
         .author("Peterson Trethewey <ptrethewey@roblox.com>")
         .about("You know when you have files that depend on other files?  This is for that situation.")
-        .arg(Arg::with_name("COMMAND")
-             .required(true)
-             .takes_value(true)
-             .index(1)
-             .help("path to build rules file"))
         .arg(Arg::from_usage("-r --rules=[RULES] 'Sets a rule file to use'"))
         .arg(Arg::from_usage("-t --target=[TARGET] 'Sets which target to build'"))
         .arg(Arg::from_usage("-m --memory=[MEMORY] 'Where to read/write cached file content data'"))
@@ -106,131 +101,127 @@ fn main()
         None => panic!("No rules!"),
     };
 
+    let targetfile =
     match matches.value_of("target")
     {
-        None =>
-        {
-            eprintln!("ERROR no target to build");
-        },
-        Some(target) =>
-        {
-            println!("Reading rulefile: {}", rulefile);
-            println!("Reading memory file: {}", memoryfile);
-            println!("Building target: {}", target);
+        Some(value) => value,
+        None => panic!("ERROR no target to build"),
+    };
 
-            match Memory::from_file(&mut os_file_system, memoryfile)
+    println!("Reading memory file: {}", memoryfile);
+    println!("Reading rulefile: {}", rulefile);
+    println!("Building target: {}", targetfile);
+
+    match Memory::from_file(&mut os_file_system, memoryfile)
+    {
+        Err(why) => eprintln!("ERROR: {}", why),
+        Ok(mut memory) =>
+        {
+            match file::read(&rulefile.to_string())
             {
                 Err(why) => eprintln!("ERROR: {}", why),
-                Ok(mut memory) =>
+                Ok(content) =>
                 {
-                    match file::read(&rulefile.to_string())
+                    match rule::parse(content)
                     {
                         Err(why) => eprintln!("ERROR: {}", why),
-                        Ok(content) =>
+                        Ok(rules) =>
                         {
-                            match rule::parse(content)
+                            let os_file_system = OsFileSystem::new();
+                            match rule::topological_sort(rules, &targetfile)
                             {
                                 Err(why) => eprintln!("ERROR: {}", why),
-                                Ok(rules) =>
+                                Ok(mut records) =>
                                 {
-                                    let os_file_system = OsFileSystem::new();
-                                    match rule::topological_sort(rules, &target)
+                                    let (mut senders, mut receivers) = make_multimaps(&records);
+
+                                    let mut handles = Vec::new();
+                                    let mut index : usize = 0;
+
+                                    for mut record in records.drain(..)
                                     {
-                                        Err(why) => eprintln!("ERROR: {}", why),
-                                        Ok(mut records) =>
+                                        let sender_vec = match senders.remove(&index)
                                         {
-                                            let (mut senders, mut receivers) = make_multimaps(&records);
+                                            Some(v) => v,
+                                            None => vec![],
+                                        };
 
-                                            let mut handles = Vec::new();
-                                            let mut index : usize = 0;
+                                        let receiver_vec = match receivers.remove(&index)
+                                        {
+                                            Some(v) => v,
+                                            None => vec![],
+                                        };
 
-                                            for mut record in records.drain(..)
-                                            {
-                                                let sender_vec = match senders.remove(&index)
+                                        let mut target_infos = Vec::new();
+                                        for target_path in record.targets.drain(..)
+                                        {
+                                            target_infos.push(
+                                                TargetFileInfo
                                                 {
-                                                    Some(v) => v,
-                                                    None => vec![],
-                                                };
-
-                                                let receiver_vec = match receivers.remove(&index)
-                                                {
-                                                    Some(v) => v,
-                                                    None => vec![],
-                                                };
-
-                                                let mut target_infos = Vec::new();
-                                                for target_path in record.targets.drain(..)
-                                                {
-                                                    target_infos.push(
-                                                        TargetFileInfo
-                                                        {
-                                                            history : memory.get_target_history(&target_path),
-                                                            path : target_path,
-                                                        }
-                                                    );
+                                                    history : memory.get_target_history(&target_path),
+                                                    path : target_path,
                                                 }
+                                            );
+                                        }
 
-                                                let station = Station::new(
-                                                    target_infos,
-                                                    record.command,
-                                                    memory.get_rule_history(&record.ticket),
-                                                    os_file_system.clone(),
-                                                    OsMetadataGetter::new(),
-                                                );
+                                        let station = Station::new(
+                                            target_infos,
+                                            record.command,
+                                            memory.get_rule_history(&record.ticket),
+                                            os_file_system.clone(),
+                                            OsMetadataGetter::new(),
+                                        );
 
-                                                handles.push(
-                                                    spawn_command(
-                                                        station,
-                                                        sender_vec,
-                                                        receiver_vec,
-                                                    )
-                                                );
+                                        handles.push(
+                                            spawn_command(
+                                                station,
+                                                sender_vec,
+                                                receiver_vec,
+                                            )
+                                        );
 
-                                                index+=1;
-                                            }
-
-                                            for handle in handles
-                                            {
-                                                match handle.join()
-                                                {
-                                                    Err(_) =>
-                                                    {
-                                                        eprintln!("ERROR");
-                                                    },
-                                                    Ok(command_result) =>
-                                                    {
-                                                        match command_result
-                                                        {
-                                                            Ok(r) =>
-                                                            {
-                                                                println!("success: {}", r.success);
-                                                                println!("code: {}", match r.code
-                                                                {
-                                                                    Some(code) => format!("{}", code),
-                                                                    None => "None".to_string(),
-                                                                });
-
-                                                                println!("output: {}", r.out);
-                                                                println!("error: {}", r.err);
-                                                            },
-                                                            Err(why) =>
-                                                            {
-                                                                eprintln!("ERROR {}", why);
-                                                            },
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        },
+                                        index+=1;
                                     }
-                                }
-                            }
-                        },
-                    }
 
-                }
+                                    for handle in handles
+                                    {
+                                        match handle.join()
+                                        {
+                                            Err(_) =>
+                                            {
+                                                eprintln!("ERROR");
+                                            },
+                                            Ok(command_result) =>
+                                            {
+                                                match command_result
+                                                {
+                                                    Ok(r) =>
+                                                    {
+                                                        println!("success: {}", r.success);
+                                                        println!("code: {}", match r.code
+                                                        {
+                                                            Some(code) => format!("{}", code),
+                                                            None => "None".to_string(),
+                                                        });
+
+                                                        println!("output: {}", r.out);
+                                                        println!("error: {}", r.err);
+                                                    },
+                                                    Err(why) =>
+                                                    {
+                                                        eprintln!("ERROR {}", why);
+                                                    },
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                            }
+                        }
+                    }
+                },
             }
 
-        },
-    };
+        }
+    }
 }

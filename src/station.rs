@@ -75,7 +75,8 @@ pub fn get_file_ticket<
     file_system : &FileSystemType,
     metadata_getter : &MetadataGetterType,
     target_info : &TargetFileInfo
-) -> Result<Ticket, std::io::Error>
+)
+-> Result<Option<Ticket>, std::io::Error>
 {
     match metadata_getter.get_modified(&target_info.path)
     {
@@ -87,7 +88,7 @@ pub fn get_file_ticket<
                 {
                     if timestamp == target_info.history.timestamp
                     {
-                        return Ok(target_info.history.ticket.clone())
+                        return Ok(Some(target_info.history.ticket.clone()))
                     }
                 },
                 Err(_) => {},
@@ -96,17 +97,17 @@ pub fn get_file_ticket<
         Err(_) => {},
     }
 
-    if !file_system.is_file(&target_info.path) && !file_system.is_dir(&target_info.path)
-    {
-        Ok(TicketFactory::does_not_exist())
-    }
-    else
+    if file_system.is_file(&target_info.path) || file_system.is_dir(&target_info.path)
     {
         match TicketFactory::from_file(file_system, &target_info.path)
         {
-            Ok(mut factory) => Ok(factory.result()),
+            Ok(mut factory) => Ok(Some(factory.result())),
             Err(err) => Err(err),
         }
+    }
+    else
+    {
+        Ok(None)
     }
 }
 
@@ -165,7 +166,11 @@ mod test
                 }
             })
         {
-            Ok(ticket) => assert_eq!(ticket, TicketFactory::from_str("cat $0").result()),
+            Ok(ticket_opt) => match ticket_opt
+            {
+                Some(ticket) => assert_eq!(ticket, TicketFactory::from_str("cat $0").result()),
+                None => panic!(format!("Could not get ticket")),
+            }
             Err(err) => panic!(format!("Could not get ticket: {}", err)),
         }
     }
@@ -218,26 +223,33 @@ mod test
                 }
             })
         {
-            Ok(ticket) =>
+            Ok(ticket_opt) =>
             {
-                // Make sure it matches the content of the file that we wrote
-                assert_eq!(ticket, TicketFactory::from_str(source_content).result());
+                match ticket_opt
+                {
+                    Some(ticket) =>
+                    {
+                        // Make sure it matches the content of the file that we wrote
+                        assert_eq!(ticket, TicketFactory::from_str(source_content).result());
 
-                // Then create a source ticket for all (one) sources
-                let mut source_factory = TicketFactory::new();
-                source_factory.input_ticket(ticket);
-                let source_ticket = source_factory.result();
+                        // Then create a source ticket for all (one) sources
+                        let mut source_factory = TicketFactory::new();
+                        source_factory.input_ticket(ticket);
+                        let source_ticket = source_factory.result();
 
-                // Then ask the station to remember what the target
-                // tickets were when built with that source before:
-                let target_tickets = station.remember_target_tickets(&source_ticket);
+                        // Then ask the station to remember what the target
+                        // tickets were when built with that source before:
+                        let target_tickets = station.remember_target_tickets(&source_ticket);
 
-                assert_eq!(
-                    vec![
-                        TicketFactory::from_str(target_content).result()
-                    ],
-                    target_tickets
-                );
+                        assert_eq!(
+                            vec![
+                                TicketFactory::from_str(target_content).result()
+                            ],
+                            target_tickets
+                        );
+                    },
+                    None => panic!("No ticket found where expected"),
+                }
             }
             Err(err) => panic!(format!("Could not get ticket: {}", err)),
         }

@@ -27,7 +27,7 @@ impl Executor for OsExecutor
 {
     fn execute_command(&self, command_list: Vec<String>) -> Result<CommandLineOutput, String>
     {
-        let mut command_queue = VecDeque::from(command_list.clone());
+        let mut command_queue = VecDeque::from(command_list);
         let command_opt = match command_queue.pop_front()
         {
             Some(first) =>
@@ -57,12 +57,17 @@ impl Executor for OsExecutor
     }
 }
 
-pub fn do_command<FileSystemType: FileSystem, ExecType: Executor, MetadataGetterType: MetadataGetter>(
-    station : Station<FileSystemType, MetadataGetterType>,
+pub fn do_command<
+    FileSystemType: FileSystem,
+    ExecType: Executor,
+    MetadataGetterType: MetadataGetter>
+(
+    mut station : Station<FileSystemType, MetadataGetterType>,
     senders : Vec<(usize, Sender<Packet>)>,
     receivers : Vec<Receiver<Packet>>,
-    executor : ExecType)
-    -> Result<CommandLineOutput, String>
+    executor : ExecType
+)
+-> Result<CommandLineOutput, String>
 {
     let mut factory = TicketFactory::new();
 
@@ -90,63 +95,84 @@ pub fn do_command<FileSystemType: FileSystem, ExecType: Executor, MetadataGetter
             &station.metadata_getter,
             target_info)
         {
-            Ok(ticket) =>
+            Ok(ticket_opt) =>
             {
-                target_tickets.push(ticket);
+                match ticket_opt
+                {
+                    Some(ticket) => target_tickets.push(ticket),
+                    None => target_tickets.push(TicketFactory::does_not_exist()),
+                }
             },
             Err(why) => return Err(format!("TICKET ALIGNMENT ERROR {}", why)),
         }
     }
 
-    let remembered_target_tickets = station.rule_history.remember_target_tickets(&factory.result());
+    let sources_ticket = factory.result();
 
-    let result = if target_tickets != remembered_target_tickets
+    let remembered_target_tickets = station.rule_history.remember_target_tickets(&sources_ticket);
+
+    if target_tickets != remembered_target_tickets
     {
         match executor.execute_command(station.command)
         {
-            Ok(command_result) => Ok(command_result),
+            Ok(command_result) =>
+            {
+                let mut post_command_target_tickets = Vec::new();
+                for target_info in station.target_infos.iter()
+                {
+                    match get_file_ticket(
+                        &station.file_system,
+                        &station.metadata_getter,
+                        &target_info)
+                    {
+                        Ok(ticket_opt) =>
+                        {
+                            match ticket_opt
+                            {
+                                Some(ticket) => post_command_target_tickets.push(ticket),
+                                None => return Err(format!(
+                                    "File not found: {}",
+                                    target_info.path)),
+                            }
+                        },
+                        Err(error) => return Err(format!("FILE IO ERROR {}", error)),
+                    }
+                }
+
+                for (sub_index, sender) in senders
+                {
+                    match sender.send(Packet::from_ticket(
+                        post_command_target_tickets[sub_index].clone()))
+                    {
+                        Ok(_) => {},
+                        Err(_error) => return Err(format!("CHANNEL SEND ERROR")),
+                    }
+                }
+
+                station.rule_history.insert(sources_ticket, post_command_target_tickets);
+
+                Ok(command_result)
+            },
             Err(why) =>
             {
-                return Err(format!("Error executing command: {}", why))
+                Err(format!("Error executing command: {}", why))
             },
         }
     }
     else
     {
-        Ok(CommandLineOutput::new())
-    };
-
-    // Make sure all the targets exist at this point.
-    for target_info in station.target_infos.iter()
-    {
-        if !station.file_system.is_file(&target_info.path) && !station.file_system.is_dir(&target_info.path)
+        for (sub_index, sender) in senders
         {
-            return Err(format!("File not found: {}", target_info.path));
-        }
-    }
-
-    for (sub_index, sender) in senders
-    {
-        // Potential optimization: avoid calling get_file_ticket twice if
-        // the command didn't run.
-        match get_file_ticket(
-            &station.file_system,
-            &station.metadata_getter,
-            &station.target_infos[sub_index])
-        {
-            Ok(ticket) =>
+            match sender.send(Packet::from_ticket(
+                target_tickets[sub_index].clone()))
             {
-                match sender.send(Packet::from_ticket(ticket))
-                {
-                    Ok(_) => {},
-                    Err(_error) => eprintln!("CHANNEL SEND ERROR"),
-                }
-            },
-            Err(error) => return Err(format!("FILE IO ERROR {}", error)),
+                Ok(_) => {},
+                Err(_error) => return Err(format!("CHANNEL SEND ERROR")),
+            }
         }
-    }
 
-    result
+        Ok(CommandLineOutput::new())
+    }
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
-use crate::ticket::{TicketFactory, Ticket};
-
 extern crate filesystem;
+
+use crate::ticket::{TicketFactory, Ticket};
 use filesystem::FileSystem;
 
 use std::collections::HashMap;
@@ -61,6 +61,7 @@ impl TargetHistory
         }
     }
 
+    #[cfg(test)]
     pub fn new(
         ticket : Ticket,
         timestamp : u64) -> TargetHistory
