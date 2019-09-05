@@ -24,8 +24,7 @@ mod metadata;
 
 use self::rule::Record;
 use self::packet::Packet;
-use self::executor::CommandLineOutput;
-use self::work::{OsExecutor, do_command};
+use self::work::{WorkResult, OsExecutor, do_command};
 use self::metadata::{MetadataGetter, OsMetadataGetter};
 use self::station::{Station, TargetFileInfo};
 use self::memory::Memory;
@@ -37,10 +36,10 @@ fn spawn_command<
     station : Station<FileSystemType, MetadataGetterType>,
     senders : Vec<(usize, Sender<Packet>)>,
     receivers : Vec<Receiver<Packet>>,
-) -> JoinHandle<Result<CommandLineOutput, String>>
+) -> JoinHandle<Result<WorkResult, String>>
 {
     thread::spawn(
-        move || -> Result<CommandLineOutput, String>
+        move || -> Result<WorkResult, String>
         {
             do_command(
                 station,
@@ -197,15 +196,15 @@ fn main()
                                                 {
                                                     Ok(r) =>
                                                     {
-                                                        println!("success: {}", r.success);
-                                                        println!("code: {}", match r.code
+                                                        println!("success: {}", r.command_line_output.success);
+                                                        println!("code: {}", match r.command_line_output.code
                                                         {
                                                             Some(code) => format!("{}", code),
                                                             None => "None".to_string(),
                                                         });
 
-                                                        println!("output: {}", r.out);
-                                                        println!("error: {}", r.err);
+                                                        println!("output: {}", r.command_line_output.out);
+                                                        println!("error: {}", r.command_line_output.err);
                                                     },
                                                     Err(why) =>
                                                     {

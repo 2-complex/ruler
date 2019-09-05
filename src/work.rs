@@ -5,6 +5,7 @@ use crate::ticket::TicketFactory;
 use crate::station::{Station, get_file_ticket};
 use crate::executor::{CommandLineOutput, Executor};
 use crate::metadata::MetadataGetter;
+use crate::memory::RuleHistory;
 
 use filesystem::FileSystem;
 use std::process::Command;
@@ -57,6 +58,12 @@ impl Executor for OsExecutor
     }
 }
 
+pub struct WorkResult
+{
+    pub command_line_output : CommandLineOutput,
+    pub rule_history : RuleHistory,
+}
+
 pub fn do_command<
     FileSystemType: FileSystem,
     ExecType: Executor,
@@ -67,7 +74,7 @@ pub fn do_command<
     receivers : Vec<Receiver<Packet>>,
     executor : ExecType
 )
--> Result<CommandLineOutput, String>
+-> Result<WorkResult, String>
 {
     let mut factory = TicketFactory::new();
 
@@ -151,7 +158,13 @@ pub fn do_command<
 
                 station.rule_history.insert(sources_ticket, post_command_target_tickets);
 
-                Ok(command_result)
+                Ok(
+                    WorkResult
+                    {
+                        command_line_output : command_result,
+                        rule_history : station.rule_history
+                    }
+                )
             },
             Err(why) =>
             {
@@ -171,7 +184,13 @@ pub fn do_command<
             }
         }
 
-        Ok(CommandLineOutput::new())
+        Ok(
+            WorkResult
+            {
+                command_line_output : CommandLineOutput::new(),
+                rule_history : station.rule_history
+            }
+        )
     }
 }
 
@@ -179,7 +198,7 @@ pub fn do_command<
 mod test
 {
     use crate::station::{Station, TargetFileInfo};
-    use crate::work::do_command;
+    use crate::work::{do_command, WorkResult};
     use crate::ticket::TicketFactory;
     use crate::memory::{RuleHistory, TargetHistory};
     use crate::executor::{Executor, CommandLineOutput};
@@ -323,10 +342,10 @@ mod test
         {
             Ok(result) =>
             {
-                assert_eq!(result.out, "");
-                assert_eq!(result.err, "");
-                assert_eq!(result.code, Some(0));
-                assert_eq!(result.success, true);
+                assert_eq!(result.command_line_output.out, "");
+                assert_eq!(result.command_line_output.err, "");
+                assert_eq!(result.command_line_output.code, Some(0));
+                assert_eq!(result.command_line_output.success, true);
             },
             Err(why) => panic!("Command failed: {}", why),
         }
@@ -372,10 +391,10 @@ mod test
         {
             Ok(result) =>
             {
-                assert_eq!(result.out, "");
-                assert_eq!(result.err, "");
-                assert_eq!(result.code, Some(0));
-                assert_eq!(result.success, true);
+                assert_eq!(result.command_line_output.out, "");
+                assert_eq!(result.command_line_output.err, "");
+                assert_eq!(result.command_line_output.code, Some(0));
+                assert_eq!(result.command_line_output.success, true);
 
                 match receiver_c.recv()
                 {
@@ -445,10 +464,10 @@ mod test
         {
             Ok(result) =>
             {
-                assert_eq!(result.out, "");
-                assert_eq!(result.err, "");
-                assert_eq!(result.code, Some(0));
-                assert_eq!(result.success, true);
+                assert_eq!(result.command_line_output.out, "");
+                assert_eq!(result.command_line_output.err, "");
+                assert_eq!(result.command_line_output.code, Some(0));
+                assert_eq!(result.command_line_output.success, true);
 
                 match receiver_c.recv()
                 {
@@ -542,10 +561,10 @@ mod test
         {
             Ok(result) =>
             {
-                assert_eq!(result.out, "");
-                assert_eq!(result.err, "");
-                assert_eq!(result.code, Some(0));
-                assert_eq!(result.success, true);
+                assert_eq!(result.command_line_output.out, "");
+                assert_eq!(result.command_line_output.err, "");
+                assert_eq!(result.command_line_output.code, Some(0));
+                assert_eq!(result.command_line_output.success, true);
 
                 match receiver_c.recv()
                 {
@@ -649,10 +668,10 @@ mod test
             senders : Vec<(usize, Sender<Packet>)>,
             receivers : Vec<Receiver<Packet>>,
             executor: FakeExecutor
-        ) -> JoinHandle<Result<CommandLineOutput, String>>
+        ) -> JoinHandle<Result<WorkResult, String>>
     {
         thread::spawn(
-            move || -> Result<CommandLineOutput, String>
+            move || -> Result<WorkResult, String>
             {
                 do_command(station, senders, receivers, executor)
             }
