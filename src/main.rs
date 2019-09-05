@@ -100,12 +100,12 @@ fn main()
         None => panic!("No rules!"),
     };
 
-    let targetfile =
-    match matches.value_of("target")
-    {
-        Some(value) => value,
-        None => panic!("ERROR no target to build"),
-    };
+        let targetfile =
+        match matches.value_of("target")
+        {
+            Some(value) => value,
+            None => panic!("ERROR no target to build"),
+        };
 
     println!("Reading memory file: {}", memoryfile);
     println!("Reading rulefile: {}", rulefile);
@@ -116,7 +116,7 @@ fn main()
         Err(why) => eprintln!("ERROR: {}", why),
         Ok(mut memory) =>
         {
-            match file::read(&rulefile.to_string())
+            match file::read(rulefile)
             {
                 Err(why) => eprintln!("ERROR: {}", why),
                 Ok(content) =>

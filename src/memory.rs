@@ -127,6 +127,7 @@ impl Memory
         }
     }
 
+    #[cfg(test)]
     fn insert(&mut self, rule_ticket: Ticket, source_ticket: Ticket, target_tickets: Vec<Ticket>)
     {
         let rule_history = self.rule_histories.entry(rule_ticket).or_insert(

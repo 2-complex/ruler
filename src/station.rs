@@ -57,15 +57,6 @@ Station<
             metadata_getter : metadata_getter,
         }
     }
-
-    pub fn remember_target_tickets(&self, source_ticket : &Ticket) -> &[Ticket]
-    {
-        match self.rule_history.get(source_ticket)
-        {
-            Some(tickets) => tickets,
-            None => &[],
-        }
-    }
 }
 
 pub fn get_file_ticket<
@@ -239,7 +230,7 @@ mod test
 
                         // Then ask the station to remember what the target
                         // tickets were when built with that source before:
-                        let target_tickets = station.remember_target_tickets(&source_ticket);
+                        let target_tickets = station.rule_history.remember_target_tickets(&source_ticket);
 
                         assert_eq!(
                             vec![
