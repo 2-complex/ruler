@@ -75,8 +75,6 @@ fn make_multimaps(records : &Vec<Record>)
 
 fn build(memoryfile: &str, rulefile: &str, target: &str)
 {
-    println!("Building target: {}", target);
-
     let mut os_file_system = OsFileSystem::new();
 
     match Memory::from_file(&mut os_file_system, memoryfile)
@@ -166,15 +164,40 @@ fn build(memoryfile: &str, rulefile: &str, target: &str)
                                                 {
                                                     Ok(work_result) =>
                                                     {
-                                                        println!("success: {}", work_result.command_line_output.success);
-                                                        println!("code: {}", match work_result.command_line_output.code
+                                                        match work_result.command_line_output
                                                         {
-                                                            Some(code) => format!("{}", code),
-                                                            None => "None".to_string(),
-                                                        });
+                                                            Some(output) =>
+                                                            {
+                                                                for target_info in work_result.target_infos.iter()
+                                                                {
+                                                                    println!("{}", target_info.path);
+                                                                }
 
-                                                        println!("output: {}", work_result.command_line_output.out);
-                                                        println!("error: {}", work_result.command_line_output.err);
+                                                                if output.out != ""
+                                                                {
+                                                                    println!("output: {}", output.out);
+                                                                }
+
+                                                                if output.err != ""
+                                                                {
+                                                                    println!("error: {}", output.err);
+                                                                }
+
+                                                                if !output.success
+                                                                {
+                                                                    println!("success: {}", output.success);
+                                                                    println!("code: {}", 
+                                                                        match output.code
+                                                                        {
+                                                                            Some(code) => format!("{}", code),
+                                                                            None => "None".to_string(),
+                                                                        }
+                                                                    );
+                                                                }
+
+                                                            },
+                                                            None => {},
+                                                        }
 
                                                         memory.insert_rule_history(record_ticket, work_result.rule_history);
                                                     },
@@ -189,7 +212,7 @@ fn build(memoryfile: &str, rulefile: &str, target: &str)
 
                                     match memory.to_file(&mut os_file_system, memoryfile)
                                     {
-                                        Ok(_) => println!("Hisotry is written"),
+                                        Ok(_) => println!("done"),
                                         Err(_) => eprintln!("Error writing history"),
                                     }
                                 },

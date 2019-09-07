@@ -2,7 +2,7 @@ extern crate filesystem;
 
 use crate::packet::Packet;
 use crate::ticket::TicketFactory;
-use crate::station::{Station, get_file_ticket};
+use crate::station::{Station, get_file_ticket, TargetFileInfo};
 use crate::executor::{CommandLineOutput, Executor};
 use crate::metadata::MetadataGetter;
 use crate::memory::RuleHistory;
@@ -60,9 +60,18 @@ impl Executor for OsExecutor
 
 pub struct WorkResult
 {
-    pub command_line_output : CommandLineOutput,
+    pub target_infos : Vec<TargetFileInfo>,
+    pub command_line_output : Option<CommandLineOutput>,
     pub rule_history : RuleHistory,
 }
+
+enum WorkError
+{
+    AlreadyExists,
+    FilePrevents,
+    IoError(std::io::Error),
+}
+
 
 pub fn do_command<
     FileSystemType: FileSystem,
@@ -161,7 +170,8 @@ pub fn do_command<
                 Ok(
                     WorkResult
                     {
-                        command_line_output : command_result,
+                        target_infos : station.target_infos,
+                        command_line_output : Some(command_result),
                         rule_history : station.rule_history
                     }
                 )
@@ -187,7 +197,8 @@ pub fn do_command<
         Ok(
             WorkResult
             {
-                command_line_output : CommandLineOutput::new(),
+                target_infos : station.target_infos,
+                command_line_output : None,
                 rule_history : station.rule_history
             }
         )
