@@ -112,9 +112,20 @@ impl Memory
 
             match file_system.write_file(path, bincode::serialize(&memory).unwrap())
             {
-                Err(_) => Err(format!("Cannot create memory file: {}", path_as_str)),
+                Err(_) => Err(format!("Cannot create history file: {}", path_as_str)),
                 Ok(()) => Ok(memory),
             }
+        }
+    }
+
+    pub fn to_file<FSType: FileSystem>(
+        &self, file_system: &mut FSType, path_as_str : &str)
+    -> Result<(), String>
+    {
+        match file_system.write_file(Path::new(&path_as_str), bincode::serialize(&self).unwrap())
+        {
+            Err(_) => Err(format!("Cannot record history file: {}", path_as_str)),
+            Ok(_) => Ok(()),
         }
     }
 
@@ -138,6 +149,11 @@ impl Memory
         );
 
         rule_history.insert(source_ticket, target_tickets);
+    }
+
+    pub fn insert_rule_history(&mut self, rule_ticket: Ticket, rule_history: RuleHistory)
+    {
+        self.rule_histories.insert(rule_ticket, rule_history);
     }
 
     pub fn get_rule_history(&mut self, rule_ticket: &Ticket) -> RuleHistory

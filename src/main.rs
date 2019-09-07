@@ -3,7 +3,7 @@ extern crate filesystem;
 extern crate multimap;
 extern crate sqlite;
 
-use clap::{Arg, App};
+use clap::{Arg, App, SubCommand};
 
 use std::thread::{self, JoinHandle};
 
@@ -73,43 +73,11 @@ fn make_multimaps(records : &Vec<Record>)
     (senders, receivers)
 }
 
-fn main()
+fn build(memoryfile: &str, rulefile: &str, target: &str)
 {
-    let matches = App::new("build")
-        .version("0.1.0")
-        .author("Peterson Trethewey <ptrethewey@roblox.com>")
-        .about("You know when you have files that depend on other files?  This is for that situation.")
-        .arg(Arg::from_usage("-r --rules=[RULES] 'Sets a rule file to use'"))
-        .arg(Arg::from_usage("-t --target=[TARGET] 'Sets which target to build'"))
-        .arg(Arg::from_usage("-m --memory=[MEMORY] 'Where to read/write cached file content data'"))
-        .get_matches();
+    println!("Building target: {}", target);
 
     let mut os_file_system = OsFileSystem::new();
-
-    let memoryfile =
-    match matches.value_of("memory")
-    {
-        Some(value) => value,
-        None => "my.memory",
-    };
-
-    let rulefile =
-    match matches.value_of("rules")
-    {
-        Some(value) => value,
-        None => panic!("No rules!"),
-    };
-
-        let targetfile =
-        match matches.value_of("target")
-        {
-            Some(value) => value,
-            None => panic!("ERROR no target to build"),
-        };
-
-    println!("Reading memory file: {}", memoryfile);
-    println!("Reading rulefile: {}", rulefile);
-    println!("Building target: {}", targetfile);
 
     match Memory::from_file(&mut os_file_system, memoryfile)
     {
@@ -126,8 +94,7 @@ fn main()
                         Err(why) => eprintln!("ERROR: {}", why),
                         Ok(rules) =>
                         {
-                            let os_file_system = OsFileSystem::new();
-                            match rule::topological_sort(rules, &targetfile)
+                            match rule::topological_sort(rules, &target)
                             {
                                 Err(why) => eprintln!("ERROR: {}", why),
                                 Ok(mut records) =>
@@ -172,17 +139,20 @@ fn main()
                                         );
 
                                         handles.push(
-                                            spawn_command(
-                                                station,
-                                                sender_vec,
-                                                receiver_vec,
+                                            (
+                                                record.ticket,
+                                                spawn_command(
+                                                    station,
+                                                    sender_vec,
+                                                    receiver_vec,
+                                                )
                                             )
                                         );
 
                                         index+=1;
                                     }
 
-                                    for handle in handles
+                                    for (record_ticket, handle) in handles
                                     {
                                         match handle.join()
                                         {
@@ -190,21 +160,23 @@ fn main()
                                             {
                                                 eprintln!("ERROR");
                                             },
-                                            Ok(command_result) =>
+                                            Ok(work_result_result) =>
                                             {
-                                                match command_result
+                                                match work_result_result
                                                 {
-                                                    Ok(r) =>
+                                                    Ok(work_result) =>
                                                     {
-                                                        println!("success: {}", r.command_line_output.success);
-                                                        println!("code: {}", match r.command_line_output.code
+                                                        println!("success: {}", work_result.command_line_output.success);
+                                                        println!("code: {}", match work_result.command_line_output.code
                                                         {
                                                             Some(code) => format!("{}", code),
                                                             None => "None".to_string(),
                                                         });
 
-                                                        println!("output: {}", r.command_line_output.out);
-                                                        println!("error: {}", r.command_line_output.err);
+                                                        println!("output: {}", work_result.command_line_output.out);
+                                                        println!("error: {}", work_result.command_line_output.err);
+
+                                                        memory.insert_rule_history(record_ticket, work_result.rule_history);
                                                     },
                                                     Err(why) =>
                                                     {
@@ -214,13 +186,72 @@ fn main()
                                             }
                                         }
                                     }
+
+                                    match memory.to_file(&mut os_file_system, memoryfile)
+                                    {
+                                        Ok(_) => println!("Hisotry is written"),
+                                        Err(_) => eprintln!("Error writing history"),
+                                    }
                                 },
                             }
                         }
                     }
                 },
             }
-
         }
+    }
+}
+
+
+fn main()
+{
+    let big_matches = App::new("rules")
+        .version("0.1.0")
+        .author("Peterson Trethewey <ptrethewey@roblox.com>")
+        .about("You know when you have files that depend on other files?  This is for that situation.")
+        .subcommand(
+            SubCommand::with_name("clean")
+            .help("Removes all files and directories specificed as targets in the rulefile"))
+        .subcommand(
+            SubCommand::with_name("build")
+            .help("Builds the given target")
+            .arg(Arg::with_name("target")
+                .help("The path to the target file (or directory) to be built")
+                .required(true)
+                .index(1)))
+        .arg(Arg::from_usage("-r --rules=[RULES] 'Sets a rule file to use'"))
+        .arg(Arg::from_usage("-t --target=[TARGET] 'Sets which target to build'"))
+        .arg(Arg::from_usage("-m --history=[HISTORY] 'Where to read/write cached file content data'"))
+        .get_matches();
+
+    if let Some(_matches) = big_matches.subcommand_matches("clean")
+    {
+        println!("here's where we would clean");
+    }
+
+    if let Some(matches) = big_matches.subcommand_matches("build")
+    {
+        let historyfile =
+        match matches.value_of("history")
+        {
+            Some(value) => value,
+            None => ".ruler-history",
+        };
+
+        let rulefile =
+        match matches.value_of("rules")
+        {
+            Some(value) => value,
+            None => "rulefile",
+        };
+
+        let target =
+        match matches.value_of("target")
+        {
+            Some(value) => value,
+            None => panic!("No target!"),
+        };
+
+        build(historyfile, rulefile, target);
     }
 }
