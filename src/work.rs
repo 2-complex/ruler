@@ -9,8 +9,9 @@ use crate::memory::RuleHistory;
 
 use filesystem::FileSystem;
 use std::process::Command;
-use std::sync::mpsc::{Sender, Receiver};
+use std::sync::mpsc::{Sender, Receiver, RecvError};
 use std::collections::VecDeque;
+use std::fmt;
 
 pub struct OsExecutor
 {
@@ -65,13 +66,46 @@ pub struct WorkResult
     pub rule_history : RuleHistory,
 }
 
-enum WorkError
+pub enum WorkError
 {
-    AlreadyExists,
-    FilePrevents,
-    IoError(std::io::Error),
+    ReceivedErrorFromSource(String),
+    ReceiverError(RecvError),
+    SenderError,
+    TicketAlignmentError(std::io::Error),
+    FileNotFound(String),
+    FileIoError(String, std::io::Error),
+    CommandErrorWhileExecuting(String),
 }
 
+impl fmt::Display for WorkError
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
+    {
+        match self
+        {
+            WorkError::ReceivedErrorFromSource(error) =>
+                write!(formatter, "Received error from source: {}", error),
+
+            WorkError::ReceiverError(error) =>
+                write!(formatter, "Failed to recieve anything from source: {}", error),
+
+            WorkError::SenderError =>
+                write!(formatter, "Failed to send to dependent"),
+
+            WorkError::TicketAlignmentError(error) =>
+                write!(formatter, "File IO error when attempting to get hash of sources: {}", error),
+
+            WorkError::FileNotFound(path) =>
+                write!(formatter, "File not found: {}", path),
+
+            WorkError::FileIoError(path, error) =>
+                write!(formatter, "Error reading file: {}: {}", path, error),
+
+            WorkError::CommandErrorWhileExecuting(message) =>
+                write!(formatter, "Failed to execute command with message: {}", message),
+        }
+    }
+}
 
 pub fn do_command<
     FileSystemType: FileSystem,
@@ -83,7 +117,7 @@ pub fn do_command<
     receivers : Vec<Receiver<Packet>>,
     executor : ExecType
 )
--> Result<WorkResult, String>
+-> Result<WorkResult, WorkError>
 {
     let mut factory = TicketFactory::new();
 
@@ -96,10 +130,10 @@ pub fn do_command<
                 match packet.get_ticket()
                 {
                     Ok(ticket) => factory.input_ticket(ticket),
-                    Err(error) => return Err(format!("Received error from source rule: {}", error)),
+                    Err(error) => return Err(WorkError::ReceivedErrorFromSource(error)),
                 }
             },
-            Err(why) => return Err(format!("ERROR {}", why)),
+            Err(error) => return Err(WorkError::ReceiverError(error)),
         }
     }
 
@@ -119,7 +153,7 @@ pub fn do_command<
                     None => target_tickets.push(TicketFactory::does_not_exist()),
                 }
             },
-            Err(why) => return Err(format!("TICKET ALIGNMENT ERROR {}", why)),
+            Err(error) => return Err(WorkError::TicketAlignmentError(error)),
         }
     }
 
@@ -146,12 +180,10 @@ pub fn do_command<
                             match ticket_opt
                             {
                                 Some(ticket) => post_command_target_tickets.push(ticket),
-                                None => return Err(format!(
-                                    "File not found: {}",
-                                    target_info.path)),
+                                None => return Err(WorkError::FileNotFound(target_info.path.clone())),
                             }
                         },
-                        Err(error) => return Err(format!("FILE IO ERROR {}", error)),
+                        Err(error) => return Err(WorkError::FileIoError(target_info.path.clone(), error)),
                     }
                 }
 
@@ -161,7 +193,7 @@ pub fn do_command<
                         post_command_target_tickets[sub_index].clone()))
                     {
                         Ok(_) => {},
-                        Err(_error) => return Err(format!("CHANNEL SEND ERROR")),
+                        Err(_error) => return Err(WorkError::SenderError),
                     }
                 }
 
@@ -176,9 +208,9 @@ pub fn do_command<
                     }
                 )
             },
-            Err(why) =>
+            Err(error) =>
             {
-                Err(format!("Error executing command: {}", why))
+                Err(WorkError::CommandErrorWhileExecuting(error))
             },
         }
     }
@@ -190,7 +222,7 @@ pub fn do_command<
                 target_tickets[sub_index].clone()))
             {
                 Ok(_) => {},
-                Err(_error) => return Err(format!("CHANNEL SEND ERROR")),
+                Err(_error) => return Err(WorkError::SenderError),
             }
         }
 

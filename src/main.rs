@@ -24,7 +24,7 @@ mod metadata;
 
 use self::rule::Record;
 use self::packet::Packet;
-use self::work::{WorkResult, OsExecutor, do_command};
+use self::work::{WorkResult, WorkError, OsExecutor, do_command};
 use self::metadata::{MetadataGetter, OsMetadataGetter};
 use self::station::{Station, TargetFileInfo};
 use self::memory::Memory;
@@ -36,10 +36,10 @@ fn spawn_command<
     station : Station<FileSystemType, MetadataGetterType>,
     senders : Vec<(usize, Sender<Packet>)>,
     receivers : Vec<Receiver<Packet>>,
-) -> JoinHandle<Result<WorkResult, String>>
+) -> JoinHandle<Result<WorkResult, WorkError>>
 {
     thread::spawn(
-        move || -> Result<WorkResult, String>
+        move || -> Result<WorkResult, WorkError>
         {
             do_command(
                 station,
