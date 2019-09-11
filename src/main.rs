@@ -201,9 +201,15 @@ fn build(memoryfile: &str, rulefile: &str, target: &str)
 
                                                         memory.insert_rule_history(record_ticket, work_result.rule_history);
                                                     },
-                                                    Err(why) =>
+                                                    Err(work_error) =>
                                                     {
-                                                        eprintln!("ERROR {}", why);
+                                                        match work_error
+                                                        {
+                                                            WorkError::ReceiverError(_error) => {},
+                                                            WorkError::SenderError => {},
+
+                                                            _ => eprintln!("{}", work_error),
+                                                        }
                                                     },
                                                 }
                                             }
@@ -212,7 +218,7 @@ fn build(memoryfile: &str, rulefile: &str, target: &str)
 
                                     match memory.to_file(&mut os_file_system, memoryfile)
                                     {
-                                        Ok(_) => println!("done"),
+                                        Ok(_) => {},
                                         Err(_) => eprintln!("Error writing history"),
                                     }
                                 },
@@ -228,22 +234,22 @@ fn build(memoryfile: &str, rulefile: &str, target: &str)
 
 fn main()
 {
-    let big_matches = App::new("rules")
+    let big_matches = App::new("Ruler")
         .version("0.1.0")
         .author("Peterson Trethewey <ptrethewey@roblox.com>")
         .about("You know when you have files that depend on other files?  This is for that situation.")
+        .setting(clap::AppSettings::ArgRequiredElseHelp)
         .subcommand(
             SubCommand::with_name("clean")
-            .help("Removes all files and directories specificed as targets in the rulefile"))
+            .help("Removes all files and directories specificed as targets in the rules file"))
         .subcommand(
             SubCommand::with_name("build")
-            .help("Builds the given target")
+            .help("Builds the given target.\nThe target must be a file listed in the target section of the current rules file.\nThe rules file is either a file in the current working directory called \"build.rules\" or it can be specificed using --rules=<path>")
             .arg(Arg::with_name("target")
                 .help("The path to the target file (or directory) to be built")
                 .required(true)
                 .index(1)))
-        .arg(Arg::from_usage("-r --rules=[RULES] 'Sets a rule file to use'"))
-        .arg(Arg::from_usage("-t --target=[TARGET] 'Sets which target to build'"))
+        .arg(Arg::from_usage("-r --rules=[RULES] 'Sets a rule file to use.  If not provided, the app will look for a file in the current working directory called \"build.rules\"'"))
         .arg(Arg::from_usage("-m --history=[HISTORY] 'Where to read/write cached file content data'"))
         .get_matches();
 
@@ -265,7 +271,7 @@ fn main()
         match matches.value_of("rules")
         {
             Some(value) => value,
-            None => "rulefile",
+            None => "build.rules",
         };
 
         let target =
