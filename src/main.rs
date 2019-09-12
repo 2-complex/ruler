@@ -150,6 +150,9 @@ fn build(memoryfile: &str, rulefile: &str, target: &str)
                                         index+=1;
                                     }
 
+                                    let mut error_found = false;
+
+                                    println!("Building...");
                                     for (record_ticket, handle) in handles
                                     {
                                         match handle.join()
@@ -208,7 +211,11 @@ fn build(memoryfile: &str, rulefile: &str, target: &str)
                                                             WorkError::ReceiverError(_error) => {},
                                                             WorkError::SenderError => {},
 
-                                                            _ => eprintln!("{}", work_error),
+                                                            _ =>
+                                                            {
+                                                                eprintln!("{}", work_error);
+                                                                error_found = true;
+                                                            }
                                                         }
                                                     },
                                                 }
@@ -216,10 +223,13 @@ fn build(memoryfile: &str, rulefile: &str, target: &str)
                                         }
                                     }
 
-                                    match memory.to_file(&mut os_file_system, memoryfile)
+                                    if !error_found
                                     {
-                                        Ok(_) => {},
-                                        Err(_) => eprintln!("Error writing history"),
+                                        match memory.to_file(&mut os_file_system, memoryfile)
+                                        {
+                                            Ok(_) => {println!("...done.")},
+                                            Err(_) => eprintln!("Error writing history"),
+                                        }
                                     }
                                 },
                             }
