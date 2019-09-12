@@ -74,7 +74,6 @@ impl TargetHistory
     }
 }
 
-
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct Memory
 {
@@ -110,10 +109,14 @@ impl Memory
         {
             let memory = Memory::new();
 
-            match file_system.write_file(path, bincode::serialize(&memory).unwrap())
+            match bincode::serialize(&memory)
             {
-                Err(_) => Err(format!("Cannot create history file: {}", path_as_str)),
-                Ok(()) => Ok(memory),
+                Ok(bytes) => match file_system.write_file(path, bytes)
+                {
+                    Err(_) => Err(format!("Cannot write history file: {}", path_as_str)),
+                    Ok(()) => Ok(memory),
+                },
+                Err(_error) => Err(format!("Cannot serialize empty history... that's weird")),
             }
         }
     }
