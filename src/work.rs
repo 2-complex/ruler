@@ -5,7 +5,7 @@ use crate::ticket::TicketFactory;
 use crate::station::{Station, get_file_ticket, TargetFileInfo};
 use crate::executor::{CommandLineOutput, Executor};
 use crate::metadata::MetadataGetter;
-use crate::memory::RuleHistory;
+use crate::memory::{RuleHistory, RuleHistoryError};
 
 use filesystem::FileSystem;
 use std::process::Command;
@@ -75,6 +75,8 @@ pub enum WorkError
     FileNotFound(String),
     FileIoError(String, std::io::Error),
     CommandErrorWhileExecuting(String),
+    Contradiction,
+    Weird,
 }
 
 impl fmt::Display for WorkError
@@ -103,6 +105,12 @@ impl fmt::Display for WorkError
 
             WorkError::CommandErrorWhileExecuting(message) =>
                 write!(formatter, "Failed to execute command with message: {}", message),
+
+            WorkError::Contradiction =>
+                write!(formatter, "Failed to re-save tickets.  (Need a better message for this)"),
+
+            WorkError::Weird =>
+                write!(formatter, "Weird! How did you do that!"),
         }
     }
 }
@@ -197,7 +205,21 @@ pub fn do_command<
                     }
                 }
 
-                station.rule_history.insert(sources_ticket, post_command_target_tickets);
+                match station.rule_history.insert(sources_ticket, post_command_target_tickets)
+                {
+                    Ok(_) => {},
+                    Err(error) =>
+                    {
+                        match error
+                        {
+                            RuleHistoryError::Contradiction(_contradicting_indices) =>
+                                return Err(WorkError::Contradiction),
+
+                            RuleHistoryError::TargetSizesDifferWeird =>
+                                return Err(WorkError::Weird),
+                        }
+                    },
+                }
 
                 Ok(
                     WorkResult
@@ -241,7 +263,7 @@ pub fn do_command<
 mod test
 {
     use crate::station::{Station, TargetFileInfo};
-    use crate::work::{do_command, WorkResult};
+    use crate::work::{do_command, WorkResult, WorkError};
     use crate::ticket::TicketFactory;
     use crate::memory::{RuleHistory, TargetHistory};
     use crate::executor::{Executor, CommandLineOutput};
@@ -385,10 +407,17 @@ mod test
         {
             Ok(result) =>
             {
-                assert_eq!(result.command_line_output.out, "");
-                assert_eq!(result.command_line_output.err, "");
-                assert_eq!(result.command_line_output.code, Some(0));
-                assert_eq!(result.command_line_output.success, true);
+                match result.command_line_output
+                {
+                    Some(output) =>
+                    {
+                        assert_eq!(output.out, "");
+                        assert_eq!(output.err, "");
+                        assert_eq!(output.code, Some(0));
+                        assert_eq!(output.success, true);
+                    }
+                    None => panic!("Ouptut errored"),
+                }
             },
             Err(why) => panic!("Command failed: {}", why),
         }
@@ -434,10 +463,17 @@ mod test
         {
             Ok(result) =>
             {
-                assert_eq!(result.command_line_output.out, "");
-                assert_eq!(result.command_line_output.err, "");
-                assert_eq!(result.command_line_output.code, Some(0));
-                assert_eq!(result.command_line_output.success, true);
+                match result.command_line_output
+                {
+                    Some(output) =>
+                    {
+                        assert_eq!(output.out, "");
+                        assert_eq!(output.err, "");
+                        assert_eq!(output.code, Some(0));
+                        assert_eq!(output.success, true);
+                    },
+                    None => panic!("Output wasn't there"),
+                }
 
                 match receiver_c.recv()
                 {
@@ -507,10 +543,17 @@ mod test
         {
             Ok(result) =>
             {
-                assert_eq!(result.command_line_output.out, "");
-                assert_eq!(result.command_line_output.err, "");
-                assert_eq!(result.command_line_output.code, Some(0));
-                assert_eq!(result.command_line_output.success, true);
+                match result.command_line_output
+                {
+                    Some(output)=>
+                    {
+                        assert_eq!(output.out, "");
+                        assert_eq!(output.err, "");
+                        assert_eq!(output.code, Some(0));
+                        assert_eq!(output.success, true);
+                    },
+                    None => panic!("Output wasn't there."),
+                }
 
                 match receiver_c.recv()
                 {
@@ -547,12 +590,16 @@ mod test
         factory.input_ticket(TicketFactory::from_str("Roses are red\n").result());
         factory.input_ticket(TicketFactory::from_str("Violets are violet\n").result());
 
-        rule_history.insert(
+        match rule_history.insert(
             factory.result(),
             vec![
                 TicketFactory::from_str("Roses are red\nViolets are violet\n").result()
             ]
-        );
+        )
+        {
+            Ok(_) => {},
+            Err(_) => panic!("Rule history failed to insert"),
+        }
 
         let file_system = FakeFileSystem::new();
 
@@ -604,10 +651,11 @@ mod test
         {
             Ok(result) =>
             {
-                assert_eq!(result.command_line_output.out, "");
-                assert_eq!(result.command_line_output.err, "");
-                assert_eq!(result.command_line_output.code, Some(0));
-                assert_eq!(result.command_line_output.success, true);
+                match result.command_line_output
+                {
+                    Some(_output) => panic!("Output present when none was expected."),
+                    None => {},
+                }
 
                 match receiver_c.recv()
                 {
@@ -662,9 +710,13 @@ mod test
             {
                 panic!("Expected failure when file not present")
             },
-            Err(err) =>
+            Err(error) =>
             {
-                assert_eq!(err, "File not found: verse1.txt");
+                match error
+                {
+                    WorkError::FileNotFound(path) => assert_eq!(path, "verse1.txt"),
+                    _=> panic!("Wrong kind of error"),
+                }
             },
         }
     }
@@ -696,9 +748,13 @@ mod test
             {
                 panic!("Expected failure when file not present")
             },
-            Err(err) =>
+            Err(error) =>
             {
-                assert_eq!(err, "File not found: verse1.txt");
+                match error
+                {
+                    WorkError::FileNotFound(path) => assert_eq!(path, "verse1.txt"),
+                    _ => panic!("Wrong kind of error"),
+                }
             },
         }
     }
@@ -711,10 +767,10 @@ mod test
             senders : Vec<(usize, Sender<Packet>)>,
             receivers : Vec<Receiver<Packet>>,
             executor: FakeExecutor
-        ) -> JoinHandle<Result<WorkResult, String>>
+        ) -> JoinHandle<Result<WorkResult, WorkError>>
     {
         thread::spawn(
-            move || -> Result<WorkResult, String>
+            move || -> Result<WorkResult, WorkError>
             {
                 do_command(station, senders, receivers, executor)
             }
@@ -813,9 +869,13 @@ mod test
             TicketFactory::from_str("I wish I were a windowsill").result()
         );
 
-        rule_history2.insert(
+        match rule_history2.insert(
             factory.result(),
-            vec![TicketFactory::from_str("I wish I were a windowsill").result()]);
+            vec![TicketFactory::from_str("I wish I were a windowsill").result()])
+        {
+            Ok(_) => {},
+            Err(_) => panic!("Rule history failed to insert"),
+        }
 
         let (sender, receiver) = mpsc::channel();
 
@@ -888,9 +948,13 @@ mod test
             TicketFactory::from_str("I wish I were a windowsill").result()
         );
 
-        rule_history2.insert(
+        match rule_history2.insert(
             factory.result(),
-            vec![TicketFactory::from_str("I wish I were a windowsill").result()]);
+            vec![TicketFactory::from_str("I wish I were a windowsill").result()])
+        {
+            Ok(_) => {},
+            Err(_) => panic!("Rule history failed to insert"),
+        }
 
         let (sender, receiver) = mpsc::channel();
 
@@ -1059,9 +1123,13 @@ mod test
             TicketFactory::from_str("I wish I were a windowsill").result()
         );
 
-        rule_history2.insert(
+        match rule_history2.insert(
             factory.result(),
-            vec![TicketFactory::from_str("I wish I were a windowsill").result()]);
+            vec![TicketFactory::from_str("I wish I were a windowsill").result()])
+        {
+            Ok(_) => {},
+            Err(_) => panic!("Rule history failed to insert"),
+        }
 
         let (sender, receiver) = mpsc::channel();
 
@@ -1151,9 +1219,13 @@ mod test
             TicketFactory::from_str("I wish I were a windowsill").result()
         );
 
-        rule_history2.insert(
+        match rule_history2.insert(
             factory.result(),
-            vec![TicketFactory::from_str("I wish I were a windowsill").result()]);
+            vec![TicketFactory::from_str("I wish I were a windowsill").result()])
+        {
+            Ok(_) => {},
+            Err(_) => panic!("Rule history failed to insert"),
+        }
 
         let (sender, receiver) = mpsc::channel();
 

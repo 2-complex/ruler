@@ -13,6 +13,12 @@ pub struct RuleHistory
     source_to_targets : HashMap<Ticket, Vec<Ticket>>,
 }
 
+pub enum RuleHistoryError
+{
+    Contradiction(Vec<usize>),
+    TargetSizesDifferWeird,
+}
+
 impl RuleHistory
 {
     pub fn new() -> RuleHistory
@@ -23,9 +29,46 @@ impl RuleHistory
         }
     }
 
-    pub fn insert(&mut self, source_ticket: Ticket, target_tickets: Vec<Ticket>)
+    pub fn insert(&mut self, source_ticket: Ticket, target_tickets: Vec<Ticket>) -> Result<(), RuleHistoryError>
     {
-        self.source_to_targets.insert(source_ticket, target_tickets);
+        match self.source_to_targets.get(&source_ticket)
+        {
+            Some(existing_tickets) =>
+            {
+                let elen : usize = existing_tickets.len();
+
+                if elen != target_tickets.len()
+                {
+                    return Err(RuleHistoryError::TargetSizesDifferWeird)
+                }
+                else
+                {
+                    let mut contradicting_indices = Vec::new();
+                    for i in 0..elen
+                    {
+                        if existing_tickets[i] != target_tickets[i]
+                        {
+                            contradicting_indices.push(i);
+                        }
+                    }
+
+                    if contradicting_indices.len() == 0
+                    {
+                        Ok(())
+                    }
+                    else
+                    {
+                        return Err(RuleHistoryError::Contradiction(contradicting_indices))
+                    }
+                }
+            },
+            None =>
+            {
+                self.source_to_targets.insert(source_ticket, target_tickets);
+                Ok(())
+            }
+        }
+
     }
 
     pub fn get(&self, source_ticket: &Ticket) -> Option<&Vec<Ticket>>
@@ -151,7 +194,11 @@ impl Memory
             }
         );
 
-        rule_history.insert(source_ticket, target_tickets);
+        match rule_history.insert(source_ticket, target_tickets)
+        {
+            Ok(_) => {},
+            Err(_) => panic!("Insert broken"),
+        }
     }
 
     pub fn insert_rule_history(&mut self, rule_ticket: Ticket, rule_history: RuleHistory)
@@ -207,12 +254,16 @@ mod test
     fn round_trip_history()
     {
         let mut history = RuleHistory::new();
-        history.insert(TicketFactory::from_str("source").result(),
+        match history.insert(TicketFactory::from_str("source").result(),
             [
                 TicketFactory::from_str("target1").result(),
                 TicketFactory::from_str("target2").result(),
                 TicketFactory::from_str("target3").result(),
-            ].to_vec());
+            ].to_vec())
+        {
+            Ok(_) => {},
+            Err(_) => panic!("Rule history failed to insert"),
+        }
 
         let encoded: Vec<u8> = bincode::serialize(&history).unwrap();
         let decoded: RuleHistory = bincode::deserialize(&encoded[..]).unwrap();
@@ -247,20 +298,28 @@ mod test
     fn add_remove_rules()
     {
         let mut history_a = RuleHistory::new();
-        history_a.insert(TicketFactory::from_str("sourceA").result(),
+        match history_a.insert(TicketFactory::from_str("sourceA").result(),
             [
                 TicketFactory::from_str("target1A").result(),
                 TicketFactory::from_str("target2A").result(),
                 TicketFactory::from_str("target3A").result(),
-            ].to_vec());
+            ].to_vec())
+        {
+            Ok(_) => {},
+            Err(_) => panic!("Rule history failed to insert"),
+        }
 
         let mut history_b = RuleHistory::new();
-        history_b.insert(TicketFactory::from_str("sourceB").result(),
+        match history_b.insert(TicketFactory::from_str("sourceB").result(),
             [
                 TicketFactory::from_str("target1B").result(),
                 TicketFactory::from_str("target2B").result(),
                 TicketFactory::from_str("target3B").result(),
-            ].to_vec());
+            ].to_vec())
+        {
+            Ok(_) => {},
+            Err(_) => panic!("Rule history failed to insert"),
+        }
 
         let mut memory = Memory::new();
 

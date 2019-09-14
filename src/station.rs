@@ -180,10 +180,13 @@ mod test
 
         // Make rule history remembering that the source c++ code built
         // to the target executable.
-        rule_history.insert(
+        match rule_history.insert(
             source_factory.result(),
-            vec![TicketFactory::from_str(target_content).result()]
-        );
+            vec![TicketFactory::from_str(target_content).result()])
+        {
+            Ok(_) => {},
+            Err(_) => panic!("Rule history failed to insert"),
+        }
 
         // Meanwhile, in the filesystem put some rubbish in game.cpp
         match file_system.write_file("game.cpp", source_content)
