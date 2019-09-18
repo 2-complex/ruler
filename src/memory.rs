@@ -215,6 +215,11 @@ impl Memory
         }
     }
 
+    pub fn insert_target_history(&mut self, target_path: String, target_history : TargetHistory)
+    {
+        self.target_histories.insert(target_path, target_history);
+    }
+
     pub fn get_target_history(&mut self, target_path: &str) -> TargetHistory
     {
         match self.target_histories.remove(target_path)
@@ -228,7 +233,8 @@ impl Memory
 #[cfg(test)]
 mod test
 {
-    use crate::memory::{RuleHistory, Memory};
+    use filesystem::{FileSystem, FakeFileSystem};
+    use crate::memory::{RuleHistory, Memory, TargetHistory};
     use crate::ticket::{TicketFactory};
 
     #[test]
@@ -245,9 +251,101 @@ mod test
             ].to_vec()
         );
 
+        let target_history = TargetHistory::new(
+            TicketFactory::from_str("main(){}").result(), 123);
+
+        mem.insert_target_history("src/meta.c".to_string(), target_history);
+
         let encoded: Vec<u8> = bincode::serialize(&mem).unwrap();
-        let decoded: Memory = bincode::deserialize(&encoded[..]).unwrap();
-        assert_eq!(mem, decoded);
+        let mut decoded_mem: Memory = bincode::deserialize(&encoded[..]).unwrap();
+        assert_eq!(mem, decoded_mem);
+        assert_eq!(mem.target_histories, decoded_mem.target_histories);
+
+        let decoded_history = decoded_mem.get_target_history("src/meta.c");
+        assert_eq!(decoded_history.ticket, TicketFactory::from_str("main(){}").result());
+    }
+
+    #[test]
+    fn round_trip_memory_through_file()
+    {
+        let mut mem = Memory::new();
+        mem.insert(
+            TicketFactory::from_str("rule").result(),
+            TicketFactory::from_str("source").result(),
+            [
+                TicketFactory::from_str("target1").result(),
+                TicketFactory::from_str("target2").result(),
+                TicketFactory::from_str("target3").result(),
+            ].to_vec()
+        );
+
+        let target_history = TargetHistory::new(
+            TicketFactory::from_str("main(){}").result(), 123);
+
+        mem.insert_target_history("src/meta.c".to_string(), target_history);
+
+        let file_system = FakeFileSystem::new();
+
+        let encoded: Vec<u8> = bincode::serialize(&mem).unwrap();
+        match file_system.write_file("memory.file", encoded)
+        {
+            Ok(()) =>
+            {
+                match file_system.read_file("memory.file")
+                {
+                    Ok(content) =>
+                    {
+                        let read_mem: Memory = bincode::deserialize(&content).unwrap();
+                        assert_eq!(mem, read_mem);
+                    },
+                    Err(_) => panic!("Memory file read failed"),
+                }
+            },
+            Err(_) => panic!("Memory file write failed"),
+        }
+    }
+
+    #[test]
+    fn round_trip_memory_through_file_to_from()
+    {
+        let mut memory = Memory::new();
+        memory.insert(
+            TicketFactory::from_str("rule").result(),
+            TicketFactory::from_str("source").result(),
+            [
+                TicketFactory::from_str("target1").result(),
+                TicketFactory::from_str("target2").result(),
+                TicketFactory::from_str("target3").result(),
+            ].to_vec()
+        );
+
+        let target_history = TargetHistory::new(
+            TicketFactory::from_str("main(){}").result(), 123);
+
+        memory.insert_target_history("src/meta.c".to_string(), target_history);
+
+        let mut file_system = FakeFileSystem::new();
+
+        match memory.to_file(&mut file_system, "memory.file")
+        {
+            Ok(()) => {},
+            Err(_) => panic!("Memory failed to write into file"),
+        }
+
+        match Memory::from_file(&mut file_system, "memory.file")
+        {
+            Ok(mut new_memory) =>
+            {
+                assert_eq!(new_memory, memory);
+                assert_eq!(new_memory.rule_histories, memory.rule_histories);
+                assert_eq!(new_memory.target_histories, memory.target_histories);
+
+                let new_history = new_memory.get_target_history("src/meta.c");
+                assert_eq!(new_history.ticket, TicketFactory::from_str("main(){}").result());
+                assert_eq!(new_history.timestamp, 123);
+            },
+            Err(_) => panic!("Memory failed to read from file"),
+        }
     }
 
     #[test]
@@ -370,5 +468,21 @@ mod test
             },
             None => panic!("Important event missing from hisotry"),
         }
+    }
+
+    #[test]
+    fn insert_remove_target_history()
+    {
+        let mut memory = Memory::new();
+
+        let target_history = TargetHistory::new(
+            TicketFactory::from_str("main(){}").result(), 17123);
+
+        memory.insert_target_history("src/meta.c".to_string(), target_history);
+
+        let history = memory.get_target_history("src/meta.c");
+
+        assert_eq!(history.ticket, TicketFactory::from_str("main(){}").result());
+        assert_eq!(history.timestamp, 17123);
     }
 }
