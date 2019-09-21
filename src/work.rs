@@ -684,6 +684,95 @@ mod test
 
 
     #[test]
+    fn poem_contradicts_history()
+    {
+        let (sender_a, receiver_a) = mpsc::channel();
+        let (sender_b, receiver_b) = mpsc::channel();
+        let (sender_c, _receiver_c) = mpsc::channel();
+
+        let mut rule_history = RuleHistory::new();
+
+        let mut factory = TicketFactory::new();
+        factory.input_ticket(TicketFactory::from_str("Roses are red\n").result());
+        factory.input_ticket(TicketFactory::from_str("Violets are violet\n").result());
+
+        match rule_history.insert(
+            factory.result(),
+            vec![
+                TicketFactory::from_str("Roses are red\nViolets are blue\n").result()
+            ]
+        )
+        {
+            Ok(_) => {},
+            Err(_) => panic!("Rule history failed to insert"),
+        }
+
+        let file_system = FakeFileSystem::new();
+
+        match file_system.write_file(Path::new(&"verse1.txt"), "Roses are red\n")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File write operation failed"),
+        }
+
+        match file_system.write_file(Path::new(&"verse2.txt"), "Violets are violet\n")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File write operation failed"),
+        }
+
+        match file_system.write_file(Path::new(&"poem.txt"), "Arbitrary content")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File write operation failed"),
+        }
+
+        match sender_a.send(Packet::from_ticket(TicketFactory::from_str("Roses are red\n").result()))
+        {
+            Ok(p) => assert_eq!(p, ()),
+            Err(e) => panic!("Unexpected error sending: {}", e),
+        }
+
+        match sender_b.send(Packet::from_ticket(TicketFactory::from_str("Violets are violet\n").result()))
+        {
+            Ok(p) => assert_eq!(p, ()),
+            Err(e) => panic!("Unexpected error sending: {}", e),
+        }
+
+        match do_command(
+            Station::new(
+                to_info(vec!["poem.txt".to_string()]),
+                vec![
+                    "mycat".to_string(),
+                    "verse1.txt".to_string(),
+                    "verse2.txt".to_string(),
+                    "poem.txt".to_string()
+                ],
+                rule_history,
+                file_system.clone(),
+                FakeMetadataGetter::new(),
+            ),
+            vec![(0, sender_c)],
+            vec![receiver_a, receiver_b],
+            FakeExecutor::new(file_system.clone()))
+        {
+            Ok(_result) =>
+            {
+                panic!("Build was success when it should have been a contradition")
+            },
+            Err(error) =>
+            {
+                match error
+                {
+                    WorkError::Contradiction => assert_eq!(1,1),
+                    _ => panic!("Wrong error: {}", error),
+                }
+            }
+        }
+    }
+
+
+    #[test]
     fn file_not_there()
     {
         let file_system = FakeFileSystem::new();
