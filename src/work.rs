@@ -75,7 +75,7 @@ pub enum WorkError
     FileNotFound(String),
     FileIoError(String, std::io::Error),
     CommandErrorWhileExecuting(String),
-    Contradiction,
+    Contradiction(Vec<String>),
     Weird,
 }
 
@@ -106,8 +106,17 @@ impl fmt::Display for WorkError
             WorkError::CommandErrorWhileExecuting(message) =>
                 write!(formatter, "Failed to execute command with message: {}", message),
 
-            WorkError::Contradiction =>
-                write!(formatter, "Failed to re-save tickets.  (Need a better message for this)"),
+            WorkError::Contradiction(contradicting_target_paths) =>
+            {
+                let mut message = "The following targets failed to record into history because they contradict an already recorded history: ".to_string();
+                for path in contradicting_target_paths
+                {
+                    message.push_str(path);
+                    message.push_str("\n");
+                }
+                message.push_str("This likely means the targets in question have a dependence which is not reflected in the rule.\n");
+                write!(formatter, "{}", message)
+            },
 
             WorkError::Weird =>
                 write!(formatter, "Weird! How did you do that!"),
@@ -212,8 +221,15 @@ pub fn do_command<
                     {
                         match error
                         {
-                            RuleHistoryError::Contradiction(_contradicting_indices) =>
-                                return Err(WorkError::Contradiction),
+                            RuleHistoryError::Contradiction(contradicting_indices) =>
+                            {
+                                let mut contradicting_target_paths = Vec::new();
+                                for index in contradicting_indices
+                                {
+                                    contradicting_target_paths.push(station.target_infos[index].path.clone())
+                                }
+                                return Err(WorkError::Contradiction(contradicting_target_paths));
+                            }
 
                             RuleHistoryError::TargetSizesDifferWeird =>
                                 return Err(WorkError::Weird),
@@ -764,7 +780,10 @@ mod test
             {
                 match error
                 {
-                    WorkError::Contradiction => assert_eq!(1,1),
+                    WorkError::Contradiction(paths) => 
+                    {
+                        assert_eq!(paths.len(), 1);
+                    },
                     _ => panic!("Wrong error: {}", error),
                 }
             }
