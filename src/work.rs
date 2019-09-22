@@ -283,7 +283,7 @@ mod test
     use crate::work::{do_command, WorkResult, WorkError};
     use crate::ticket::TicketFactory;
     use crate::memory::{RuleHistory, TargetHistory};
-    use crate::executor::{Executor, CommandLineOutput};
+    use crate::executor::FakeExecutor;
     use crate::packet::Packet;
     use crate::metadata::{MetadataGetter, FakeMetadataGetter};
 
@@ -292,93 +292,6 @@ mod test
     use std::sync::mpsc::{self, Sender, Receiver};
     use std::str::from_utf8;
     use std::thread::{self, JoinHandle};
- 
-    struct FakeExecutor
-    {
-        file_system: FakeFileSystem
-    }
-
-    impl FakeExecutor
-    {
-        fn new(file_system: FakeFileSystem) -> FakeExecutor
-        {
-            FakeExecutor
-            {
-                file_system: file_system
-            }
-        }
-    }
-
-    impl Executor for FakeExecutor
-    {
-        fn execute_command(&self, command_list : Vec<String>) -> Result<CommandLineOutput, String>
-        {
-            let n = command_list.len();
-            let mut output = String::new();
-
-            if n > 1
-            {
-                match command_list[0].as_str()
-                {
-                    "mycat" =>
-                    {
-                        for file in command_list[1..(n-1)].iter()
-                        {
-                            match self.file_system.read_file(file)
-                            {
-                                Ok(content) =>
-                                {
-                                    match from_utf8(&content)
-                                    {
-                                        Ok(content_string) =>
-                                        {
-                                            output.push_str(content_string);
-                                        }
-                                        Err(_) => return Err(format!("File contained non utf8 bytes: {}", file)),
-                                    }
-                                }
-                                Err(_) =>
-                                {
-                                    return Err(format!("File failed to open: {}", file));
-                                }
-                            }
-                        }
-
-                        match self.file_system.write_file(Path::new(&command_list[n-1]), output)
-                        {
-                            Ok(_) => Ok(CommandLineOutput::new()),
-                            Err(why) =>
-                            {
-                                Err(format!("Filed to cat into file: {}: {}", command_list[n-1], why))
-                            }
-                        }
-                    },
-
-                    "rm" =>
-                    {
-                        for file in command_list[1..n].iter()
-                        {
-                            match self.file_system.remove_file(file)
-                            {
-                                Ok(()) => {}
-                                Err(_) =>
-                                {
-                                    return Err(format!("File failed to delete: {}", file));
-                                }
-                            }
-                        }
-
-                        Ok(CommandLineOutput::new())
-                    },
-                    _=> Err(format!("Non command given: {}", command_list[0]))
-                }
-            }
-            else
-            {
-                Ok(CommandLineOutput::new())
-            }
-        }
-    }
 
     fn to_info(mut targets : Vec<String>) -> Vec<TargetFileInfo>
     {

@@ -46,6 +46,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 #[cfg(test)]
+#[derive(Clone)]
 pub struct FakeMetadataGetter
 {
     path_to_time: HashMap<String, SystemTime>,
