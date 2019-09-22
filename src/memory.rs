@@ -216,6 +216,7 @@ impl Memory
         }
     }
 
+    #[cfg(test)]
     pub fn insert_target_history(&mut self, target_path: String, target_history : TargetHistory)
     {
         self.target_histories.insert(target_path, target_history);

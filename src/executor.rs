@@ -60,6 +60,7 @@ pub struct FakeExecutor
 
 impl FakeExecutor
 {
+    #[cfg(test)]
     pub fn new(file_system: FakeFileSystem) -> FakeExecutor
     {
         FakeExecutor

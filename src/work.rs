@@ -109,13 +109,13 @@ impl fmt::Display for WorkError
 
             WorkError::Contradiction(contradicting_target_paths) =>
             {
-                let mut message = "The following targets failed to record into history because they contradict an already recorded history: ".to_string();
+                let mut message = "The following targets failed to record into history because they contradict an existing target history:\n".to_string();
                 for path in contradicting_target_paths
                 {
                     message.push_str(path);
                     message.push_str("\n");
                 }
-                message.push_str("This likely means the targets in question have a dependence which is not reflected in the rule that builds them.\n");
+                message.push_str("This likely means a real dependence is not reflected in the rule.\n");
                 write!(formatter, "{}", message)
             },
 
