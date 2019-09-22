@@ -6,6 +6,7 @@ pub trait MetadataGetter
     fn get_modified(&self, path: &str) -> Result<SystemTime, String>;
 }
 
+#[derive(Clone)]
 pub struct OsMetadataGetter
 {
 }

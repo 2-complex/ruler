@@ -165,8 +165,9 @@ impl Memory
     }
 
     pub fn to_file<FSType: FileSystem>(
-        &self, file_system: &mut FSType, path_as_str : &str)
-    -> Result<(), String>
+        &self, file_system: &mut FSType,
+        path_as_str : &str
+    ) -> Result<(), String>
     {
         match file_system.write_file(Path::new(&path_as_str), bincode::serialize(&self).unwrap())
         {
@@ -220,7 +221,7 @@ impl Memory
         self.target_histories.insert(target_path, target_history);
     }
 
-    pub fn get_target_history(&mut self, target_path: &str) -> TargetHistory
+    pub fn take_target_history(&mut self, target_path: &str) -> TargetHistory
     {
         match self.target_histories.remove(target_path)
         {
@@ -261,7 +262,7 @@ mod test
         assert_eq!(mem, decoded_mem);
         assert_eq!(mem.target_histories, decoded_mem.target_histories);
 
-        let decoded_history = decoded_mem.get_target_history("src/meta.c");
+        let decoded_history = decoded_mem.take_target_history("src/meta.c");
         assert_eq!(decoded_history.ticket, TicketFactory::from_str("main(){}").result());
     }
 
@@ -337,10 +338,11 @@ mod test
             Ok(mut new_memory) =>
             {
                 assert_eq!(new_memory, memory);
+
                 assert_eq!(new_memory.rule_histories, memory.rule_histories);
                 assert_eq!(new_memory.target_histories, memory.target_histories);
 
-                let new_history = new_memory.get_target_history("src/meta.c");
+                let new_history = new_memory.take_target_history("src/meta.c");
                 assert_eq!(new_history.ticket, TicketFactory::from_str("main(){}").result());
                 assert_eq!(new_history.timestamp, 123);
             },
@@ -480,7 +482,7 @@ mod test
 
         memory.insert_target_history("src/meta.c".to_string(), target_history);
 
-        let history = memory.get_target_history("src/meta.c");
+        let history = memory.take_target_history("src/meta.c");
 
         assert_eq!(history.ticket, TicketFactory::from_str("main(){}").result());
         assert_eq!(history.timestamp, 17123);

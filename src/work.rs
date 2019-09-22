@@ -13,6 +13,7 @@ use std::sync::mpsc::{Sender, Receiver, RecvError};
 use std::collections::VecDeque;
 use std::fmt;
 
+#[derive(Clone)]
 pub struct OsExecutor
 {
 }
@@ -114,7 +115,7 @@ impl fmt::Display for WorkError
                     message.push_str(path);
                     message.push_str("\n");
                 }
-                message.push_str("This likely means the targets in question have a dependence which is not reflected in the rule.\n");
+                message.push_str("This likely means the targets in question have a dependence which is not reflected in the rule that builds them.\n");
                 write!(formatter, "{}", message)
             },
 

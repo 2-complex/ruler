@@ -5,14 +5,14 @@ extern crate sqlite;
 
 use clap::{Arg, App, SubCommand};
 
-use std::thread::{self, JoinHandle};
+use std::thread;
 
 use filesystem::{FileSystem, OsFileSystem};
 use std::sync::mpsc::{Sender, Receiver};
 use std::sync::mpsc;
+use std::str::from_utf8;
 use multimap::MultiMap;
 
-mod file;
 mod rule;
 mod ticket;
 mod work;
@@ -26,30 +26,9 @@ use self::rule::Record;
 use self::packet::Packet;
 use self::work::{WorkResult, WorkError, OsExecutor, do_command};
 use self::metadata::{MetadataGetter, OsMetadataGetter};
+use self::executor::{Executor};
 use self::station::{Station, TargetFileInfo};
 use self::memory::Memory;
-
-fn spawn_command<
-    FileSystemType: FileSystem + Send + 'static,
-    MetadataGetterType: MetadataGetter + Send + 'static>
-(
-    station : Station<FileSystemType, MetadataGetterType>,
-    senders : Vec<(usize, Sender<Packet>)>,
-    receivers : Vec<Receiver<Packet>>,
-) -> JoinHandle<Result<WorkResult, WorkError>>
-{
-    thread::spawn(
-        move || -> Result<WorkResult, WorkError>
-        {
-            do_command(
-                station,
-                senders,
-                receivers,
-                OsExecutor::new()
-            )
-        }
-    )
-}
 
 fn make_multimaps(records : &Vec<Record>)
     -> (
@@ -73,166 +52,193 @@ fn make_multimaps(records : &Vec<Record>)
     (senders, receivers)
 }
 
-fn build(memoryfile: &str, rulefile: &str, target: &str)
-{
-    let mut os_file_system = OsFileSystem::new();
 
-    match Memory::from_file(&mut os_file_system, memoryfile)
+fn build<
+    FileSystemType : FileSystem + Clone + Send + 'static,
+    ExecType : Executor + Clone + Send + 'static,
+    MetadataGetterType : MetadataGetter + Clone + Send + 'static
+>(
+    mut file_system : FileSystemType,
+    executor : ExecType,
+    metadata_getter: MetadataGetterType,
+    memoryfile : &str,
+    rulefile: &str,
+    target: &str
+)
+{
+    match Memory::from_file(&mut file_system, memoryfile)
     {
         Err(why) => eprintln!("ERROR: {}", why),
         Ok(mut memory) =>
         {
-            match file::read(rulefile)
+            match file_system.read_file(rulefile)
             {
                 Err(why) => eprintln!("ERROR: {}", why),
                 Ok(content) =>
                 {
-                    match rule::parse(content)
+                    match from_utf8(&content)
                     {
-                        Err(why) => eprintln!("ERROR: {}", why),
-                        Ok(rules) =>
+                        Ok(rule_text) =>
                         {
-                            match rule::topological_sort(rules, &target)
+                            match rule::parse(rule_text.to_owned())
                             {
                                 Err(why) => eprintln!("ERROR: {}", why),
-                                Ok(mut records) =>
+                                Ok(rules) =>
                                 {
-                                    let (mut senders, mut receivers) = make_multimaps(&records);
-
-                                    let mut handles = Vec::new();
-                                    let mut index : usize = 0;
-
-                                    for mut record in records.drain(..)
+                                    match rule::topological_sort(rules, &target)
                                     {
-                                        let sender_vec = match senders.remove(&index)
+                                        Err(why) => eprintln!("ERROR: {}", why),
+                                        Ok(mut records) =>
                                         {
-                                            Some(v) => v,
-                                            None => vec![],
-                                        };
+                                            let (mut senders, mut receivers) = make_multimaps(&records);
 
-                                        let receiver_vec = match receivers.remove(&index)
-                                        {
-                                            Some(v) => v,
-                                            None => vec![],
-                                        };
+                                            let mut handles = Vec::new();
+                                            let mut index : usize = 0;
 
-                                        let mut target_infos = Vec::new();
-                                        for target_path in record.targets.drain(..)
-                                        {
-                                            target_infos.push(
-                                                TargetFileInfo
+                                            for mut record in records.drain(..)
+                                            {
+                                                let sender_vec = match senders.remove(&index)
                                                 {
-                                                    history : memory.get_target_history(&target_path),
-                                                    path : target_path,
+                                                    Some(v) => v,
+                                                    None => vec![],
+                                                };
+
+                                                let receiver_vec = match receivers.remove(&index)
+                                                {
+                                                    Some(v) => v,
+                                                    None => vec![],
+                                                };
+
+                                                let mut target_infos = Vec::new();
+                                                for target_path in record.targets.drain(..)
+                                                {
+                                                    target_infos.push(
+                                                        TargetFileInfo
+                                                        {
+                                                            history : memory.take_target_history(&target_path),
+                                                            path : target_path,
+                                                        }
+                                                    );
                                                 }
-                                            );
-                                        }
 
-                                        let station = Station::new(
-                                            target_infos,
-                                            record.command,
-                                            memory.get_rule_history(&record.ticket),
-                                            os_file_system.clone(),
-                                            OsMetadataGetter::new(),
-                                        );
+                                                let station = Station::new(
+                                                    target_infos,
+                                                    record.command,
+                                                    memory.get_rule_history(&record.ticket),
+                                                    file_system.clone(),
+                                                    metadata_getter.clone(),
+                                                );
 
-                                        handles.push(
-                                            (
-                                                record.ticket,
-                                                spawn_command(
-                                                    station,
-                                                    sender_vec,
-                                                    receiver_vec,
-                                                )
-                                            )
-                                        );
+                                                let executor_clone = executor.clone();
 
-                                        index+=1;
-                                    }
-
-                                    let mut error_found = false;
-
-                                    println!("Building...");
-                                    for (record_ticket, handle) in handles
-                                    {
-                                        match handle.join()
-                                        {
-                                            Err(_) =>
-                                            {
-                                                eprintln!("ERROR");
-                                            },
-                                            Ok(work_result_result) =>
-                                            {
-                                                match work_result_result
-                                                {
-                                                    Ok(work_result) =>
-                                                    {
-                                                        match work_result.command_line_output
-                                                        {
-                                                            Some(output) =>
+                                                handles.push(
+                                                    (
+                                                        record.ticket,
+                                                        thread::spawn(
+                                                            move || -> Result<WorkResult, WorkError>
                                                             {
-                                                                for target_info in work_result.target_infos.iter()
-                                                                {
-                                                                    println!("{}", target_info.path);
-                                                                }
-
-                                                                if output.out != ""
-                                                                {
-                                                                    println!("output: {}", output.out);
-                                                                }
-
-                                                                if output.err != ""
-                                                                {
-                                                                    println!("error: {}", output.err);
-                                                                }
-
-                                                                if !output.success
-                                                                {
-                                                                    println!("success: {}", output.success);
-                                                                    println!("code: {}", 
-                                                                        match output.code
-                                                                        {
-                                                                            Some(code) => format!("{}", code),
-                                                                            None => "None".to_string(),
-                                                                        }
-                                                                    );
-                                                                }
-
-                                                            },
-                                                            None => {},
-                                                        }
-
-                                                        memory.insert_rule_history(record_ticket, work_result.rule_history);
-                                                    },
-                                                    Err(work_error) =>
-                                                    {
-                                                        match work_error
-                                                        {
-                                                            WorkError::ReceiverError(_error) => {},
-                                                            WorkError::SenderError => {},
-
-                                                            _ =>
-                                                            {
-                                                                eprintln!("{}", work_error);
-                                                                error_found = true;
+                                                                do_command(
+                                                                    station,
+                                                                    sender_vec,
+                                                                    receiver_vec,
+                                                                    executor_clone)
                                                             }
-                                                        }
+                                                        )
+                                                    )
+                                                );
+
+                                                index+=1;
+                                            }
+
+                                            let mut error_found = false;
+
+                                            println!("Building...");
+                                            for (record_ticket, handle) in handles
+                                            {
+                                                match handle.join()
+                                                {
+                                                    Err(_) =>
+                                                    {
+                                                        eprintln!("ERROR");
                                                     },
+                                                    Ok(work_result_result) =>
+                                                    {
+                                                        match work_result_result
+                                                        {
+                                                            Ok(work_result) =>
+                                                            {
+                                                                match work_result.command_line_output
+                                                                {
+                                                                    Some(output) =>
+                                                                    {
+                                                                        for target_info in work_result.target_infos.iter()
+                                                                        {
+                                                                            println!("{}", target_info.path);
+                                                                        }
+
+                                                                        if output.out != ""
+                                                                        {
+                                                                            println!("output: {}", output.out);
+                                                                        }
+
+                                                                        if output.err != ""
+                                                                        {
+                                                                            println!("error: {}", output.err);
+                                                                        }
+
+                                                                        if !output.success
+                                                                        {
+                                                                            println!("success: {}", output.success);
+                                                                            println!("code: {}", 
+                                                                                match output.code
+                                                                                {
+                                                                                    Some(code) => format!("{}", code),
+                                                                                    None => "None".to_string(),
+                                                                                }
+                                                                            );
+                                                                        }
+
+                                                                    },
+                                                                    None => {},
+                                                                }
+
+                                                                memory.insert_rule_history(record_ticket, work_result.rule_history);
+                                                            },
+                                                            Err(work_error) =>
+                                                            {
+                                                                match work_error
+                                                                {
+                                                                    WorkError::ReceiverError(_error) => {},
+                                                                    WorkError::SenderError => {},
+
+                                                                    _ =>
+                                                                    {
+                                                                        eprintln!("{}", work_error);
+                                                                        error_found = true;
+                                                                    }
+                                                                }
+                                                            },
+                                                        }
+                                                    }
                                                 }
                                             }
-                                        }
-                                    }
 
-                                    if !error_found
-                                    {
-                                        match memory.to_file(&mut os_file_system, memoryfile)
-                                        {
-                                            Ok(_) => {println!("...done.")},
-                                            Err(_) => eprintln!("Error writing history"),
-                                        }
+                                            if !error_found
+                                            {
+                                                match memory.to_file(&mut file_system, memoryfile)
+                                                {
+                                                    Ok(_) => {println!("...done.")},
+                                                    Err(_) => eprintln!("Error writing history"),
+                                                }
+                                            }
+                                        },
                                     }
-                                },
+                                }
                             }
+                        }
+                        Err(_) =>
+                        {
+                            eprintln!("rulefile not utf8");
                         }
                     }
                 },
@@ -291,6 +297,10 @@ fn main()
             None => panic!("No target!"),
         };
 
-        build(historyfile, rulefile, target);
+        build(
+            OsFileSystem::new(),
+            OsExecutor::new(),
+            OsMetadataGetter::new(),
+            historyfile, rulefile, target);
     }
 }
