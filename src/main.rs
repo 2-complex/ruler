@@ -67,10 +67,14 @@ fn main()
             None => panic!("No target!"),
         };
 
-        build(
+        match build(
             OsFileSystem::new(),
             OsExecutor::new(),
             OsMetadataGetter::new(),
-            historyfile, rulefile, target);
+            historyfile, rulefile, target)
+        {
+            Ok(()) => {},
+            Err(error) => eprintln!("{}", error),
+        }
     }
 }
