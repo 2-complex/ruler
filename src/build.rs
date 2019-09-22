@@ -427,6 +427,12 @@ poem.txt
             Err(_) => panic!("File failed to write."),
         }
 
+        match file_system.write_file("poem.txt", "Wrong content forcing a rebuild")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File failed to write."),
+        }
+
         match build(
             file_system.clone(),
             executor.clone(),
