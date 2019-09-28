@@ -2,7 +2,7 @@ extern crate bincode;
 extern crate serde;
 
 use crypto::sha2::Sha512;
-use base64::encode;
+use base64::encode_config;
 use crypto::digest::Digest;
 use std::hash::{Hash, Hasher};
 use serde::{Serialize, Deserialize};
@@ -56,7 +56,6 @@ impl TicketFactory
         }
     }
 
-
     pub fn from_file<FSType: FileSystem>(
         file_system: &FSType,
         path : &str)
@@ -88,7 +87,7 @@ impl Ticket
 {
     pub fn base64(&self) -> String
     {
-        format!("{}", encode(&self.sha))
+        format!("{}", encode_config(&self.sha, base64::URL_SAFE))
     }
 
     pub fn from_strings(
@@ -156,7 +155,7 @@ mod test
         let ticket = TicketFactory::from_str("b").result();
         assert_eq!(ticket.sha.len(), 64);
         assert_eq!(ticket.base64(),
-            "Umd2iCLuYk1I/OFexcp5y9YCy39MIVelFlVpkfIu+Me173sY0f9BxZNw77CFhlHUSpNsEbexRMSP4E3zxqPo2g==");
+            "Umd2iCLuYk1I_OFexcp5y9YCy39MIVelFlVpkfIu-Me173sY0f9BxZNw77CFhlHUSpNsEbexRMSP4E3zxqPo2g==");
     }
 
     #[test]
@@ -164,7 +163,7 @@ mod test
     {
         let ticket = TicketFactory::from_str("Time wounds all heels.\n").result();
         assert_eq!(ticket.base64(),
-            "PRemaMHXvOuGAx87EOGZY1/cGUv4udBiqVmgP8nwVX93njjGOdE41zf4rV9PAbiJp/i6ucukKrvFp3zldP42wA==");
+            "PRemaMHXvOuGAx87EOGZY1_cGUv4udBiqVmgP8nwVX93njjGOdE41zf4rV9PAbiJp_i6ucukKrvFp3zldP42wA==");
     }
 
     #[test]
@@ -177,7 +176,7 @@ mod test
         factory.input_str("heels.\n");
         let ticket = factory.result();
         assert_eq!(ticket.base64(),
-            "PRemaMHXvOuGAx87EOGZY1/cGUv4udBiqVmgP8nwVX93njjGOdE41zf4rV9PAbiJp/i6ucukKrvFp3zldP42wA==");
+            "PRemaMHXvOuGAx87EOGZY1_cGUv4udBiqVmgP8nwVX93njjGOdE41zf4rV9PAbiJp_i6ucukKrvFp3zldP42wA==");
     }
 
     #[test]
@@ -195,7 +194,7 @@ mod test
             Ok(mut factory) =>
             {
                 assert_eq!(factory.result().base64(),
-                    "PRemaMHXvOuGAx87EOGZY1/cGUv4udBiqVmgP8nwVX93njjGOdE41zf4rV9PAbiJp/i6ucukKrvFp3zldP42wA==");
+                    "PRemaMHXvOuGAx87EOGZY1_cGUv4udBiqVmgP8nwVX93njjGOdE41zf4rV9PAbiJp_i6ucukKrvFp3zldP42wA==");
             },
             Err(why) => panic!("Failed to open test file time.txt: {}", why),
         }
@@ -218,7 +217,7 @@ mod test
                 let mut new_factory = TicketFactory::from_str("time1.txt\n:\n:\n:\n");
                 new_factory.input_ticket(factory.result());
                 assert_eq!(new_factory.result().base64(),
-                    "CcCQWumbtg7N3xkZEAv+GlmKKe5XRJGzz+0fbdeG5poAnHSTVTjM2jCo5xu7/9r4GiYcevWaG2mesTMoB6NK6g==");
+                    "CcCQWumbtg7N3xkZEAv-GlmKKe5XRJGzz-0fbdeG5poAnHSTVTjM2jCo5xu7_9r4GiYcevWaG2mesTMoB6NK6g==");
             },
             Err(why) => panic!("Failed to open test file time1.txt: {}", why),
         }

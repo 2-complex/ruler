@@ -4,6 +4,7 @@ extern crate filesystem;
 use clap::{Arg, App, SubCommand};
 use filesystem::OsFileSystem;
 
+mod cache;
 mod build;
 mod rule;
 mod ticket;

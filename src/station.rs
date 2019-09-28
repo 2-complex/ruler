@@ -13,7 +13,7 @@ pub struct TargetFileInfo
     pub history : TargetHistory,
 }
 
-pub struct Station<FileSystemType: FileSystem, MetadataGetterType: MetadataGetter>
+pub struct Station<FileSystemType : FileSystem, MetadataGetterType : MetadataGetter>
 {
     pub target_infos : Vec<TargetFileInfo>,
     pub command : Vec<String>,
