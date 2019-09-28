@@ -18,6 +18,7 @@ use crate::metadata::MetadataGetter;
 use crate::executor::Executor;
 use crate::station::{Station, TargetFileInfo};
 use crate::memory::Memory;
+use crate::cache::LocalCache;
 
 
 fn make_multimaps(records : &Vec<Record>)
@@ -192,7 +193,8 @@ pub fn build<
                             station,
                             sender_vec,
                             receiver_vec,
-                            executor_clone)
+                            executor_clone,
+                            LocalCache::new(".ruler-cache"))
                     }
                 )
             )
@@ -375,6 +377,13 @@ poem.txt
 :
 ";
         let file_system = FakeFileSystem::new();
+
+        match file_system.create_dir(".ruler-cache")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("Failed to create directory"),
+        }
+
         let executor = FakeExecutor::new(file_system.clone());
         let metadata_getter = FakeMetadataGetter::new();
 

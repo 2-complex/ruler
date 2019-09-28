@@ -6,6 +6,7 @@ use crate::station::{Station, get_file_ticket, TargetFileInfo};
 use crate::executor::{CommandLineOutput, Executor};
 use crate::metadata::MetadataGetter;
 use crate::memory::{RuleHistory, RuleHistoryError};
+use crate::cache::{LocalCache, RestoreResult};
 
 use filesystem::FileSystem;
 use std::process::Command;
@@ -77,6 +78,7 @@ pub enum WorkError
     FileIoError(String, std::io::Error),
     CommandErrorWhileExecuting(String),
     Contradiction(Vec<String>),
+    CacheDirectoryMissing,
     Weird,
 }
 
@@ -119,6 +121,9 @@ impl fmt::Display for WorkError
                 write!(formatter, "{}", message)
             },
 
+            WorkError::CacheDirectoryMissing =>
+                write!(formatter, "Cache directory missing"),
+
             WorkError::Weird =>
                 write!(formatter, "Weird! How did you do that!"),
         }
@@ -133,7 +138,8 @@ pub fn do_command<
     mut station : Station<FileSystemType, MetadataGetterType>,
     senders : Vec<(usize, Sender<Packet>)>,
     receivers : Vec<Receiver<Packet>>,
-    executor : ExecType
+    executor : ExecType,
+    cache : LocalCache
 )
 -> Result<WorkResult, WorkError>
 {
@@ -176,8 +182,36 @@ pub fn do_command<
     }
 
     let sources_ticket = factory.result();
-
     let remembered_target_tickets = station.rule_history.remember_target_tickets(&sources_ticket);
+
+    for (i, remembered_ticket) in remembered_target_tickets.iter().enumerate()
+    {
+        if target_tickets[i] != *remembered_ticket
+        {
+            match cache.restore_file(
+                &station.file_system,
+                remembered_ticket,
+                &station.target_infos[i].path)
+            {
+                RestoreResult::Done =>
+                {
+                    target_tickets[i] = remembered_ticket.clone()
+                },
+
+                RestoreResult::NotThere => {},
+
+                RestoreResult::CacheDirectoryMissing =>
+                {
+                    return Err(WorkError::CacheDirectoryMissing);
+                },
+
+                RestoreResult::FileSystemError(_error) =>
+                {
+                    // Maybe this should be an error
+                },
+            }
+        }
+    }
 
     if target_tickets != remembered_target_tickets
     {
@@ -286,6 +320,7 @@ mod test
     use crate::executor::FakeExecutor;
     use crate::packet::Packet;
     use crate::metadata::{MetadataGetter, FakeMetadataGetter};
+    use crate::cache::LocalCache;
 
     use filesystem::{FileSystem, FakeFileSystem};
     use std::path::Path;
@@ -333,7 +368,8 @@ mod test
                 FakeMetadataGetter::new()),
             Vec::new(),
             Vec::new(),
-            FakeExecutor::new(file_system.clone()))
+            FakeExecutor::new(file_system.clone()),
+            LocalCache::new(".ruler-cache"))
         {
             Ok(result) =>
             {
@@ -389,7 +425,8 @@ mod test
                 FakeMetadataGetter::new()),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
-            FakeExecutor::new(file_system.clone()))
+            FakeExecutor::new(file_system.clone()),
+            LocalCache::new(".ruler-cache"))
         {
             Ok(result) =>
             {
@@ -469,7 +506,8 @@ mod test
                 FakeMetadataGetter::new()),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
-            FakeExecutor::new(file_system.clone()))
+            FakeExecutor::new(file_system.clone()),
+            LocalCache::new(".ruler-cache"))
         {
             Ok(result) =>
             {
@@ -577,7 +615,8 @@ mod test
             ),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
-            FakeExecutor::new(file_system.clone()))
+            FakeExecutor::new(file_system.clone()),
+            LocalCache::new(".ruler-cache"))
         {
             Ok(result) =>
             {
@@ -639,6 +678,13 @@ mod test
 
         let file_system = FakeFileSystem::new();
 
+        match file_system.create_dir(".ruler-cache")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("Failed to create directory"),
+        }
+
+
         match file_system.write_file(Path::new(&"verse1.txt"), "Roses are red\n")
         {
             Ok(_) => {},
@@ -684,7 +730,8 @@ mod test
             ),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
-            FakeExecutor::new(file_system.clone()))
+            FakeExecutor::new(file_system.clone()),
+            LocalCache::new(".ruler-cache"))
         {
             Ok(_result) =>
             {
@@ -726,7 +773,8 @@ mod test
             ),
             vec![],
             vec![],
-            FakeExecutor::new(file_system.clone()))
+            FakeExecutor::new(file_system.clone()),
+            LocalCache::new(".ruler-cache"))
         {
             Ok(_) =>
             {
@@ -764,7 +812,8 @@ mod test
             ),
             vec![],
             vec![],
-            FakeExecutor::new(file_system.clone()))
+            FakeExecutor::new(file_system.clone()),
+            LocalCache::new(".rule-cache"))
         {
             Ok(_) =>
             {
@@ -794,7 +843,7 @@ mod test
         thread::spawn(
             move || -> Result<WorkResult, WorkError>
             {
-                do_command(station, senders, receivers, executor)
+                do_command(station, senders, receivers, executor, LocalCache::new(".ruler-cache"))
             }
         )
     }
@@ -1218,6 +1267,13 @@ mod test
     fn one_target_correct_hash_incorrect_timestamp()
     {
         let file_system = FakeFileSystem::new();
+
+        match file_system.create_dir(".ruler-cache")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("Failed to create directory"),
+        }
+
         let metadata_getter1 = FakeMetadataGetter::new();
         let mut metadata_getter2 = FakeMetadataGetter::new();
         let mut rule_history2 = RuleHistory::new();

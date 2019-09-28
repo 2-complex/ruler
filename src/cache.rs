@@ -12,33 +12,31 @@ pub enum RestoreResult
     FileSystemError(Error)
 }
 
-pub struct LocalCache<FileSystemType : FileSystem>
+pub struct LocalCache
 {
     path : String,
-    file_system : FileSystemType,
 }
 
-impl<FileSystemType : FileSystem> LocalCache<FileSystemType>
+impl LocalCache
 {
-    fn new(file_system: FileSystemType, path : &str)
-        -> LocalCache<FileSystemType>
+    pub fn new(path : &str)
+        -> LocalCache
     {
         LocalCache
         {
-            file_system : file_system,
             path : path.to_string(),
         }
     }
 
-    fn restore_file(&self, ticket : Ticket, target_path : &str)
+    pub fn restore_file<FileSystemType : FileSystem>(&self, file_system : &FileSystemType, ticket : &Ticket, target_path : &str)
         -> RestoreResult
     {
-        if self.file_system.is_dir(&self.path)
+        if file_system.is_dir(&self.path)
         {
             let cache_path = format!("{}/{}", self.path, ticket.base64());
-            if self.file_system.is_file(&cache_path)
+            if file_system.is_file(&cache_path)
             {
-                match self.file_system.rename(&cache_path, &target_path)
+                match file_system.rename(&cache_path, &target_path)
                 {
                     Err(error) => RestoreResult::FileSystemError(error),
                     Ok(()) => RestoreResult::Done
@@ -55,25 +53,25 @@ impl<FileSystemType : FileSystem> LocalCache<FileSystemType>
         }
     }
 
-    fn back_up_file_with_ticket(&self, ticket : Ticket, target_path : &str)
+    fn back_up_file_with_ticket<FileSystemType : FileSystem>(&self, file_system : &FileSystemType, ticket : Ticket, target_path : &str)
         -> Result<(), Error>
     {
         let cache_path = format!("{}/{}", self.path, ticket.base64());
-        match self.file_system.rename(&target_path, &cache_path)
+        match file_system.rename(&target_path, &cache_path)
         {
             Ok(_) => Ok(()),
             Err(error) => Err(error),
         }
     }
 
-    fn back_up_file(&self, target_path : &str)
+    fn back_up_file<FileSystemType : FileSystem>(&self, file_system : &FileSystemType, target_path : &str)
         -> Result<(), Error>
     {
-        match TicketFactory::from_file(&self.file_system, target_path)
+        match TicketFactory::from_file(file_system, target_path)
         {
             Ok(mut factory) =>
             {
-                self.back_up_file_with_ticket(factory.result(), target_path)
+                self.back_up_file_with_ticket(file_system, factory.result(), target_path)
             }
             Err(error) => Err(error)
         }
@@ -98,7 +96,7 @@ mod test
             Err(error) => panic!("Failed to initialize file situation: {}", error),
         }
 
-        let cache = LocalCache::new(file_system.clone(), ".ruler-cache");
+        let cache = LocalCache::new(".ruler-cache");
 
         match file_system.write_file("apples.txt", "apples\n")
         {
@@ -108,7 +106,7 @@ mod test
 
         assert!(file_system.is_file("apples.txt"));
 
-        match cache.back_up_file("apples.txt")
+        match cache.back_up_file(&file_system, "apples.txt")
         {
             Ok(()) => {},
             Err(error) => panic!("Backup failed unexpectedly: {}", error),
@@ -116,7 +114,7 @@ mod test
 
         assert!(!file_system.is_file("apples.txt"));
 
-        match cache.restore_file(TicketFactory::from_str("apples\n").result(), "apples.txt")
+        match cache.restore_file(&file_system, &TicketFactory::from_str("apples\n").result(), "apples.txt")
         {
             RestoreResult::Done => {},
             RestoreResult::NotThere => panic!("Back up not there when expected"),
@@ -144,11 +142,11 @@ mod test
             Err(error) => panic!("Failed to initialize file situation: {}", error),
         }
 
-        let cache = LocalCache::new(file_system.clone(), ".ruler-cache");
+        let cache = LocalCache::new(".ruler-cache");
 
         assert!(!file_system.is_file("apples.txt"));
 
-        match cache.back_up_file("apples.txt")
+        match cache.back_up_file(&file_system, "apples.txt")
         {
             Ok(()) => panic!("Unexpected successful backup when file not present"),
             Err(_error) => {},
@@ -166,7 +164,7 @@ mod test
             Err(error) => panic!("Failed to initialize file situation: {}", error),
         }
 
-        let cache = LocalCache::new(file_system.clone(), ".ruler-cache");
+        let cache = LocalCache::new(".ruler-cache");
 
         match file_system.write_file("apples.txt", "wrong content\n")
         {
@@ -176,7 +174,7 @@ mod test
 
         assert!(file_system.is_file("apples.txt"));
 
-        match cache.back_up_file("apples.txt")
+        match cache.back_up_file(&file_system, "apples.txt")
         {
             Ok(()) => {},
             Err(error) => panic!("Backup failed unexpectedly: {}", error),
@@ -184,7 +182,7 @@ mod test
 
         assert!(!file_system.is_file("apples.txt"));
 
-        match cache.restore_file(TicketFactory::from_str("apples\n").result(), "apples.txt")
+        match cache.restore_file(&file_system, &TicketFactory::from_str("apples\n").result(), "apples.txt")
         {
             RestoreResult::Done => panic!("Restore reported success when no backup was made"),
             RestoreResult::NotThere => {},
@@ -206,7 +204,7 @@ mod test
             Err(error) => panic!("Failed to initialize file situation: {}", error),
         }
 
-        let cache = LocalCache::new(file_system.clone(), ".ruler-cache");
+        let cache = LocalCache::new(".ruler-cache");
 
         match file_system.write_file("apples.txt", "wrong content\n")
         {
@@ -216,7 +214,7 @@ mod test
 
         assert!(file_system.is_file("apples.txt"));
 
-        match cache.restore_file(TicketFactory::from_str("apples\n").result(), "apples.txt")
+        match cache.restore_file(&file_system, &TicketFactory::from_str("apples\n").result(), "apples.txt")
         {
             RestoreResult::Done => panic!("Restore reported success when no backup was made"),
             RestoreResult::NotThere => panic!("Backup successfully reported not to be present, when an error was expected"),
@@ -238,7 +236,7 @@ mod test
             Err(error) => panic!("Failed to initialize file situation: {}", error),
         }
 
-        let cache = LocalCache::new(file_system.clone(), ".ruler-cache");
+        let cache = LocalCache::new(".ruler-cache");
 
         match file_system.write_file("apples.txt", "apples\n")
         {
@@ -248,7 +246,7 @@ mod test
 
         assert!(file_system.is_file("apples.txt"));
 
-        match cache.back_up_file("apples.txt")
+        match cache.back_up_file(&file_system, "apples.txt")
         {
             Ok(()) => {},
             Err(error) => panic!("Backup failed unexpectedly: {}", error),
@@ -264,7 +262,7 @@ mod test
 
         assert!(file_system.is_file("apples.txt"));
 
-        match cache.back_up_file("apples.txt")
+        match cache.back_up_file(&file_system, "apples.txt")
         {
             Ok(()) => {},
             Err(error) => panic!("Backup failed unexpectedly: {}", error),
@@ -272,7 +270,7 @@ mod test
 
         assert!(!file_system.is_file("apples.txt"));
 
-        match cache.restore_file(TicketFactory::from_str("apples\n").result(), "apples.txt")
+        match cache.restore_file(&file_system, &TicketFactory::from_str("apples\n").result(), "apples.txt")
         {
             RestoreResult::Done => {},
             RestoreResult::NotThere => panic!("Back up not there when expected"),
