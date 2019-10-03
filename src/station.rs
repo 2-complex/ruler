@@ -17,7 +17,7 @@ pub struct Station<FileSystemType : FileSystem, MetadataGetterType : MetadataGet
 {
     pub target_infos : Vec<TargetFileInfo>,
     pub command : Vec<String>,
-    pub rule_history : RuleHistory,
+    pub rule_history : Option<RuleHistory>,
     pub file_system : FileSystemType,
     pub metadata_getter : MetadataGetterType,
 }
@@ -43,7 +43,7 @@ Station<
     pub fn new(
         target_infos : Vec<TargetFileInfo>,
         command : Vec<String>,
-        rule_history: RuleHistory,
+        rule_history: Option<RuleHistory>,
         file_system : FileSystemType,
         metadata_getter: MetadataGetterType,
         ) -> Station<FileSystemType, MetadataGetterType>
@@ -198,7 +198,7 @@ mod test
         let station = Station::new(
             to_info(vec!["A".to_string()]),
             vec!["noop".to_string()],
-            rule_history,
+            Some(rule_history),
             file_system.clone(),
             FakeMetadataGetter::new());
 
@@ -233,7 +233,12 @@ mod test
 
                         // Then ask the station to remember what the target
                         // tickets were when built with that source before:
-                        let target_tickets = station.rule_history.remember_target_tickets(&source_ticket);
+                        let target_tickets =
+                        match &station.rule_history
+                        {
+                            Some(rule_history) => rule_history.remember_target_tickets(&source_ticket),
+                            None => panic!("History does not exist"),
+                        };
 
                         assert_eq!(
                             vec![

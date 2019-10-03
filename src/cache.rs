@@ -53,7 +53,7 @@ impl LocalCache
         }
     }
 
-    fn back_up_file_with_ticket<FileSystemType : FileSystem>(&self, file_system : &FileSystemType, ticket : Ticket, target_path : &str)
+    pub fn back_up_file_with_ticket<FileSystemType : FileSystem>(&self, file_system : &FileSystemType, ticket : &Ticket, target_path : &str)
         -> Result<(), Error>
     {
         let cache_path = format!("{}/{}", self.path, ticket.base64());
@@ -71,7 +71,7 @@ impl LocalCache
         {
             Ok(mut factory) =>
             {
-                self.back_up_file_with_ticket(file_system, factory.result(), target_path)
+                self.back_up_file_with_ticket(file_system, &factory.result(), target_path)
             }
             Err(error) => Err(error)
         }
