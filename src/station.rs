@@ -236,7 +236,14 @@ mod test
                         let target_tickets =
                         match &station.rule_history
                         {
-                            Some(rule_history) => rule_history.remember_target_tickets(&source_ticket),
+                            Some(rule_history) =>
+                            {
+                                match rule_history.get_target_tickets(&source_ticket)
+                                {
+                                    Some(target_tickets) => target_tickets,
+                                    None => panic!("Tickets not in history as expected"),
+                                }
+                            }
                             None => panic!("History does not exist"),
                         };
 
@@ -244,7 +251,7 @@ mod test
                             vec![
                                 TicketFactory::from_str(target_content).result()
                             ],
-                            target_tickets
+                            *target_tickets
                         );
                     },
                     None => panic!("No ticket found where expected"),

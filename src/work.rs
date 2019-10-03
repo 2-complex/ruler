@@ -190,6 +190,7 @@ pub fn do_command<
     {
         None =>
         {
+            // TODO: test this flow.
             match executor.execute_command(station.command)
             {
                 Ok(command_result) =>
@@ -238,46 +239,50 @@ pub fn do_command<
         },
         Some(mut rule_history) =>
         {
-            let mut needs_rebuild = false;
-            let remembered_target_tickets = rule_history.remember_target_tickets(&sources_ticket);
-            for (i, remembered_ticket) in remembered_target_tickets.iter().enumerate()
+            let mut all_same =
+            match rule_history.get_target_tickets(&sources_ticket)
             {
-                if target_tickets[i] != *remembered_ticket
+                Some(remembered_target_tickets) =>
                 {
-                    match cache.back_up_file_with_ticket(
-                        &station.file_system,
-                        &target_tickets[i],
-                        &station.target_infos[i].path)
+                    let mut all_same = true;
+                    for (i, remembered_ticket) in remembered_target_tickets.iter().enumerate()
                     {
-                        Ok(()) => {},
-                        Err(error) =>
-                            return Err(WorkError::CacheMalfunction(error)),
+                        if target_tickets[i] != *remembered_ticket
+                        {
+                            match cache.back_up_file_with_ticket(
+                                &station.file_system,
+                                &target_tickets[i],
+                                &station.target_infos[i].path)
+                            {
+                                Ok(()) => {},
+                                Err(error) =>
+                                    return Err(WorkError::CacheMalfunction(error)),
+                            }
+
+                            all_same = all_same &&
+                            match cache.restore_file(
+                                &station.file_system,
+                                remembered_ticket,
+                                &station.target_infos[i].path)
+                            {
+                                RestoreResult::Done => true,
+                                RestoreResult::NotThere => false,
+
+                                RestoreResult::CacheDirectoryMissing =>
+                                    return Err(WorkError::CacheDirectoryMissing),
+
+                                RestoreResult::FileSystemError(error) =>
+                                    return Err(WorkError::CacheMalfunction(error)),
+                            };
+                        }
                     }
 
-                    match cache.restore_file(
-                        &station.file_system,
-                        remembered_ticket,
-                        &station.target_infos[i].path)
-                    {
-                        RestoreResult::Done => {},
+                    all_same
+                },
+                None => false,
+            };
 
-                        RestoreResult::NotThere =>
-                        {
-                            needs_rebuild = true;
-                        },
-
-                        RestoreResult::CacheDirectoryMissing =>
-                        {
-                            return Err(WorkError::CacheDirectoryMissing);
-                        },
-
-                        RestoreResult::FileSystemError(error) =>
-                            return Err(WorkError::CacheMalfunction(error)),
-                    }
-                }
-            }
-
-            if needs_rebuild
+            if !all_same
             {
                 match executor.execute_command(station.command)
                 {

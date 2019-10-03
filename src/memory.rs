@@ -71,18 +71,9 @@ impl RuleHistory
 
     }
 
-    pub fn get(&self, source_ticket: &Ticket) -> Option<&Vec<Ticket>>
+    pub fn get_target_tickets(&self, source_ticket: &Ticket) -> Option<&Vec<Ticket>>
     {
         self.source_to_targets.get(source_ticket)
-    }
-
-    pub fn remember_target_tickets(&self, source_ticket : &Ticket) -> &[Ticket]
-    {
-        match self.get(source_ticket)
-        {
-            Some(tickets) => tickets,
-            None => &[],
-        }
     }
 }
 
@@ -370,7 +361,7 @@ mod test
         let decoded: RuleHistory = bincode::deserialize(&encoded[..]).unwrap();
         assert_eq!(history, decoded);
 
-        match history.get(&TicketFactory::from_str("source").result())
+        match history.get_target_tickets(&TicketFactory::from_str("source").result())
         {
             Some(target_tickets) =>
             {
@@ -443,7 +434,7 @@ mod test
         let history = memory.get_rule_history(&TicketFactory::from_str("ruleA").result());
 
         assert_eq!(history, history_a);
-        match history.get(&TicketFactory::from_str("sourceA").result())
+        match history.get_target_tickets(&TicketFactory::from_str("sourceA").result())
         {
             Some(target_tickets) =>
             {
@@ -452,7 +443,7 @@ mod test
             None => panic!("Important event missing from hisotry"),
         }
 
-        match history.get(&TicketFactory::from_str("sourceB").result())
+        match history.get_target_tickets(&TicketFactory::from_str("sourceB").result())
         {
             Some(_target_tickets) => panic!("Important event missing from hisotry"),
             None => {},
@@ -463,7 +454,7 @@ mod test
 
         let history = memory.get_rule_history(&TicketFactory::from_str("ruleB").result());
         assert_eq!(history, history_b);
-        match history.get(&TicketFactory::from_str("sourceB").result())
+        match history.get_target_tickets(&TicketFactory::from_str("sourceB").result())
         {
             Some(target_tickets) =>
             {
