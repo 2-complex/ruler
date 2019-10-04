@@ -139,7 +139,7 @@ pub fn do_command<
     ExecType: Executor,
     MetadataGetterType: MetadataGetter>
 (
-    mut station : Station<FileSystemType, MetadataGetterType>,
+    station : Station<FileSystemType, MetadataGetterType>,
     senders : Vec<(usize, Sender<Packet>)>,
     receivers : Vec<Receiver<Packet>>,
     executor : ExecType,
@@ -239,8 +239,7 @@ pub fn do_command<
         },
         Some(mut rule_history) =>
         {
-            let mut all_same =
-            match rule_history.get_target_tickets(&sources_ticket)
+            if ! match rule_history.get_target_tickets(&sources_ticket)
             {
                 Some(remembered_target_tickets) =>
                 {
@@ -280,9 +279,7 @@ pub fn do_command<
                     all_same
                 },
                 None => false,
-            };
-
-            if !all_same
+            }
             {
                 match executor.execute_command(station.command)
                 {

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use crate::ticket::{Ticket, TicketFactory};
+use crate::ticket::Ticket;
 
 pub struct Rule
 {

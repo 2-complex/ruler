@@ -209,7 +209,7 @@ pub fn build<
 
     let mut work_errors = Vec::new();
 
-    //println!("Building...");
+    println!("Building...");
     for (record_ticket, handle) in handles
     {
         match handle.join()
@@ -227,7 +227,7 @@ pub fn build<
                             {
                                 for target_info in work_result.target_infos.iter()
                                 {
-                                    //println!("{}", target_info.path);
+                                    println!("{}", target_info.path);
                                 }
 
                                 if output.out != ""
@@ -310,8 +310,6 @@ mod test
     use crate::executor::{FakeExecutor};
     use crate::metadata::FakeMetadataGetter;
     use crate::work::WorkError;
-    use crate::ticket::TicketFactory;
-    use crate::cache::{RestoreResult, LocalCache};
 
     use filesystem::{FileSystem, FakeFileSystem};
     use std::str::from_utf8;
