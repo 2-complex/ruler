@@ -1,6 +1,10 @@
 extern crate filesystem;
 
-use crate::ticket::{TicketFactory, Ticket};
+use crate::ticket::Ticket;
+
+#[cfg(test)]
+use crate::ticket::TicketFactory;
+
 use filesystem::FileSystem;
 use std::io::Error;
 
@@ -64,6 +68,7 @@ impl LocalCache
         }
     }
 
+    #[cfg(test)]
     fn back_up_file<FileSystemType : FileSystem>(&self, file_system : &FileSystemType, target_path : &str)
         -> Result<(), Error>
     {
