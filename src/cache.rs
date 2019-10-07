@@ -12,6 +12,7 @@ pub enum RestoreResult
     FileSystemError(Error)
 }
 
+#[derive(Clone)]
 pub struct LocalCache
 {
     path : String,

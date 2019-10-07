@@ -52,6 +52,7 @@ pub enum BuildError
     WorkErrors(Vec<WorkError>),
     RuleFileFailedToParse(String),
     TopologicalSortFailed(String),
+    DirectoryMalfunction,
     Weird,
 }
 
@@ -87,6 +88,9 @@ impl fmt::Display for BuildError
                 write!(formatter, "{}", error_text)
             },
 
+            BuildError::DirectoryMalfunction =>
+                write!(formatter, "Error while managing ruler directory."),
+
             BuildError::Weird =>
                 write!(formatter, "Weird! How did you do that!"),
         }
@@ -95,19 +99,45 @@ impl fmt::Display for BuildError
 
 
 pub fn build<
-    FileSystemType : FileSystem + Clone + Send + 'static,
-    ExecType : Executor + Clone + Send + 'static,
-    MetadataGetterType : MetadataGetter + Clone + Send + 'static
+    FileSystemType : FileSystem
+        + Clone + Send + 'static,
+    ExecType : Executor
+        + Clone + Send + 'static,
+    MetadataGetterType : MetadataGetter
+        + Clone + Send + 'static
 >(
     mut file_system : FileSystemType,
     executor : ExecType,
     metadata_getter: MetadataGetterType,
-    memoryfile : &str,
+    directory : &str,
     rulefile: &str,
     target: &str
 )
 -> Result<(), BuildError>
 {
+    if ! file_system.is_dir(directory)
+    {
+        match file_system.create_dir(directory)
+        {
+            Ok(_) => {},
+            Err(_) => return Err(BuildError::DirectoryMalfunction),
+        }
+    }
+
+    let cache_path = format!("{}/cache", directory);
+
+    if ! file_system.is_dir(&cache_path)
+    {
+        match file_system.create_dir(&cache_path)
+        {
+            Ok(_) => {},
+            Err(_) => return Err(BuildError::DirectoryMalfunction),
+        }
+    }
+
+    let cache = LocalCache::new(&cache_path);
+
+    let memoryfile = &format!("{}/memory", directory);
     let mut memory =
     match Memory::from_file(&mut file_system, memoryfile)
     {
@@ -182,6 +212,7 @@ pub fn build<
         );
 
         let executor_clone = executor.clone();
+        let local_cache_clone = cache.clone();
 
         handles.push(
             (
@@ -194,7 +225,7 @@ pub fn build<
                             sender_vec,
                             receiver_vec,
                             executor_clone,
-                            LocalCache::new(".ruler-cache"))
+                            local_cache_clone)
                     }
                 )
             )
@@ -340,7 +371,7 @@ poem.txt
             file_system.clone(),
             executor,
             metadata_getter,
-            "test.history",
+            "test.directory",
             "test.rules",
             "poem.txt")
         {
@@ -409,7 +440,7 @@ poem.txt
             file_system.clone(),
             executor.clone(),
             metadata_getter.clone(),
-            "test.history",
+            "test.directory",
             "test.rules",
             "poem.txt")
         {
@@ -446,7 +477,7 @@ poem.txt
             file_system.clone(),
             executor.clone(),
             metadata_getter.clone(),
-            "test.history",
+            "test.directory",
             "test.rules",
             "poem.txt")
         {

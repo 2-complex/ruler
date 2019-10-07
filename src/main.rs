@@ -37,28 +37,28 @@ fn main()
                 .required(true)
                 .index(1)))
         .arg(Arg::from_usage("-r --rules=[RULES] 'Sets a rule file to use.  If not provided, the app will look for a file in the current working directory called \"build.rules\"'"))
-        .arg(Arg::from_usage("-m --history=[HISTORY] 'Where to read/write cached file content data'"))
+        .arg(Arg::from_usage("-m --directory=[DIRECTORY] 'Where to put cached file content data and anything else ruler stores in persistent storage.  Defaults to .ruler in the current working directory.'"))
         .get_matches();
 
     if let Some(_matches) = big_matches.subcommand_matches("clean")
     {
-        println!("here's where we would clean");
+        println!("Here's where we would clean, hahaha");
     }
 
     if let Some(matches) = big_matches.subcommand_matches("build")
     {
-        let historyfile =
-        match matches.value_of("history")
-        {
-            Some(value) => value,
-            None => ".ruler-history",
-        };
-
         let rulefile =
         match matches.value_of("rules")
         {
             Some(value) => value,
             None => "build.rules",
+        };
+
+        let directory =
+        match matches.value_of("directory")
+        {
+            Some(value) => value,
+            None => ".ruler",
         };
 
         let target =
@@ -72,7 +72,7 @@ fn main()
             OsFileSystem::new(),
             OsExecutor::new(),
             OsMetadataGetter::new(),
-            historyfile, rulefile, target)
+            directory, rulefile, target)
         {
             Ok(()) => {},
             Err(error) => eprintln!("{}", error),
