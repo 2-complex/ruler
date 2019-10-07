@@ -206,7 +206,11 @@ pub fn build<
         let station = Station::new(
             target_infos,
             record.command,
-            memory.get_rule_history(&record.ticket),
+            match &record.rule_ticket
+            {
+                Some(ticket) => Some(memory.get_rule_history(&ticket)),
+                None => None,
+            },
             file_system.clone(),
             metadata_getter.clone(),
         );
@@ -216,7 +220,7 @@ pub fn build<
 
         handles.push(
             (
-                record.ticket,
+                record.rule_ticket,
                 thread::spawn(
                     move || -> Result<WorkResult, WorkError>
                     {
@@ -283,7 +287,18 @@ pub fn build<
                             None => {},
                         }
 
-                        memory.insert_rule_history(record_ticket, work_result.rule_history);
+                        match record_ticket
+                        {
+                            Some(ticket) =>
+                            {
+                                match work_result.rule_history
+                                {
+                                    Some(history) => memory.insert_rule_history(ticket, history),
+                                    None => {},
+                                }
+                            }
+                            None => {},
+                        }
                     },
                     Err(work_error) =>
                     {
@@ -511,6 +526,94 @@ poem.txt
                 }
             }
             Err(_) => panic!("Failed to read poem."),
+        }
+    }
+
+    #[test]
+    fn build_change_build_check_cache()
+    {
+        let rules = "\
+poem.txt
+:
+verse1.txt
+verse2.txt
+:
+mycat
+verse1.txt
+verse2.txt
+poem.txt
+:
+";
+        let file_system = FakeFileSystem::new();
+
+        match file_system.create_dir(".ruler-cache")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("Failed to create directory"),
+        }
+
+        let executor = FakeExecutor::new(file_system.clone());
+        let metadata_getter = FakeMetadataGetter::new();
+
+        match file_system.write_file("verse1.txt", "Roses are red.\n")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File failed to write"),
+        }
+
+        match file_system.write_file("verse2.txt", "Violets are blue.\n")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File failed to write"),
+        }
+
+        match file_system.write_file("test.rules", rules)
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File failed to write"),
+        }
+
+        match build(
+            file_system.clone(),
+            executor.clone(),
+            metadata_getter.clone(),
+            "test.history",
+            "test.rules",
+            "poem.txt")
+        {
+            Ok(()) => {},
+            Err(error) => panic!("Unexpected build error: {}", error),
+        }
+
+        match file_system.read_file("poem.txt")
+        {
+            Ok(content) =>
+            {
+                match from_utf8(&content)
+                {
+                    Ok(text) => assert_eq!(text, "Roses are red.\nViolets are blue.\n"),
+                    Err(_) => panic!("Poem failed to be utf8?"),
+                }
+            }
+            Err(_) => panic!("Failed to read poem."),
+        }
+
+        match file_system.write_file("verse2.txt", "Violets are violet.\n")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File failed to write."),
+        }
+
+        match build(
+            file_system.clone(),
+            executor.clone(),
+            metadata_getter.clone(),
+            "test.history",
+            "test.rules",
+            "poem.txt")
+        {
+            Ok(()) => {},
+            Err(error) => panic!("Unexpected build error: {}", error),
         }
     }
 }

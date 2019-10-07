@@ -65,7 +65,7 @@ pub struct WorkResult
 {
     pub target_infos : Vec<TargetFileInfo>,
     pub command_line_output : Option<CommandLineOutput>,
-    pub rule_history : RuleHistory,
+    pub rule_history : Option<RuleHistory>,
 }
 
 pub enum WorkError
@@ -79,6 +79,7 @@ pub enum WorkError
     CommandErrorWhileExecuting(String),
     Contradiction(Vec<String>),
     CacheDirectoryMissing,
+    CacheMalfunction(std::io::Error),
     Weird,
 }
 
@@ -124,6 +125,9 @@ impl fmt::Display for WorkError
             WorkError::CacheDirectoryMissing =>
                 write!(formatter, "Cache directory missing"),
 
+            WorkError::CacheMalfunction(error) =>
+                write!(formatter, "Cache file i/o failed: {}", error),
+
             WorkError::Weird =>
                 write!(formatter, "Weird! How did you do that!"),
         }
@@ -135,7 +139,7 @@ pub fn do_command<
     ExecType: Executor,
     MetadataGetterType: MetadataGetter>
 (
-    mut station : Station<FileSystemType, MetadataGetterType>,
+    station : Station<FileSystemType, MetadataGetterType>,
     senders : Vec<(usize, Sender<Packet>)>,
     receivers : Vec<Receiver<Packet>>,
     executor : ExecType,
@@ -145,7 +149,7 @@ pub fn do_command<
 {
     let mut factory = TicketFactory::new();
 
-    for rcv in receivers
+    for rcv in receivers.iter()
     {
         match rcv.recv()
         {
@@ -180,133 +184,197 @@ pub fn do_command<
             Err(error) => return Err(WorkError::TicketAlignmentError(error)),
         }
     }
-
     let sources_ticket = factory.result();
-    let remembered_target_tickets = station.rule_history.remember_target_tickets(&sources_ticket);
 
-    for (i, remembered_ticket) in remembered_target_tickets.iter().enumerate()
+    match station.rule_history
     {
-        if target_tickets[i] != *remembered_ticket
+        None =>
         {
-            match cache.restore_file(
-                &station.file_system,
-                remembered_ticket,
-                &station.target_infos[i].path)
+            // TODO: test this flow.
+            match executor.execute_command(station.command)
             {
-                RestoreResult::Done =>
+                Ok(command_result) =>
                 {
-                    target_tickets[i] = remembered_ticket.clone()
-                },
-
-                RestoreResult::NotThere => {},
-
-                RestoreResult::CacheDirectoryMissing =>
-                {
-                    return Err(WorkError::CacheDirectoryMissing);
-                },
-
-                RestoreResult::FileSystemError(_error) =>
-                {
-                    // Maybe this should be an error
-                },
-            }
-        }
-    }
-
-    if target_tickets != remembered_target_tickets
-    {
-        match executor.execute_command(station.command)
-        {
-            Ok(command_result) =>
-            {
-                let mut post_command_target_tickets = Vec::new();
-                for target_info in station.target_infos.iter()
-                {
-                    match get_file_ticket(
-                        &station.file_system,
-                        &station.metadata_getter,
-                        &target_info)
+                    let mut post_command_target_tickets = Vec::new();
+                    for target_info in station.target_infos.iter()
                     {
-                        Ok(ticket_opt) =>
+                        match get_file_ticket(
+                            &station.file_system,
+                            &station.metadata_getter,
+                            &target_info)
                         {
-                            match ticket_opt
+                            Ok(ticket_opt) =>
                             {
-                                Some(ticket) => post_command_target_tickets.push(ticket),
-                                None => return Err(WorkError::FileNotFound(target_info.path.clone())),
-                            }
-                        },
-                        Err(error) => return Err(WorkError::FileIoError(target_info.path.clone(), error)),
+                                match ticket_opt
+                                {
+                                    Some(ticket) => post_command_target_tickets.push(ticket),
+                                    None => return Err(WorkError::FileNotFound(target_info.path.clone())),
+                                }
+                            },
+                            Err(error) => return Err(WorkError::FileIoError(target_info.path.clone(), error)),
+                        }
                     }
-                }
 
+                    for (sub_index, sender) in senders
+                    {
+                        match sender.send(Packet::from_ticket(
+                            post_command_target_tickets[sub_index].clone()))
+                        {
+                            Ok(_) => {},
+                            Err(_error) => return Err(WorkError::SenderError),
+                        }
+                    }
+
+                    Ok(
+                        WorkResult
+                        {
+                            target_infos : station.target_infos,
+                            command_line_output : Some(command_result),
+                            rule_history : None
+                        }
+                    )
+                },
+                Err(_error) => return Err(WorkError::SenderError),
+            }
+        },
+        Some(mut rule_history) =>
+        {
+            if ! match rule_history.get_target_tickets(&sources_ticket)
+            {
+                Some(remembered_target_tickets) =>
+                {
+                    let mut all_same = true;
+                    for (i, remembered_ticket) in remembered_target_tickets.iter().enumerate()
+                    {
+                        if target_tickets[i] != *remembered_ticket
+                        {
+                            match cache.back_up_file_with_ticket(
+                                &station.file_system,
+                                &target_tickets[i],
+                                &station.target_infos[i].path)
+                            {
+                                Ok(()) => {},
+                                Err(error) =>
+                                    return Err(WorkError::CacheMalfunction(error)),
+                            }
+
+                            all_same = all_same &&
+                            match cache.restore_file(
+                                &station.file_system,
+                                remembered_ticket,
+                                &station.target_infos[i].path)
+                            {
+                                RestoreResult::Done => true,
+                                RestoreResult::NotThere => false,
+
+                                RestoreResult::CacheDirectoryMissing =>
+                                    return Err(WorkError::CacheDirectoryMissing),
+
+                                RestoreResult::FileSystemError(error) =>
+                                    return Err(WorkError::CacheMalfunction(error)),
+                            };
+                        }
+                    }
+
+                    all_same
+                },
+                None => false,
+            }
+            {
+                match executor.execute_command(station.command)
+                {
+                    Ok(command_result) =>
+                    {
+                        let mut post_command_target_tickets = Vec::new();
+                        for target_info in station.target_infos.iter()
+                        {
+                            match get_file_ticket(
+                                &station.file_system,
+                                &station.metadata_getter,
+                                &target_info)
+                            {
+                                Ok(ticket_opt) =>
+                                {
+                                    match ticket_opt
+                                    {
+                                        Some(ticket) => post_command_target_tickets.push(ticket),
+                                        None => return Err(WorkError::FileNotFound(target_info.path.clone())),
+                                    }
+                                },
+                                Err(error) => return Err(WorkError::FileIoError(target_info.path.clone(), error)),
+                            }
+                        }
+
+                        for (sub_index, sender) in senders
+                        {
+                            match sender.send(Packet::from_ticket(
+                                post_command_target_tickets[sub_index].clone()))
+                            {
+                                Ok(_) => {},
+                                Err(_error) => return Err(WorkError::SenderError),
+                            }
+                        }
+
+                        match rule_history.insert(sources_ticket, post_command_target_tickets)
+                        {
+                            Ok(_) => {},
+                            Err(error) =>
+                            {
+                                match error
+                                {
+                                    RuleHistoryError::Contradiction(contradicting_indices) =>
+                                    {
+                                        let mut contradicting_target_paths = Vec::new();
+                                        for index in contradicting_indices
+                                        {
+                                            contradicting_target_paths.push(station.target_infos[index].path.clone())
+                                        }
+                                        return Err(WorkError::Contradiction(contradicting_target_paths));
+                                    }
+
+                                    RuleHistoryError::TargetSizesDifferWeird =>
+                                        return Err(WorkError::Weird),
+                                }
+                            },
+                        }
+
+                        Ok(
+                            WorkResult
+                            {
+                                target_infos : station.target_infos,
+                                command_line_output : Some(command_result),
+                                rule_history : Some(rule_history),
+                            }
+                        )
+                    },
+                    Err(error) =>
+                    {
+                        return Err(WorkError::CommandErrorWhileExecuting(error))
+                    },
+                }
+            }
+            else
+            {
                 for (sub_index, sender) in senders
                 {
                     match sender.send(Packet::from_ticket(
-                        post_command_target_tickets[sub_index].clone()))
+                        target_tickets[sub_index].clone()))
                     {
                         Ok(_) => {},
                         Err(_error) => return Err(WorkError::SenderError),
                     }
                 }
 
-                match station.rule_history.insert(sources_ticket, post_command_target_tickets)
-                {
-                    Ok(_) => {},
-                    Err(error) =>
-                    {
-                        match error
-                        {
-                            RuleHistoryError::Contradiction(contradicting_indices) =>
-                            {
-                                let mut contradicting_target_paths = Vec::new();
-                                for index in contradicting_indices
-                                {
-                                    contradicting_target_paths.push(station.target_infos[index].path.clone())
-                                }
-                                return Err(WorkError::Contradiction(contradicting_target_paths));
-                            }
-
-                            RuleHistoryError::TargetSizesDifferWeird =>
-                                return Err(WorkError::Weird),
-                        }
-                    },
-                }
-
                 Ok(
                     WorkResult
                     {
                         target_infos : station.target_infos,
-                        command_line_output : Some(command_result),
-                        rule_history : station.rule_history
+                        command_line_output : None,
+                        rule_history : Some(rule_history),
                     }
                 )
-            },
-            Err(error) =>
-            {
-                Err(WorkError::CommandErrorWhileExecuting(error))
-            },
-        }
-    }
-    else
-    {
-        for (sub_index, sender) in senders
-        {
-            match sender.send(Packet::from_ticket(
-                target_tickets[sub_index].clone()))
-            {
-                Ok(_) => {},
-                Err(_error) => return Err(WorkError::SenderError),
             }
-        }
-
-        Ok(
-            WorkResult
-            {
-                target_infos : station.target_infos,
-                command_line_output : None,
-                rule_history : station.rule_history
-            }
-        )
+        },
     }
 }
 
@@ -363,7 +431,7 @@ mod test
             Station::new(
                 to_info(vec!["A".to_string()]),
                 vec!["noop".to_string()],
-                RuleHistory::new(),
+                None,
                 file_system.clone(),
                 FakeMetadataGetter::new()),
             Vec::new(),
@@ -420,7 +488,7 @@ mod test
             Station::new(
                 to_info(vec!["A.txt".to_string()]),
                 vec!["noop".to_string()],
-                RuleHistory::new(),
+                None,
                 file_system.clone(),
                 FakeMetadataGetter::new()),
             vec![(0, sender_c)],
@@ -501,7 +569,7 @@ mod test
                     "verse2.txt".to_string(),
                     "poem.txt".to_string()
                 ],
-                RuleHistory::new(),
+                None,
                 file_system.clone(),
                 FakeMetadataGetter::new()),
             vec![(0, sender_c)],
@@ -609,7 +677,7 @@ mod test
                     "poem is already correct".to_string(),
                     "this command should not run".to_string(),
                     "the end".to_string()],
-                rule_history,
+                Some(rule_history),
                 file_system.clone(),
                 FakeMetadataGetter::new(),
             ),
@@ -724,7 +792,7 @@ mod test
                     "verse2.txt".to_string(),
                     "poem.txt".to_string()
                 ],
-                rule_history,
+                Some(rule_history),
                 file_system.clone(),
                 FakeMetadataGetter::new(),
             ),
@@ -767,7 +835,7 @@ mod test
             Station::new(
                 to_info(vec!["verse1.txt".to_string()]),
                 vec![],
-                RuleHistory::new(),
+                None,
                 file_system.clone(),
                 FakeMetadataGetter::new()
             ),
@@ -806,7 +874,7 @@ mod test
             Station::new(
                 to_info(vec!["verse1.txt".to_string()]),
                 vec!["rm".to_string(), "verse1.txt".to_string()],
-                RuleHistory::new(),
+                None,
                 file_system.clone(),
                 FakeMetadataGetter::new()
             ),
@@ -869,7 +937,7 @@ mod test
                     "verse1.txt".to_string(),
                     "stanza1.txt".to_string()
                 ],
-                RuleHistory::new(),
+                None,
                 file_system.clone(),
                 FakeMetadataGetter::new(),
             ),
@@ -886,7 +954,7 @@ mod test
                     "stanza1.txt".to_string(),
                     "poem.txt".to_string()
                 ],
-                RuleHistory::new(),
+                None,
                 file_system.clone(),
                 FakeMetadataGetter::new(),
             ),
@@ -954,7 +1022,7 @@ mod test
             Station::new(
                 to_info(vec!["verse1.txt".to_string()]),
                 vec![],
-                RuleHistory::new(),
+                None,
                 file_system.clone(),
                 metadata_getter1,
             ),
@@ -971,7 +1039,7 @@ mod test
                     "this file should".to_string(),
                     "already be correct".to_string()
                 ],
-                rule_history2,
+                Some(rule_history2),
                 file_system.clone(),
                 metadata_getter2,
             ),
@@ -1033,7 +1101,7 @@ mod test
             Station::new(
                 to_info(vec!["verse1.txt".to_string()]),
                 vec![],
-                RuleHistory::new(),
+                None,
                 file_system.clone(),
                 metadata_getter1,
             ),
@@ -1050,7 +1118,7 @@ mod test
                     "should".to_string(),
                     "error".to_string(),
                 ],
-                rule_history2,
+                Some(rule_history2),
                 file_system.clone(),
                 metadata_getter2,
             ),
@@ -1113,7 +1181,7 @@ mod test
                     "verse1.txt".to_string(),
                     "stanza1.txt".to_string()
                 ],
-                RuleHistory::new(),
+                None,
                 file_system.clone(),
                 FakeMetadataGetter::new(),
             ),
@@ -1130,7 +1198,7 @@ mod test
                     "stanza1.txt".to_string(),
                     "poem.txt".to_string()
                 ],
-                RuleHistory::new(),
+                None,
                 file_system.clone(),
                 FakeMetadataGetter::new(),
             ),
@@ -1208,7 +1276,7 @@ mod test
             Station::new(
                 to_info(vec!["verse1.txt".to_string()]),
                 vec![],
-                RuleHistory::new(),
+                None,
                 file_system.clone(),
                 metadata_getter1,
             ),
@@ -1234,7 +1302,7 @@ mod test
                     "this file should".to_string(),
                     "already be correct".to_string()
                 ],
-                rule_history2,
+                Some(rule_history2),
                 file_system.clone(),
                 metadata_getter2,
             ),
@@ -1311,7 +1379,7 @@ mod test
             Station::new(
                 to_info(vec!["verse1.txt".to_string()]),
                 vec![],
-                RuleHistory::new(),
+                None,
                 file_system.clone(),
                 metadata_getter1,
             ),
@@ -1337,7 +1405,7 @@ mod test
                     "verse1.txt".to_string(),
                     "poem.txt".to_string()
                 ],
-                rule_history2,
+                Some(rule_history2),
                 file_system.clone(),
                 metadata_getter2,
             ),

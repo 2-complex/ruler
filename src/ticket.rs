@@ -29,6 +29,7 @@ impl TicketFactory
         }
     }
 
+    #[cfg(test)]
     pub fn from_str(first_input: &str) -> TicketFactory
     {
         let mut d = Sha512::new();

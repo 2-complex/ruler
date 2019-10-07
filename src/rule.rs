@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use crate::ticket::{Ticket, TicketFactory};
+use crate::ticket::Ticket;
 
 pub struct Rule
 {
@@ -33,7 +33,7 @@ pub struct Record
     pub targets: Vec<String>,
     pub source_indices: Vec<(usize, usize)>,
     pub command : Vec<String>,
-    pub ticket : Ticket,
+    pub rule_ticket : Option<Ticket>,
 }
 
 impl fmt::Display for Rule
@@ -218,7 +218,7 @@ struct Frame
     targets: Vec<String>,
     sources: Vec<String>,
     command: Vec<String>,
-    ticket: Ticket,
+    rule_ticket: Option<Ticket>,
     index: usize,
     visited: bool,
 }
@@ -227,14 +227,12 @@ impl Frame
 {
     fn from_source_and_index(source : &str, index : usize) -> Frame
     {
-        let mut factory = TicketFactory::from_str(source);
-        factory.input_str("\n:\n:\n:\n");
         Frame
         {
             targets: vec![source.to_string()],
             sources: vec![],
             command: vec![],
-            ticket: factory.result(),
+            rule_ticket: None,
             index: index,
             visited: true,
         }
@@ -242,7 +240,7 @@ impl Frame
 
     fn from_rule_and_index(rule : Rule, index : usize) -> Frame
     {
-        let ticket = Ticket::from_strings(
+        let rule_ticket = Ticket::from_strings(
             &rule.targets,
             &rule.sources,
             &rule.command);
@@ -252,7 +250,7 @@ impl Frame
             targets: rule.targets,
             sources: rule.sources,
             command: rule.command,
-            ticket: ticket,
+            rule_ticket: Some(rule_ticket),
             index: index,
             visited: false,
         }
@@ -383,7 +381,7 @@ pub fn topological_sort(
                             targets: frame.targets,
                             sources: frame.sources,
                             command: frame.command,
-                            ticket: frame.ticket,
+                            rule_ticket: frame.rule_ticket,
                             index: frame.index,
                             visited: true
                         }
@@ -413,7 +411,7 @@ pub fn topological_sort(
                         targets: frame.targets,
                         source_indices: source_indices,
                         command: frame.command,
-                        ticket: frame.ticket,
+                        rule_ticket: frame.rule_ticket,
                     }
                 );
             }
