@@ -250,7 +250,7 @@ fn resolve_with_cache
                             &target_info.path)
                         {
                             Ok(_) => {},
-                            Err(error) =>
+                            Err(_error) =>
                             {
                                 return ResolveResult::Error(
                                     WorkError::FileNotAvailableToCache(
