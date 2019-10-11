@@ -75,6 +75,7 @@ pub enum WorkError
     SenderError,
     TicketAlignmentError(std::io::Error),
     FileNotFound(String),
+    FileNotAvailableToCache(String),
     FileIoError(String, std::io::Error),
     CommandErrorWhileExecuting(String),
     Contradiction(Vec<String>),
@@ -104,6 +105,9 @@ impl fmt::Display for WorkError
 
             WorkError::FileNotFound(path) =>
                 write!(formatter, "File not found: {}", path),
+
+            WorkError::FileNotAvailableToCache(path) =>
+                write!(formatter, "File failed to cache: {}", path),
 
             WorkError::FileIoError(path, error) =>
                 write!(formatter, "Error reading file: {}: {}", path, error),
@@ -186,8 +190,10 @@ fn resolve_with_cache
                                 &target_info.path)
                             {
                                 Ok(_) => {},
-                                Err(error) =>
-                                    return ResolveResult::Error(WorkError::CacheMalfunction(error)),
+                                Err(_error) =>
+                                    return ResolveResult::Error(
+                                        WorkError::FileNotAvailableToCache(
+                                            target_info.path.clone())),
                             }
 
                             match cache.restore_file(
@@ -245,7 +251,11 @@ fn resolve_with_cache
                         {
                             Ok(_) => {},
                             Err(error) =>
-                                return ResolveResult::Error(WorkError::CacheMalfunction(error)),
+                            {
+                                return ResolveResult::Error(
+                                    WorkError::FileNotAvailableToCache(
+                                        target_info.path.clone()));
+                            }
                         }
                     },
 
@@ -577,7 +587,19 @@ mod test
 
         let file_system = FakeFileSystem::new();
 
-        match file_system.write_file(Path::new(&"A.txt"), "")
+        match file_system.create_dir(".ruler-cache")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("Failed to make cache directory"),
+        }
+
+        match file_system.write_file("A-source.txt", "")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File write operation failed"),
+        }
+
+        match file_system.write_file("A.txt", "")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
@@ -598,7 +620,7 @@ mod test
         match do_command(
             Station::new(
                 to_info(vec!["A.txt".to_string()]),
-                vec!["noop".to_string()],
+                vec!["mycat".to_string(), "A-source.txt".to_string(), "A.txt".to_string()],
                 Some(RuleHistory::new()),
                 file_system.clone(),
                 FakeMetadataGetter::new()),
@@ -1002,7 +1024,7 @@ mod test
             {
                 match error
                 {
-                    WorkError::FileNotFound(path) => assert_eq!(path, "verse1.txt"),
+                    WorkError::FileNotAvailableToCache(path) => assert_eq!(path, "verse1.txt"),
                     _ => panic!("Wrong kind of error!  Incorrect error: {}", error),
                 }
             },
