@@ -417,15 +417,6 @@ pub fn do_command<
 
                 ResolveResult::NeedsRebuild=>
                 {
-                    let mut s = "".to_string();
-                    for c in station.command.iter()
-                    {
-                        s.push_str(" ");
-                        s.push_str(&c);
-                    }
-                    println!("about to run command: {}", s);
-
-
                     match executor.execute_command(station.command)
                     {
                         Ok(command_result) =>
