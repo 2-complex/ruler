@@ -1,7 +1,7 @@
 extern crate filesystem;
 
 use crate::packet::Packet;
-use crate::ticket::TicketFactory;
+use crate::ticket::{Ticket, TicketFactory};
 use crate::station::{Station, get_file_ticket, TargetFileInfo};
 use crate::executor::{CommandLineOutput, Executor};
 use crate::metadata::MetadataGetter;
@@ -80,6 +80,7 @@ pub enum WorkError
     Contradiction(Vec<String>),
     CacheDirectoryMissing,
     CacheMalfunction(std::io::Error),
+    CommandWithNoRuleHistory,
     Weird,
 }
 
@@ -128,10 +129,169 @@ impl fmt::Display for WorkError
             WorkError::CacheMalfunction(error) =>
                 write!(formatter, "Cache file i/o failed: {}", error),
 
+            WorkError::CommandWithNoRuleHistory =>
+                write!(formatter, "Command provided but no rule history, that should be impossible"),
+
             WorkError::Weird =>
                 write!(formatter, "Weird! How did you do that!"),
         }
     }
+}
+
+enum ResolveResult
+{
+    Success,
+    NeedsRebuild,
+    Error(WorkError),
+}
+
+fn resolve_with_cache
+<
+    FileSystemType: FileSystem,
+    MetadataGetterType: MetadataGetter
+>
+(
+    file_system : &FileSystemType,
+    metadata_getter : &MetadataGetterType,
+    cache : &LocalCache,
+    rule_history : &RuleHistory,
+    sources_ticket : &Ticket,
+    target_infos : &Vec<TargetFileInfo>,
+)
+-> ResolveResult
+{
+    match rule_history.get_target_tickets(sources_ticket)
+    {
+        Some(remembered_target_tickets) =>
+        {
+            let mut result = ResolveResult::Success;
+            for (i, target_info) in target_infos.iter().enumerate()
+            {
+                let remembered_ticket =
+                match remembered_target_tickets.get(i)
+                {
+                    Some(ticket) => ticket,
+                    None => return ResolveResult::Error(WorkError::Weird),
+                };
+
+                match get_file_ticket(file_system, metadata_getter, target_info)
+                {
+                    Ok(Some(current_target_ticket)) =>
+                    {
+                        if *remembered_ticket != current_target_ticket
+                        {
+                            match cache.back_up_file_with_ticket(
+                                file_system,
+                                &current_target_ticket,
+                                &target_info.path)
+                            {
+                                Ok(_) => {},
+                                Err(error) =>
+                                    return ResolveResult::Error(WorkError::CacheMalfunction(error)),
+                            }
+
+                            match cache.restore_file(
+                                file_system,
+                                remembered_ticket,
+                                &target_infos[i].path)
+                            {
+                                RestoreResult::Done => {},
+                                RestoreResult::NotThere => result = ResolveResult::NeedsRebuild,
+
+                                RestoreResult::CacheDirectoryMissing =>
+                                    return ResolveResult::Error(WorkError::CacheDirectoryMissing),
+
+                                RestoreResult::FileSystemError(error) =>
+                                    return ResolveResult::Error(WorkError::CacheMalfunction(error)),
+                            };
+                        }
+                    },
+                    Ok(None) =>
+                    {
+                        match cache.restore_file(
+                            file_system,
+                            remembered_ticket,
+                            &target_infos[i].path)
+                        {
+                            RestoreResult::Done => {},
+                            RestoreResult::NotThere => result = ResolveResult::NeedsRebuild,
+
+                            RestoreResult::CacheDirectoryMissing =>
+                                return ResolveResult::Error(WorkError::CacheDirectoryMissing),
+
+                            RestoreResult::FileSystemError(error) =>
+                                return ResolveResult::Error(WorkError::CacheMalfunction(error)),
+                        };
+                    },
+                    Err(error) =>
+                        return ResolveResult::Error(WorkError::TicketAlignmentError(error)),
+                }
+            }
+
+            result
+        },
+        None =>
+        {
+            for target_info in target_infos.iter()
+            {
+                match get_file_ticket(file_system, metadata_getter, target_info)
+                {
+                    Ok(Some(current_target_ticket)) =>
+                    {
+                        match cache.back_up_file_with_ticket(
+                            file_system,
+                            &current_target_ticket,
+                            &target_info.path)
+                        {
+                            Ok(_) => {},
+                            Err(error) =>
+                                return ResolveResult::Error(WorkError::CacheMalfunction(error)),
+                        }
+                    },
+
+                    Ok(None) => {},
+
+                    Err(error) =>
+                        return ResolveResult::Error(WorkError::TicketAlignmentError(error)),
+                }
+            }
+
+            ResolveResult::NeedsRebuild
+        }
+    }
+}
+
+
+fn get_current_target_tickets
+<
+    FileSystemType: FileSystem,
+    MetadataGetterType: MetadataGetter
+>
+(
+    file_system : &FileSystemType,
+    metadata_getter : &MetadataGetterType,
+    target_infos : &Vec<TargetFileInfo>,
+)
+-> Result<Vec<Ticket>, WorkError>
+{
+    let mut target_tickets = Vec::new();
+    for target_info in target_infos.iter()
+    {
+        match get_file_ticket(file_system, metadata_getter, target_info)
+        {
+            Ok(ticket_opt) =>
+            {
+                match ticket_opt
+                {
+                    Some(ticket) => target_tickets.push(ticket),
+                    None => return Err(WorkError::FileNotFound(target_info.path.clone())),
+                }
+            },
+            Err(error) => return Err(WorkError::FileIoError(target_info.path.clone(), error)),
+        }
+    }
+
+    Ok(target_tickets)
 }
 
 pub fn do_command<
@@ -165,60 +325,70 @@ pub fn do_command<
         }
     }
 
-    let mut target_tickets = Vec::new();
-    for target_info in station.target_infos.iter()
-    {
-        match get_file_ticket(
-            &station.file_system,
-            &station.metadata_getter,
-            target_info)
-        {
-            Ok(ticket_opt) =>
-            {
-                match ticket_opt
-                {
-                    Some(ticket) => target_tickets.push(ticket),
-                    None => target_tickets.push(TicketFactory::does_not_exist()),
-                }
-            },
-            Err(error) => return Err(WorkError::TicketAlignmentError(error)),
-        }
-    }
     let sources_ticket = factory.result();
 
     match station.rule_history
     {
         None =>
         {
-            // TODO: test this flow.
-            match executor.execute_command(station.command)
+            if station.command.len() != 0
             {
-                Ok(command_result) =>
+                return Err(WorkError::CommandWithNoRuleHistory)
+            }
+
+            let target_tickets = match get_current_target_tickets(
+                &station.file_system,
+                &station.metadata_getter,
+                &station.target_infos)
+            {
+                Ok(target_tickets) => target_tickets,
+                Err(error) => return Err(error),
+            };
+
+            for (sub_index, sender) in senders
+            {
+                match sender.send(Packet::from_ticket(
+                    target_tickets[sub_index].clone()))
                 {
-                    let mut post_command_target_tickets = Vec::new();
-                    for target_info in station.target_infos.iter()
+                    Ok(_) => {},
+                    Err(_error) => return Err(WorkError::SenderError),
+                }
+            }
+
+            Ok(
+                WorkResult
+                {
+                    target_infos : station.target_infos,
+                    command_line_output : None,
+                    rule_history : None
+                }
+            )
+        },
+        Some(mut rule_history) =>
+        {
+            match resolve_with_cache(
+                &station.file_system,
+                &station.metadata_getter,
+                &cache,
+                &rule_history,
+                &sources_ticket,
+                &station.target_infos)
+            {
+                ResolveResult::Success =>
+                {
+                    let target_tickets = match get_current_target_tickets(
+                        &station.file_system,
+                        &station.metadata_getter,
+                        &station.target_infos)
                     {
-                        match get_file_ticket(
-                            &station.file_system,
-                            &station.metadata_getter,
-                            &target_info)
-                        {
-                            Ok(ticket_opt) =>
-                            {
-                                match ticket_opt
-                                {
-                                    Some(ticket) => post_command_target_tickets.push(ticket),
-                                    None => return Err(WorkError::FileNotFound(target_info.path.clone())),
-                                }
-                            },
-                            Err(error) => return Err(WorkError::FileIoError(target_info.path.clone(), error)),
-                        }
-                    }
+                        Ok(target_tickets) => target_tickets,
+                        Err(error) => return Err(error),
+                    };
 
                     for (sub_index, sender) in senders
                     {
-                        match sender.send(Packet::from_ticket(
-                            post_command_target_tickets[sub_index].clone()))
+                        match sender.send(
+                            Packet::from_ticket(target_tickets[sub_index].clone()))
                         {
                             Ok(_) => {},
                             Err(_error) => return Err(WorkError::SenderError),
@@ -229,150 +399,97 @@ pub fn do_command<
                         WorkResult
                         {
                             target_infos : station.target_infos,
-                            command_line_output : Some(command_result),
-                            rule_history : None
+                            command_line_output : None,
+                            rule_history : Some(rule_history),
                         }
                     )
                 },
-                Err(_error) => return Err(WorkError::SenderError),
-            }
-        },
-        Some(mut rule_history) =>
-        {
-            if ! match rule_history.get_target_tickets(&sources_ticket)
-            {
-                Some(remembered_target_tickets) =>
+
+                ResolveResult::NeedsRebuild=>
                 {
-                    let mut all_same = true;
-                    for (i, remembered_ticket) in remembered_target_tickets.iter().enumerate()
+                    let mut s = "".to_string();
+                    for c in station.command.iter()
                     {
-                        if target_tickets[i] != *remembered_ticket
-                        {
-                            match cache.back_up_file_with_ticket(
-                                &station.file_system,
-                                &target_tickets[i],
-                                &station.target_infos[i].path)
-                            {
-                                Ok(()) => {},
-                                Err(error) =>
-                                    return Err(WorkError::CacheMalfunction(error)),
-                            }
-
-                            all_same = all_same &&
-                            match cache.restore_file(
-                                &station.file_system,
-                                remembered_ticket,
-                                &station.target_infos[i].path)
-                            {
-                                RestoreResult::Done => true,
-                                RestoreResult::NotThere => false,
-
-                                RestoreResult::CacheDirectoryMissing =>
-                                    return Err(WorkError::CacheDirectoryMissing),
-
-                                RestoreResult::FileSystemError(error) =>
-                                    return Err(WorkError::CacheMalfunction(error)),
-                            };
-                        }
+                        s.push_str(" ");
+                        s.push_str(&c);
                     }
+                    println!("about to run command: {}", s);
 
-                    all_same
-                },
-                None => false,
-            }
-            {
-                match executor.execute_command(station.command)
-                {
-                    Ok(command_result) =>
+
+                    match executor.execute_command(station.command)
                     {
-                        let mut post_command_target_tickets = Vec::new();
-                        for target_info in station.target_infos.iter()
+                        Ok(command_result) =>
                         {
-                            match get_file_ticket(
-                                &station.file_system,
-                                &station.metadata_getter,
-                                &target_info)
+                            let mut post_command_target_tickets = Vec::new();
+                            for target_info in station.target_infos.iter()
                             {
-                                Ok(ticket_opt) =>
+                                match get_file_ticket(
+                                    &station.file_system,
+                                    &station.metadata_getter,
+                                    &target_info)
                                 {
-                                    match ticket_opt
+                                    Ok(ticket_opt) =>
                                     {
-                                        Some(ticket) => post_command_target_tickets.push(ticket),
-                                        None => return Err(WorkError::FileNotFound(target_info.path.clone())),
-                                    }
-                                },
-                                Err(error) => return Err(WorkError::FileIoError(target_info.path.clone(), error)),
+                                        match ticket_opt
+                                        {
+                                            Some(ticket) => post_command_target_tickets.push(ticket),
+                                            None => return Err(WorkError::FileNotFound(target_info.path.clone())),
+                                        }
+                                    },
+                                    Err(error) => return Err(WorkError::FileIoError(target_info.path.clone(), error)),
+                                }
                             }
-                        }
 
-                        for (sub_index, sender) in senders
-                        {
-                            match sender.send(Packet::from_ticket(
-                                post_command_target_tickets[sub_index].clone()))
+                            for (sub_index, sender) in senders
+                            {
+                                match sender.send(Packet::from_ticket(
+                                    post_command_target_tickets[sub_index].clone()))
+                                {
+                                    Ok(_) => {},
+                                    Err(_error) => return Err(WorkError::SenderError),
+                                }
+                            }
+
+                            match rule_history.insert(sources_ticket, post_command_target_tickets)
                             {
                                 Ok(_) => {},
-                                Err(_error) => return Err(WorkError::SenderError),
-                            }
-                        }
-
-                        match rule_history.insert(sources_ticket, post_command_target_tickets)
-                        {
-                            Ok(_) => {},
-                            Err(error) =>
-                            {
-                                match error
+                                Err(error) =>
                                 {
-                                    RuleHistoryError::Contradiction(contradicting_indices) =>
+                                    match error
                                     {
-                                        let mut contradicting_target_paths = Vec::new();
-                                        for index in contradicting_indices
+                                        RuleHistoryError::Contradiction(contradicting_indices) =>
                                         {
-                                            contradicting_target_paths.push(station.target_infos[index].path.clone())
+                                            let mut contradicting_target_paths = Vec::new();
+                                            for index in contradicting_indices
+                                            {
+                                                contradicting_target_paths.push(station.target_infos[index].path.clone())
+                                            }
+                                            return Err(WorkError::Contradiction(contradicting_target_paths));
                                         }
-                                        return Err(WorkError::Contradiction(contradicting_target_paths));
+
+                                        RuleHistoryError::TargetSizesDifferWeird =>
+                                            return Err(WorkError::Weird),
                                     }
-
-                                    RuleHistoryError::TargetSizesDifferWeird =>
-                                        return Err(WorkError::Weird),
-                                }
-                            },
-                        }
-
-                        Ok(
-                            WorkResult
-                            {
-                                target_infos : station.target_infos,
-                                command_line_output : Some(command_result),
-                                rule_history : Some(rule_history),
+                                },
                             }
-                        )
-                    },
-                    Err(error) =>
-                    {
-                        return Err(WorkError::CommandErrorWhileExecuting(error))
-                    },
-                }
-            }
-            else
-            {
-                for (sub_index, sender) in senders
-                {
-                    match sender.send(Packet::from_ticket(
-                        target_tickets[sub_index].clone()))
-                    {
-                        Ok(_) => {},
-                        Err(_error) => return Err(WorkError::SenderError),
-                    }
-                }
 
-                Ok(
-                    WorkResult
-                    {
-                        target_infos : station.target_infos,
-                        command_line_output : None,
-                        rule_history : Some(rule_history),
+                            Ok(
+                                WorkResult
+                                {
+                                    target_infos : station.target_infos,
+                                    command_line_output : Some(command_result),
+                                    rule_history : Some(rule_history),
+                                }
+                            )
+                        },
+                        Err(error) =>
+                        {
+                            return Err(WorkError::CommandErrorWhileExecuting(error))
+                        },
                     }
-                )
+                },
+
+                ResolveResult::Error(error) => return Err(error),
             }
         },
     }
@@ -430,7 +547,7 @@ mod test
         match do_command(
             Station::new(
                 to_info(vec!["A".to_string()]),
-                vec!["noop".to_string()],
+                vec![],
                 None,
                 file_system.clone(),
                 FakeMetadataGetter::new()),
@@ -443,14 +560,8 @@ mod test
             {
                 match result.command_line_output
                 {
-                    Some(output) =>
-                    {
-                        assert_eq!(output.out, "");
-                        assert_eq!(output.err, "");
-                        assert_eq!(output.code, Some(0));
-                        assert_eq!(output.success, true);
-                    }
-                    None => panic!("Ouptut errored"),
+                    Some(_output) => panic!("Commandline output received when empty command given"),
+                    None => {},
                 }
             },
             Err(why) => panic!("Command failed: {}", why),
@@ -488,7 +599,7 @@ mod test
             Station::new(
                 to_info(vec!["A.txt".to_string()]),
                 vec!["noop".to_string()],
-                None,
+                Some(RuleHistory::new()),
                 file_system.clone(),
                 FakeMetadataGetter::new()),
             vec![(0, sender_c)],
@@ -569,7 +680,7 @@ mod test
                     "verse2.txt".to_string(),
                     "poem.txt".to_string()
                 ],
-                None,
+                Some(RuleHistory::new()),
                 file_system.clone(),
                 FakeMetadataGetter::new()),
             vec![(0, sender_c)],
@@ -874,7 +985,7 @@ mod test
             Station::new(
                 to_info(vec!["verse1.txt".to_string()]),
                 vec!["rm".to_string(), "verse1.txt".to_string()],
-                None,
+                Some(RuleHistory::new()),
                 file_system.clone(),
                 FakeMetadataGetter::new()
             ),
@@ -892,7 +1003,7 @@ mod test
                 match error
                 {
                     WorkError::FileNotFound(path) => assert_eq!(path, "verse1.txt"),
-                    _ => panic!("Wrong kind of error"),
+                    _ => panic!("Wrong kind of error!  Incorrect error: {}", error),
                 }
             },
         }
@@ -917,7 +1028,7 @@ mod test
     }
 
     #[test]
-    fn one_dependence()
+    fn one_dependence_only()
     {
         let file_system = FakeFileSystem::new();
 
@@ -937,7 +1048,7 @@ mod test
                     "verse1.txt".to_string(),
                     "stanza1.txt".to_string()
                 ],
-                None,
+                Some(RuleHistory::new()),
                 file_system.clone(),
                 FakeMetadataGetter::new(),
             ),
@@ -954,7 +1065,7 @@ mod test
                     "stanza1.txt".to_string(),
                     "poem.txt".to_string()
                 ],
-                None,
+                Some(RuleHistory::new()),
                 file_system.clone(),
                 FakeMetadataGetter::new(),
             ),
@@ -984,12 +1095,12 @@ mod test
 
 
     #[test]
-    fn one_target_already_correct()
+    fn one_target_already_correct_only()
     {
         let file_system = FakeFileSystem::new();
         let metadata_getter1 = FakeMetadataGetter::new();
         let metadata_getter2 = FakeMetadataGetter::new();
-        let mut rule_history2 = RuleHistory::new();
+        let mut rule_history = RuleHistory::new();
 
         match file_system.write_file(Path::new(&"verse1.txt"), "I wish I were a windowsill")
         {
@@ -1008,7 +1119,7 @@ mod test
             TicketFactory::from_str("I wish I were a windowsill").result()
         );
 
-        match rule_history2.insert(
+        match rule_history.insert(
             factory.result(),
             vec![TicketFactory::from_str("I wish I were a windowsill").result()])
         {
@@ -1039,7 +1150,7 @@ mod test
                     "this file should".to_string(),
                     "already be correct".to_string()
                 ],
-                Some(rule_history2),
+                Some(rule_history),
                 file_system.clone(),
                 metadata_getter2,
             ),

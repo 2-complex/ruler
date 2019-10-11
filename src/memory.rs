@@ -6,6 +6,7 @@ use filesystem::FileSystem;
 use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 use std::path::Path;
+use std::fmt;
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct RuleHistory
@@ -77,6 +78,30 @@ impl RuleHistory
     }
 }
 
+impl fmt::Display for RuleHistory
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
+    {
+        let mut out = String::new();
+
+        for (source_ticket, target_tickets) in self.source_to_targets.iter()
+        {
+            out.push_str("  ");
+            out.push_str(&source_ticket.base64());
+            out.push_str("\n");
+
+            for target_ticket in target_tickets.iter()
+            {
+                out.push_str("    ");
+                out.push_str(&target_ticket.base64());
+                out.push_str("\n");
+            }
+        }
+
+        write!(formatter, "{}", out)
+    }
+}
+
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct TargetHistory
 {
@@ -115,12 +140,41 @@ pub struct Memory
     target_histories : HashMap<String, TargetHistory>,
 }
 
+pub enum MemoryError
+{
+    CannotReadMemoryFile(String),
+    CannotInterpretMemoryFile(String),
+    CannotSerializeEmptyHistory,
+    CannotRecordHistoryFile(String),
+}
+
+impl fmt::Display for MemoryError
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
+    {
+        match self
+        {
+            MemoryError::CannotReadMemoryFile(path) =>
+                write!(formatter, "Cannot read memory file: {}", path),
+
+            MemoryError::CannotInterpretMemoryFile(path) =>
+                write!(formatter, "Cannot interpret memory file: {}", path),
+
+            MemoryError::CannotSerializeEmptyHistory =>
+                write!(formatter, "Cannot serialize empty history... that's weird"),
+
+            MemoryError::CannotRecordHistoryFile(path) =>
+                write!(formatter, "Cannot record history file: {}", path),
+        }
+    }
+}
+
 impl Memory
 {
     pub fn from_file<FSType: FileSystem>(
         file_system: &mut FSType,
         path_as_str : &str)
-        -> Result<Memory, String>
+        -> Result<Memory, MemoryError>
     {
         let path = Path::new(&path_as_str);
 
@@ -128,13 +182,13 @@ impl Memory
         {
             match file_system.read_file(path)
             {
-                Err(_) => Err(format!("Cannot read memory file: {}", path_as_str)),
+                Err(_) => Err(MemoryError::CannotReadMemoryFile(path_as_str.to_string())),
                 Ok(content) =>
                 {
                     match bincode::deserialize(&content)
                     {
                         Ok(memory) => Ok(memory),
-                        Err(_) => Err(format!("Cannot interpret memory file: {}", path_as_str)),
+                        Err(_) => Err(MemoryError::CannotInterpretMemoryFile(path_as_str.to_string())),
                     }
                 }
             }
@@ -147,10 +201,10 @@ impl Memory
             {
                 Ok(bytes) => match file_system.write_file(path, bytes)
                 {
-                    Err(_) => Err(format!("Cannot write history file: {}", path_as_str)),
+                    Err(_) => Err(MemoryError::CannotRecordHistoryFile(path_as_str.to_string())),
                     Ok(()) => Ok(memory),
                 },
-                Err(_error) => Err(format!("Cannot serialize empty history... that's weird")),
+                Err(_error) => Err(MemoryError::CannotSerializeEmptyHistory),
             }
         }
     }
@@ -158,11 +212,11 @@ impl Memory
     pub fn to_file<FSType: FileSystem>(
         &self, file_system: &mut FSType,
         path_as_str : &str
-    ) -> Result<(), String>
+    ) -> Result<(), MemoryError>
     {
         match file_system.write_file(Path::new(&path_as_str), bincode::serialize(&self).unwrap())
         {
-            Err(_) => Err(format!("Cannot record history file: {}", path_as_str)),
+            Err(_) => Err(MemoryError::CannotRecordHistoryFile(path_as_str.to_string())),
             Ok(_) => Ok(()),
         }
     }
@@ -220,6 +274,25 @@ impl Memory
             Some(target_history) => target_history,
             None => TargetHistory::empty(),
         }
+    }
+}
+
+impl fmt::Display for Memory
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
+    {
+        let mut out = String::new();
+
+        out.push_str("Rule Histories:\n");
+
+        for (rule_ticket, rule_history) in self.rule_histories.iter()
+        {
+            out.push_str(&rule_ticket.base64());
+            out.push_str("\n");
+            out.push_str(&format!("{}", rule_history))
+        }
+
+        write!(formatter, "{}", out)
     }
 }
 

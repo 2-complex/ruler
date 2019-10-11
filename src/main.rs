@@ -28,21 +28,46 @@ fn main()
         .setting(clap::AppSettings::ArgRequiredElseHelp)
         .subcommand(
             SubCommand::with_name("clean")
-            .help("Removes all files and directories specificed as targets in the rules file"))
+            .help("Removes all files and directories specificed as targets in the rules file")
+        )
         .subcommand(
             SubCommand::with_name("build")
             .help("Builds the given target.\nThe target must be a file listed in the target section of the current rules file.\nThe rules file is either a file in the current working directory called \"build.rules\" or it can be specificed using --rules=<path>")
             .arg(Arg::with_name("target")
                 .help("The path to the target file (or directory) to be built")
                 .required(true)
-                .index(1)))
-        .arg(Arg::from_usage("-r --rules=[RULES] 'Sets a rule file to use.  If not provided, the app will look for a file in the current working directory called \"build.rules\"'"))
-        .arg(Arg::from_usage("-m --directory=[DIRECTORY] 'Where to put cached file content data and anything else ruler stores in persistent storage.  Defaults to .ruler in the current working directory.'"))
+                .index(1)
+            )
+        )
+        .subcommand(
+            SubCommand::with_name("memory")
+            .help("Shows the content of ruler memory.  This includes rule histores and target histories.")
+        )
+        .arg(Arg::from_usage("-r --rules=[RULES] 'Sets a rule file to use.  If not provided, the app will look for a file in the current working directory called `build.rules`'"))
+        .arg(Arg::from_usage("-d --directory=[DIRECTORY] 'Where to put cached file content data and anything else ruler stores in persistent storage.  Defaults to `.ruler` in the current working directory.'"))
         .get_matches();
 
     if let Some(_matches) = big_matches.subcommand_matches("clean")
     {
-        println!("Here's where we would clean, hahaha");
+        println!("Here's where we would clean");
+    }
+
+    if let Some(matches) = big_matches.subcommand_matches("memory")
+    {
+        let directory =
+        match matches.value_of("directory")
+        {
+            Some(value) => value,
+            None => ".ruler",
+        };
+
+        let mut file_system = OsFileSystem::new();
+
+        match build::init_directory(&mut file_system, directory)
+        {
+            Ok((memory, _, _)) => println!("{}", memory),
+            Err(error) => eprintln!("{}", error),
+        }
     }
 
     if let Some(matches) = big_matches.subcommand_matches("build")

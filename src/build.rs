@@ -17,7 +17,7 @@ use crate::work::{WorkResult, WorkError, do_command};
 use crate::metadata::MetadataGetter;
 use crate::executor::Executor;
 use crate::station::{Station, TargetFileInfo};
-use crate::memory::Memory;
+use crate::memory::{Memory, MemoryError};
 use crate::cache::LocalCache;
 
 
@@ -46,7 +46,7 @@ fn make_multimaps(records : &Vec<Record>)
 
 pub enum BuildError
 {
-    MemoryFileFailedToRead(String),
+    MemoryFileFailedToRead(MemoryError),
     RuleFileNotUTF8,
     RuleFileFailedToOpen(String, Error),
     WorkErrors(Vec<WorkError>),
@@ -97,6 +97,72 @@ impl fmt::Display for BuildError
     }
 }
 
+pub enum InitDirectoryError
+{
+    FailedToCreateDirectory(Error),
+    FailedToCreateCacheDirectory(Error),
+    FailedToReadMemoryFile(MemoryError),
+}
+
+impl fmt::Display for InitDirectoryError
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
+    {
+        match self
+        {
+            InitDirectoryError::FailedToCreateDirectory(error) =>
+                write!(formatter, "Failed to create directory: {}", error),
+
+            InitDirectoryError::FailedToCreateCacheDirectory(error) =>
+                write!(formatter, "Failed to create cache directory: {}", error),
+
+            InitDirectoryError::FailedToReadMemoryFile(error) =>
+                write!(formatter, "Failed to read memory file: {}", error),
+        }
+    }
+}
+
+pub fn init_directory<
+    FileSystemType : FileSystem
+        + Clone + Send + 'static
+>(
+    file_system : &mut FileSystemType,
+    directory : &str
+)
+-> Result<(Memory, LocalCache, String), InitDirectoryError>
+{
+    if ! file_system.is_dir(directory)
+    {
+        match file_system.create_dir(directory)
+        {
+            Ok(_) => {},
+            Err(error) => return Err(InitDirectoryError::FailedToCreateDirectory(error)),
+        }
+    }
+
+    let cache_path = format!("{}/cache", directory);
+
+    if ! file_system.is_dir(&cache_path)
+    {
+        match file_system.create_dir(&cache_path)
+        {
+            Ok(_) => {},
+            Err(error) => return Err(InitDirectoryError::FailedToCreateCacheDirectory(error)),
+        }
+    }
+
+    let memoryfile = format!("{}/memory", directory);
+
+    Ok((
+        match Memory::from_file(file_system, &memoryfile)
+        {
+            Ok(memory) => memory,
+            Err(error) => return Err(InitDirectoryError::FailedToReadMemoryFile(error)),
+        },
+        LocalCache::new(&cache_path),
+        memoryfile
+    ))
+}
 
 pub fn build<
     FileSystemType : FileSystem
@@ -115,34 +181,19 @@ pub fn build<
 )
 -> Result<(), BuildError>
 {
-    if ! file_system.is_dir(directory)
+    let (mut memory, cache, memoryfile) =
+    match init_directory(&mut file_system, directory)
     {
-        match file_system.create_dir(directory)
+        Ok((memory, cache, memoryfile)) => (memory, cache, memoryfile),
+        Err(error) =>
         {
-            Ok(_) => {},
-            Err(_) => return Err(BuildError::DirectoryMalfunction),
+            return match error
+            {
+                InitDirectoryError::FailedToReadMemoryFile(memory_error) =>
+                    Err(BuildError::MemoryFileFailedToRead(memory_error)),
+                _ => Err(BuildError::DirectoryMalfunction),
+            }
         }
-    }
-
-    let cache_path = format!("{}/cache", directory);
-
-    if ! file_system.is_dir(&cache_path)
-    {
-        match file_system.create_dir(&cache_path)
-        {
-            Ok(_) => {},
-            Err(_) => return Err(BuildError::DirectoryMalfunction),
-        }
-    }
-
-    let cache = LocalCache::new(&cache_path);
-
-    let memoryfile = &format!("{}/memory", directory);
-    let mut memory =
-    match Memory::from_file(&mut file_system, memoryfile)
-    {
-        Ok(memory) => memory,
-        Err(error) => return Err(BuildError::MemoryFileFailedToRead(error)),
     };
 
     let rule_text =
@@ -320,7 +371,7 @@ pub fn build<
 
     if work_errors.len() == 0
     {
-        match memory.to_file(&mut file_system, memoryfile)
+        match memory.to_file(&mut file_system, &memoryfile)
         {
             Ok(_) => {println!("...done.")},
             Err(_) => eprintln!("Error writing history"),
@@ -341,6 +392,8 @@ mod test
     use crate::executor::{FakeExecutor};
     use crate::metadata::FakeMetadataGetter;
     use crate::work::WorkError;
+    use crate::ticket::TicketFactory;
+    use crate::cache::LocalCache;
 
     use filesystem::{FileSystem, FakeFileSystem};
     use std::str::from_utf8;
@@ -545,13 +598,6 @@ poem.txt
 :
 ";
         let file_system = FakeFileSystem::new();
-
-        match file_system.create_dir(".ruler-cache")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("Failed to create directory"),
-        }
-
         let executor = FakeExecutor::new(file_system.clone());
         let metadata_getter = FakeMetadataGetter::new();
 
@@ -577,7 +623,7 @@ poem.txt
             file_system.clone(),
             executor.clone(),
             metadata_getter.clone(),
-            "test.history",
+            ".ruler",
             "test.rules",
             "poem.txt")
         {
@@ -598,6 +644,13 @@ poem.txt
             Err(_) => panic!("Failed to read poem."),
         }
 
+        let ticket =
+        match TicketFactory::from_file(&file_system, "poem.txt")
+        {
+            Ok(mut factory) => factory.result(),
+            Err(_) => panic!("Failed to make ticket?"),
+        };
+
         match file_system.write_file("verse2.txt", "Violets are violet.\n")
         {
             Ok(_) => {},
@@ -608,12 +661,79 @@ poem.txt
             file_system.clone(),
             executor.clone(),
             metadata_getter.clone(),
-            "test.history",
+            ".ruler",
             "test.rules",
             "poem.txt")
         {
             Ok(()) => {},
             Err(error) => panic!("Unexpected build error: {}", error),
         }
+
+        match file_system.read_file("poem.txt")
+        {
+            Ok(content) =>
+            {
+                match from_utf8(&content)
+                {
+                    Ok(text) => assert_eq!(text, "Roses are red.\nViolets are violet.\n"),
+                    Err(_) => panic!("Poem failed to be utf8?"),
+                }
+            }
+            Err(_) => panic!("Failed to read poem a second time."),
+        }
+
+        let cache = LocalCache::new(".ruler/cache");
+        cache.restore_file(&file_system, &ticket, "temp-poem.txt");
+
+        match file_system.read_file("temp-poem.txt")
+        {
+            Ok(content) =>
+            {
+                match from_utf8(&content)
+                {
+                    Ok(text) => assert_eq!(text, "Roses are red.\nViolets are blue.\n"),
+                    Err(_) => panic!("Poem failed to be utf8?"),
+                }
+            }
+            Err(_) => panic!("Failed to read temp-poem."),
+        }
+
+        match cache.back_up_file_with_ticket(&file_system, &ticket, "temp-poem.txt")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("Failed to back up temp-poem"),
+        }
+
+        match file_system.write_file("verse2.txt", "Violets are blue.\n")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File failed to write"),
+        }
+
+        match build(
+            file_system.clone(),
+            executor.clone(),
+            metadata_getter.clone(),
+            ".ruler",
+            "test.rules",
+            "poem.txt")
+        {
+            Ok(()) => {},
+            Err(error) => panic!("Unexpected build error: {}", error),
+        }
+
+        match file_system.read_file("poem.txt")
+        {
+            Ok(content) =>
+            {
+                match from_utf8(&content)
+                {
+                    Ok(text) => assert_eq!(text, "Roses are red.\nViolets are blue.\n"),
+                    Err(_) => panic!("Poem failed to be utf8?"),
+                }
+            }
+            Err(_) => panic!("Failed to read poem a second time."),
+        }
     }
+
 }

@@ -21,14 +21,6 @@ impl TicketFactory
         TicketFactory{ dig : Sha512::new() }
     }
 
-    pub fn does_not_exist() -> Ticket
-    {
-        Ticket
-        {
-            sha : Vec::new()
-        }
-    }
-
     #[cfg(test)]
     pub fn from_str(first_input: &str) -> TicketFactory
     {
