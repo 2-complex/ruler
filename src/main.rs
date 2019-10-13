@@ -14,6 +14,8 @@ mod station;
 mod executor;
 mod packet;
 mod metadata;
+
+#[cfg(test)]
 mod internet;
 
 use self::build::build;
