@@ -77,7 +77,8 @@ pub enum WorkError
     FileNotFound(String),
     FileNotAvailableToCache(String),
     FileIoError(String, std::io::Error),
-    CommandErrorWhileExecuting(String),
+    CommandExecutedButErrored(String),
+    CommandFailedToExecute(String),
     Contradiction(Vec<String>),
     CacheDirectoryMissing,
     CacheMalfunction(std::io::Error),
@@ -112,8 +113,11 @@ impl fmt::Display for WorkError
             WorkError::FileIoError(path, error) =>
                 write!(formatter, "Error reading file: {}: {}", path, error),
 
-            WorkError::CommandErrorWhileExecuting(message) =>
-                write!(formatter, "Failed to execute command with message: {}", message),
+            WorkError::CommandExecutedButErrored(message) =>
+                write!(formatter, "Command executed but errored: {}", message),
+
+            WorkError::CommandFailedToExecute(error) =>
+                write!(formatter, "Failed to execute command with message: {}", error),
 
             WorkError::Contradiction(contradicting_target_paths) =>
             {
@@ -421,6 +425,11 @@ pub fn do_command<
                     {
                         Ok(command_result) =>
                         {
+                            if ! command_result.success
+                            {
+                                return Err(WorkError::CommandExecutedButErrored(command_result.err));
+                            }
+
                             let mut post_command_target_tickets = Vec::new();
                             for target_info in station.target_infos.iter()
                             {
@@ -485,7 +494,7 @@ pub fn do_command<
                         },
                         Err(error) =>
                         {
-                            return Err(WorkError::CommandErrorWhileExecuting(error))
+                            return Err(WorkError::CommandFailedToExecute(error))
                         },
                     }
                 },
@@ -495,6 +504,7 @@ pub fn do_command<
         },
     }
 }
+
 
 #[cfg(test)]
 mod test
@@ -535,6 +545,7 @@ mod test
         result
     }
 
+
     #[test]
     fn do_empty_command()
     {
@@ -568,6 +579,7 @@ mod test
             Err(why) => panic!("Command failed: {}", why),
         }
     }
+
 
     #[test]
     fn wait_for_channels()
@@ -650,6 +662,68 @@ mod test
             Err(err) => panic!("Command failed: {}", err),
         }
     }
+
+
+    #[test]
+    fn command_errors()
+    {
+        let (sender_a, receiver_a) = mpsc::channel();
+        let (sender_b, receiver_b) = mpsc::channel();
+        let (sender_c, receiver_c) = mpsc::channel();
+
+        let file_system = FakeFileSystem::new();
+
+        match file_system.write_file(Path::new(&"verse1.txt"), "Roses are red\n")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File write operation failed"),
+        }
+
+        match file_system.write_file(Path::new(&"verse2.txt"), "Violets are violet\n")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File write operation failed"),
+        }
+
+        match sender_a.send(Packet::from_ticket(TicketFactory::from_str("Roses are red\n").result()))
+        {
+            Ok(p) => assert_eq!(p, ()),
+            Err(e) => panic!("Unexpected error sending: {}", e),
+        }
+
+        match sender_b.send(Packet::from_ticket(TicketFactory::from_str("Violets are violet\n").result()))
+        {
+            Ok(p) => assert_eq!(p, ()),
+            Err(e) => panic!("Unexpected error sending: {}", e),
+        }
+
+        match do_command(
+            Station::new(
+                to_info(vec!["poem.txt".to_string()]),
+                vec!["error".to_string()],
+                Some(RuleHistory::new()),
+                file_system.clone(),
+                FakeMetadataGetter::new()),
+            vec![(0, sender_c)],
+            vec![receiver_a, receiver_b],
+            FakeExecutor::new(file_system.clone()),
+            LocalCache::new(".ruler-cache"))
+        {
+            Ok(_) => panic!("Unexpected command success"),
+            Err(WorkError::CommandExecutedButErrored(message)) =>
+            {
+                match receiver_c.recv()
+                {
+                    Ok(_) => panic!("Unexpected successful receive"),
+                    Err(_) => {}
+                }
+
+                assert_eq!(message, "Failed");
+            },
+            Err(error) => panic!("Wrong kind of error when command errors: {}", error),
+        }
+    }
+
 
     #[test]
     fn poem_concatination()
@@ -736,6 +810,7 @@ mod test
             Err(err) => panic!("Command failed: {}", err),
         }
     }
+
 
     #[test]
     fn poem_already_correct()
@@ -876,7 +951,6 @@ mod test
             Err(_) => panic!("Failed to create directory"),
         }
 
-
         match file_system.write_file(Path::new(&"verse1.txt"), "Roses are red\n")
         {
             Ok(_) => {},
@@ -982,6 +1056,7 @@ mod test
             },
         }
     }
+
 
     #[test]
     fn target_removed_by_command()

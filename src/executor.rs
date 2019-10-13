@@ -1,7 +1,10 @@
 use std::str::from_utf8;
 use std::process::Output;
+
+#[cfg(test)]
 use std::path::Path;
 
+#[cfg(test)]
 use filesystem::{FileSystem, FakeFileSystem};
 
 pub struct CommandLineOutput
@@ -25,7 +28,19 @@ impl CommandLineOutput
         }
     }
 
-    pub fn from_output(output: Output) -> CommandLineOutput
+    #[cfg(test)]
+    pub fn error(message : String) -> CommandLineOutput
+    {
+        CommandLineOutput
+        {
+            out : "".to_string(),
+            err : message,
+            code : Some(1),
+            success : false,
+        }
+    }
+
+    pub fn from_output(output : Output) -> CommandLineOutput
     {
         CommandLineOutput
         {
@@ -53,14 +68,15 @@ pub trait Executor
 }
 
 #[derive(Clone)]
+#[cfg(test)]
 pub struct FakeExecutor
 {
     file_system: FakeFileSystem
 }
 
+#[cfg(test)]
 impl FakeExecutor
 {
-    #[cfg(test)]
     pub fn new(file_system: FakeFileSystem) -> FakeExecutor
     {
         FakeExecutor
@@ -70,6 +86,7 @@ impl FakeExecutor
     }
 }
 
+#[cfg(test)]
 impl Executor for FakeExecutor
 {
     fn execute_command(&self, command_list : Vec<String>) -> Result<CommandLineOutput, String>
@@ -77,10 +94,15 @@ impl Executor for FakeExecutor
         let n = command_list.len();
         let mut output = String::new();
 
-        if n > 1
+        if n > 0
         {
             match command_list[0].as_str()
             {
+                "error" =>
+                {
+                    Ok(CommandLineOutput::error("Failed".to_string()))
+                },
+
                 "mycat" =>
                 {
                     for file in command_list[1..(n-1)].iter()
