@@ -2,7 +2,6 @@ extern crate filesystem;
 
 use crate::ticket::Ticket;
 
-#[cfg(test)]
 use crate::ticket::TicketFactory;
 
 use filesystem::FileSystem;
@@ -69,8 +68,7 @@ impl LocalCache
         }
     }
 
-    #[cfg(test)]
-    fn back_up_file<FileSystemType : FileSystem>(&self, file_system : &FileSystemType, target_path : &str)
+    pub fn back_up_file<FileSystemType : FileSystem>(&self, file_system : &FileSystemType, target_path : &str)
         -> Result<(), Error>
     {
         match TicketFactory::from_file(file_system, target_path)

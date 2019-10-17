@@ -506,6 +506,54 @@ pub fn do_command<
 }
 
 
+pub fn remove_target<
+    FileSystemType: FileSystem,
+    MetadataGetterType: MetadataGetter>
+(
+    target_infos : Vec<TargetFileInfo>,
+    file_system : &FileSystemType,
+    metadata_getter : &MetadataGetterType,
+    cache : &LocalCache
+)
+-> Result<(), WorkError>
+{
+    for target_info in target_infos
+    {
+        match get_file_ticket(file_system, metadata_getter, &target_info)
+        {
+            Ok(Some(current_target_ticket)) =>
+            {
+                match cache.back_up_file_with_ticket(
+                    file_system,
+                    &current_target_ticket,
+                    &target_info.path)
+                {
+                    Ok(_) => {},
+                    Err(_error) =>
+                        return Err(WorkError::FileNotAvailableToCache(
+                            target_info.path.clone())),
+                }
+            },
+            Ok(None)=>
+            {
+                match cache.back_up_file(
+                    file_system,
+                    &target_info.path)
+                {
+                    Ok(_) => {},
+                    Err(_error) =>
+                        return Err(WorkError::FileNotAvailableToCache(
+                            target_info.path.clone())),
+                }
+            },
+            Err(error) => return Err(WorkError::TicketAlignmentError(error)),
+        }
+    }
+
+    Ok(())
+}
+
+
 #[cfg(test)]
 mod test
 {

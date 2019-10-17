@@ -31,6 +31,11 @@ fn main()
         .setting(clap::AppSettings::ArgRequiredElseHelp)
         .subcommand(
             SubCommand::with_name("clean")
+            .arg(Arg::with_name("target")
+                .help("The path to the target file (or directory) to be cleaned.  Clean command will remove all files which are:\n - listed as targets in the rule\n - dependencies of the target specified ")
+                .required(true)
+                .index(1)
+            )
             .help("Removes all files and directories specificed as targets in the rules file")
         )
         .subcommand(
@@ -50,9 +55,37 @@ fn main()
         .arg(Arg::from_usage("-d --directory=[DIRECTORY] 'Where to put cached file content data and anything else ruler stores in persistent storage.  Defaults to `.ruler` in the current working directory.'"))
         .get_matches();
 
-    if let Some(_matches) = big_matches.subcommand_matches("clean")
+    if let Some(matches) = big_matches.subcommand_matches("clean")
     {
-        println!("Here's where we would clean");
+        let rulefile =
+        match matches.value_of("rules")
+        {
+            Some(value) => value,
+            None => "build.rules",
+        };
+
+        let directory =
+        match matches.value_of("directory")
+        {
+            Some(value) => value,
+            None => ".ruler",
+        };
+
+        let target =
+        match matches.value_of("target")
+        {
+            Some(value) => value,
+            None => panic!("No target!"),
+        };
+
+        match build::clean(
+            OsFileSystem::new(),
+            OsMetadataGetter::new(),
+            directory, rulefile, target)
+        {
+            Ok(()) => {},
+            Err(error) => eprintln!("{}", error),
+        }
     }
 
     if let Some(matches) = big_matches.subcommand_matches("memory")

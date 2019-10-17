@@ -13,7 +13,7 @@ use std::io::Error;
 
 use crate::rule::{Record, parse, topological_sort};
 use crate::packet::Packet;
-use crate::work::{WorkResult, WorkError, do_command};
+use crate::work::{do_command, WorkResult, WorkError, remove_target};
 use crate::metadata::MetadataGetter;
 use crate::executor::Executor;
 use crate::station::{Station, TargetFileInfo};
@@ -314,18 +314,17 @@ pub fn build<
 
                                 if output.out != ""
                                 {
-                                    println!("output: {}", output.out);
+                                    println!("output:\n{}", output.out);
                                 }
 
                                 if output.err != ""
                                 {
-                                    println!("error: {}", output.err);
+                                    eprintln!("ERROR:\n{}", output.err);
                                 }
 
                                 if !output.success
                                 {
-                                    println!("success: {}", output.success);
-                                    println!("code: {}", 
+                                    eprintln!("RESULT: {}", 
                                         match output.code
                                         {
                                             Some(code) => format!("{}", code),
@@ -384,6 +383,141 @@ pub fn build<
         Err(BuildError::WorkErrors(work_errors))
     }
 }
+
+pub fn clean<
+    FileSystemType : FileSystem
+        + Clone + Send + 'static,
+    MetadataGetterType : MetadataGetter
+        + Clone + Send + 'static
+>(
+    mut file_system : FileSystemType,
+    metadata_getter: MetadataGetterType,
+    directory : &str,
+    rulefile: &str,
+    target: &str
+)
+-> Result<(), BuildError>
+{
+    let (mut memory, cache, _memoryfile) =
+    match init_directory(&mut file_system, directory)
+    {
+        Ok((memory, cache, memoryfile)) => (memory, cache, memoryfile),
+        Err(error) =>
+        {
+            return match error
+            {
+                InitDirectoryError::FailedToReadMemoryFile(memory_error) =>
+                    Err(BuildError::MemoryFileFailedToRead(memory_error)),
+                _ => Err(BuildError::DirectoryMalfunction),
+            }
+        }
+    };
+
+    let rule_text =
+    match file_system.read_file(rulefile)
+    {
+        Ok(rule_content) =>
+        {
+            match from_utf8(&rule_content)
+            {
+                Ok(rule_text) => rule_text.to_owned(),
+                Err(_) => return Err(BuildError::RuleFileNotUTF8),
+            }
+        },
+        Err(error) => return Err(BuildError::RuleFileFailedToOpen(rulefile.to_string(), error)),
+    };
+
+    let rules =
+    match parse(rule_text)
+    {
+        Ok(rules) => rules,
+        Err(error) => return Err(BuildError::RuleFileFailedToParse(error)),
+    };
+
+    let mut records =
+    match topological_sort(rules, &target)
+    {
+        Ok(records) => records,
+        Err(error) => return Err(BuildError::TopologicalSortFailed(error)),
+    };
+
+    let mut handles = Vec::new();
+
+    for mut record in records.drain(..)
+    {
+        let mut target_infos = Vec::new();
+        for target_path in record.targets.drain(..)
+        {
+            target_infos.push(
+                TargetFileInfo
+                {
+                    history : memory.take_target_history(&target_path),
+                    path : target_path,
+                }
+            );
+        }
+
+        let file_system_clone = file_system.clone();
+        let metadata_getter_clone = metadata_getter.clone();
+        let local_cache_clone = cache.clone();
+
+        match record.rule_ticket
+        {
+            Some(_ticket) =>
+                handles.push(
+                    thread::spawn(
+                        move || -> Result<(), WorkError>
+                        {
+                            remove_target(
+                                target_infos,
+                                &file_system_clone,
+                                &metadata_getter_clone,
+                                &local_cache_clone)
+                        }
+                    )
+                ),
+            None => {},
+        }
+    }
+
+    let mut work_errors = Vec::new();
+
+    println!("Cleaning...");
+    for handle in handles
+    {
+        match handle.join()
+        {
+            Err(_error) => return Err(BuildError::Weird),
+            Ok(remove_result_result) =>
+            {
+                match remove_result_result
+                {
+                    Ok(_) => {},
+                    Err(work_error) =>
+                    {
+                        match work_error
+                        {
+                            _ =>
+                            {
+                                work_errors.push(work_error);
+                            }
+                        }
+                    },
+                }
+            }
+        }
+    }
+
+    if work_errors.len() == 0
+    {
+        Ok(())
+    }
+    else
+    {
+        Err(BuildError::WorkErrors(work_errors))
+    }
+}
+
 
 #[cfg(test)]
 mod test
