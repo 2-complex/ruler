@@ -506,7 +506,7 @@ pub fn do_command<
 }
 
 
-pub fn remove_target<
+pub fn clean_targets<
     FileSystemType: FileSystem,
     MetadataGetterType: MetadataGetter>
 (
@@ -519,34 +519,39 @@ pub fn remove_target<
 {
     for target_info in target_infos
     {
-        match get_file_ticket(file_system, metadata_getter, &target_info)
+        if file_system.is_file(&target_info.path)
         {
-            Ok(Some(current_target_ticket)) =>
+            match get_file_ticket(file_system, metadata_getter, &target_info)
             {
-                match cache.back_up_file_with_ticket(
-                    file_system,
-                    &current_target_ticket,
-                    &target_info.path)
+                Ok(Some(current_target_ticket)) =>
                 {
-                    Ok(_) => {},
-                    Err(_error) =>
-                        return Err(WorkError::FileNotAvailableToCache(
-                            target_info.path.clone())),
-                }
-            },
-            Ok(None)=>
-            {
-                match cache.back_up_file(
-                    file_system,
-                    &target_info.path)
+                    {
+                        match cache.back_up_file_with_ticket(
+                            file_system,
+                            &current_target_ticket,
+                            &target_info.path)
+                        {
+                            Ok(_) => {},
+                            Err(_error) =>
+                                return Err(WorkError::FileNotAvailableToCache(
+                                    target_info.path.clone())),
+                        }
+                    }
+                },
+                Ok(None)=>
                 {
-                    Ok(_) => {},
-                    Err(_error) =>
-                        return Err(WorkError::FileNotAvailableToCache(
-                            target_info.path.clone())),
-                }
-            },
-            Err(error) => return Err(WorkError::TicketAlignmentError(error)),
+                    match cache.back_up_file(
+                        file_system,
+                        &target_info.path)
+                    {
+                        Ok(_) => {},
+                        Err(_error) =>
+                            return Err(WorkError::FileNotAvailableToCache(
+                                target_info.path.clone())),
+                    }
+                },
+                Err(error) => return Err(WorkError::TicketAlignmentError(error)),
+            }
         }
     }
 

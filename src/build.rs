@@ -13,7 +13,7 @@ use std::io::Error;
 
 use crate::rule::{Record, parse, topological_sort};
 use crate::packet::Packet;
-use crate::work::{do_command, WorkResult, WorkError, remove_target};
+use crate::work::{do_command, WorkResult, WorkError, clean_targets};
 use crate::metadata::MetadataGetter;
 use crate::executor::Executor;
 use crate::station::{Station, TargetFileInfo};
@@ -291,7 +291,6 @@ pub fn build<
 
     let mut work_errors = Vec::new();
 
-    println!("Building...");
     for (record_ticket, handle) in handles
     {
         match handle.join()
@@ -372,7 +371,7 @@ pub fn build<
     {
         match memory.to_file(&mut file_system, &memoryfile)
         {
-            Ok(_) => {println!("...done.")},
+            Ok(_) => {},
             Err(_) => eprintln!("Error writing history"),
         }
 
@@ -468,7 +467,7 @@ pub fn clean<
                     thread::spawn(
                         move || -> Result<(), WorkError>
                         {
-                            remove_target(
+                            clean_targets(
                                 target_infos,
                                 &file_system_clone,
                                 &metadata_getter_clone,
@@ -482,7 +481,6 @@ pub fn clean<
 
     let mut work_errors = Vec::new();
 
-    println!("Cleaning...");
     for handle in handles
     {
         match handle.join()
