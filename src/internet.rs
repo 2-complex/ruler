@@ -1,11 +1,21 @@
 extern crate reqwest;
+extern crate hyper;
+extern crate multipart;
+extern crate hyper_native_tls;
 extern crate filesystem;
+
+use std::io::Read;
+use std::fmt;
+
+use hyper::Client;
+use hyper::net::HttpsConnector;
+use hyper_native_tls::NativeTlsClient;
+use multipart::client::lazy::Multipart;
 
 use filesystem::FileSystem;
 
-use std::io::Read;
 
-enum DownloadError
+pub enum DownloadError
 {
     ResponseBodyFailedToRead,
     RequestFailed,
@@ -13,14 +23,83 @@ enum DownloadError
     FileFailedToWrite,
 }
 
-enum UploadError
+pub enum UploadError
 {
     UploadFailed,
-    FileFailedToRead,
-    NotStatus200
+    NotSupportedOnPlatform,
+    UploadConstructionFailed,
+    FileFailedToRead(String),
+    NotStatus200(String),
 }
 
-fn upload
+impl fmt::Display for UploadError
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
+    {
+        match self
+        {
+            UploadError::NotSupportedOnPlatform =>
+                write!(formatter, "Upload type not supported."),
+
+            UploadError::UploadConstructionFailed =>
+                write!(formatter, "Upload construction failed."),
+
+            UploadError::UploadFailed =>
+                write!(formatter, "Upload failed."),
+
+            UploadError::FileFailedToRead(path) =>
+                write!(formatter, "File failed to read for upload: {}", path),
+
+            UploadError::NotStatus200(url) =>
+                write!(formatter, "Upload request recieved non-200 code. URL={}", url),
+        }
+    }
+}
+
+fn upload_stream
+<
+    StreamType : Read
+>
+(
+    url : &str,
+    name : &str,
+    filename : &str,
+    stream : StreamType
+)
+-> Result<String, UploadError>
+{
+    let client =
+    match NativeTlsClient::new()
+    {
+        Ok(client) => client,
+        Err(_) =>
+        {
+            return Err(UploadError::NotSupportedOnPlatform);
+        }
+    };
+
+    let connector = HttpsConnector::new(client);
+    let client = Client::with_connector(connector);
+
+    let mut response =
+    match Multipart::new()
+        .add_stream(name, stream, Some(filename), None)
+        .client_request(&client, url)
+    {
+        Ok(response) => response,
+        Err(_) =>
+        {
+            return Err(UploadError::UploadConstructionFailed);
+        }
+    };
+
+    let mut s = String::new();
+    response.read_to_string(&mut s).unwrap();
+
+    Ok(s)
+}
+
+pub fn upload
 <FileSystemType : FileSystem>
 (
     url : &str,
@@ -41,7 +120,7 @@ fn upload
                 {
                     if response.status() != 200
                     {
-                        Err(UploadError::NotStatus200)
+                        Err(UploadError::NotStatus200(url.to_string()))
                     }
                     else
                     {
@@ -51,11 +130,11 @@ fn upload
                 Err(_) => Err(UploadError::UploadFailed),
             }
         },
-        Err(_) => Err(UploadError::FileFailedToRead),
+        Err(_) => Err(UploadError::FileFailedToRead(path.to_string())),
     }
 }
 
-fn download
+pub fn download
 <FileSystemType : FileSystem>
 (
     url : &str,
@@ -97,7 +176,7 @@ fn download
 mod test
 {
     use filesystem::{FakeFileSystem, FileSystem};
-    use crate::internet::{download, DownloadError, upload};
+    use crate::internet::{download, DownloadError, upload, upload_stream};
 
     static SERVER: &str = "https://sha-da.com";
 
@@ -160,4 +239,26 @@ mod test
             Err(_) => panic!("Download failed"),
         }
     }
+
+    use std::fs::File;
+    // use std::io::prelude::*;
+
+    #[test]
+    fn upload_stream_round_trip()
+    {
+        let upload_url = format!("{}/upload-file", SERVER);
+        let file = File::open("your-file.txt").unwrap();
+        match upload_stream(&upload_url, "name.txt", "filename.txt", file)
+        {
+            Ok(result) =>
+            {
+                println!("result = {}", result);
+            },
+            Err(error) =>
+            {
+                panic!("Failed to upload: {}", error);
+            }
+        }
+    }
 }
+

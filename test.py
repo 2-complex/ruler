@@ -87,7 +87,7 @@ class TestsInDirectories(unittest.TestCase):
             all_files.add(s)
             all_files.add(t)
 
-        expected_out = bytes("Building...\n" + "\n".join(sorted(list(all_files))) + "\n...done.\n", "utf8")
+        expected_out = bytes("" + "\n".join(sorted(list(all_files))) + "\n", "utf8")
 
         self.do_command_expect("../../target/debug/ruler build " + target, expected_out, b"")
 

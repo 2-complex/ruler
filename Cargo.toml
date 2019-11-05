@@ -13,3 +13,7 @@ bincode = "1.1.4"
 serde = { version = "1.0", features = ["derive"] }
 filesystem = "0.4.4"
 reqwest = "0.9.22"
+
+hyper = "0.10"
+hyper-native-tls = "0.2.4"
+multipart = "0.13.1"

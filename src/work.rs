@@ -7,6 +7,7 @@ use crate::executor::{CommandLineOutput, Executor};
 use crate::metadata::MetadataGetter;
 use crate::memory::{RuleHistory, RuleHistoryError};
 use crate::cache::{LocalCache, RestoreResult};
+use crate::internet::{upload, UploadError};
 
 use filesystem::FileSystem;
 use std::process::Command;
@@ -83,6 +84,7 @@ pub enum WorkError
     CacheDirectoryMissing,
     CacheMalfunction(std::io::Error),
     CommandWithNoRuleHistory,
+    UploadError(UploadError),
     Weird,
 }
 
@@ -118,6 +120,9 @@ impl fmt::Display for WorkError
 
             WorkError::CommandFailedToExecute(error) =>
                 write!(formatter, "Failed to execute command with message: {}", error),
+
+            WorkError::UploadError(error) =>
+                write!(formatter, "File Failed to upload: {}", error),
 
             WorkError::Contradiction(contradicting_target_paths) =>
             {
@@ -308,7 +313,7 @@ fn get_current_target_tickets
     Ok(target_tickets)
 }
 
-pub fn do_command<
+pub fn build_targets<
     FileSystemType: FileSystem,
     ExecType: Executor,
     MetadataGetterType: MetadataGetter>
@@ -559,11 +564,36 @@ pub fn clean_targets<
 }
 
 
+pub fn upload_targets<FileSystemType: FileSystem>
+(
+    file_system : &FileSystemType,
+    target_paths : Vec<String>,
+    server_url : String,
+)
+-> Result<(), WorkError>
+{
+    for path in target_paths
+    {
+        if file_system.is_file(&path)
+        {
+            match upload(&server_url, file_system, &path)
+            {
+                Ok(_) => {},
+                Err(error) => return Err(WorkError::UploadError(error)),
+            }
+        }
+    }
+
+    Ok(())
+}
+
+
+
 #[cfg(test)]
 mod test
 {
     use crate::station::{Station, TargetFileInfo};
-    use crate::work::{do_command, WorkResult, WorkError};
+    use crate::work::{build_targets, WorkResult, WorkError};
     use crate::ticket::TicketFactory;
     use crate::memory::{RuleHistory, TargetHistory};
     use crate::executor::FakeExecutor;
@@ -609,7 +639,7 @@ mod test
             Err(_) => panic!("File write operation failed"),
         }
 
-        match do_command(
+        match build_targets(
             Station::new(
                 to_info(vec!["A".to_string()]),
                 vec![],
@@ -673,7 +703,7 @@ mod test
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        match do_command(
+        match build_targets(
             Station::new(
                 to_info(vec!["A.txt".to_string()]),
                 vec!["mycat".to_string(), "A-source.txt".to_string(), "A.txt".to_string()],
@@ -750,7 +780,7 @@ mod test
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        match do_command(
+        match build_targets(
             Station::new(
                 to_info(vec!["poem.txt".to_string()]),
                 vec!["error".to_string()],
@@ -811,7 +841,7 @@ mod test
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        match do_command(
+        match build_targets(
             Station::new(
                 to_info(vec!["poem.txt".to_string()]),
                 vec![
@@ -921,7 +951,7 @@ mod test
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        match do_command(
+        match build_targets(
             Station::new(
                 to_info(vec!["poem.txt".to_string()]),
                 vec![
@@ -1034,7 +1064,7 @@ mod test
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        match do_command(
+        match build_targets(
             Station::new(
                 to_info(vec!["poem.txt".to_string()]),
                 vec![
@@ -1082,7 +1112,7 @@ mod test
             Err(_) => panic!("File write operation failed"),
         }
 
-        match do_command(
+        match build_targets(
             Station::new(
                 to_info(vec!["verse1.txt".to_string()]),
                 vec![],
@@ -1122,7 +1152,7 @@ mod test
             Err(_) => panic!("File write operation failed"),
         }
 
-        match do_command(
+        match build_targets(
             Station::new(
                 to_info(vec!["verse1.txt".to_string()]),
                 vec!["rm".to_string(), "verse1.txt".to_string()],
@@ -1163,7 +1193,7 @@ mod test
         thread::spawn(
             move || -> Result<WorkResult, WorkError>
             {
-                do_command(station, senders, receivers, executor, LocalCache::new(".ruler-cache"))
+                build_targets(station, senders, receivers, executor, LocalCache::new(".ruler-cache"))
             }
         )
     }

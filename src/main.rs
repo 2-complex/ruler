@@ -14,13 +14,12 @@ mod station;
 mod executor;
 mod packet;
 mod metadata;
-
-#[cfg(test)]
 mod internet;
 
 use self::build::build;
 use self::work::OsExecutor;
 use self::metadata::OsMetadataGetter;
+use self::ticket::TicketFactory;
 
 fn main()
 {
@@ -31,12 +30,26 @@ fn main()
         .setting(clap::AppSettings::ArgRequiredElseHelp)
         .subcommand(
             SubCommand::with_name("clean")
+            .help("Removes all files and directories specificed as targets in the rules file")
             .arg(Arg::with_name("target")
                 .help("The path to the target file (or directory) to be cleaned.  Clean command will remove all files which are:\n - listed as targets in the rule\n - dependencies of the target specified ")
                 .required(true)
                 .index(1)
             )
-            .help("Removes all files and directories specificed as targets in the rules file")
+        )
+        .subcommand(
+            SubCommand::with_name("upload")
+            .help("Uploads all intermediates")
+            .arg(Arg::with_name("target")
+                .help("The path to the target file (or directory) to be uploaded.  Upload command will upload the target and all its intermeidate:\n")
+                .required(true)
+                .index(1)
+            )
+            .arg(Arg::with_name("server")
+                .help("The upload url")
+                .required(true)
+                .index(2)
+            )
         )
         .subcommand(
             SubCommand::with_name("build")
@@ -48,12 +61,68 @@ fn main()
             )
         )
         .subcommand(
+            SubCommand::with_name("hash")
+            .help("Prints out the hash of a file.")
+            .arg(Arg::with_name("path")
+                .help("The path to the file to be hashed")
+                .required(true)
+                .index(1)
+            )
+        )
+        .subcommand(
             SubCommand::with_name("memory")
             .help("Shows the content of ruler memory.  This includes rule histores and target histories.")
         )
-        .arg(Arg::from_usage("-r --rules=[RULES] 'Sets a rule file to use.  If not provided, the app will look for a file in the current working directory called `build.rules`'"))
-        .arg(Arg::from_usage("-d --directory=[DIRECTORY] 'Where to put cached file content data and anything else ruler stores in persistent storage.  Defaults to `.ruler` in the current working directory.'"))
         .get_matches();
+
+
+    if let Some(matches) = big_matches.subcommand_matches("hash")
+    {
+        let path =
+        match matches.value_of("path")
+        {
+            Some(value) => value,
+            None => panic!("No path!"),
+        };
+
+        match TicketFactory::from_file(&OsFileSystem::new(), path)
+        {
+            Ok(mut factory) =>
+            {
+                println!("{}", factory.result().base64());
+            },
+            Err(error) => eprintln!("{}", error),
+        }
+    }
+
+    if let Some(matches) = big_matches.subcommand_matches("upload")
+    {
+        let rulefile = "build.rules";
+
+        let target =
+        match matches.value_of("target")
+        {
+            Some(value) => value,
+            None => panic!("No target!"),
+        };
+
+        let server_url =
+        match matches.value_of("server")
+        {
+            Some(value) => value,
+            None => panic!("No server!"),
+        };
+
+        match build::upload(
+            OsFileSystem::new(),
+            rulefile,
+            target,
+            server_url)
+        {
+            Ok(()) => {},
+            Err(error) => eprintln!("{}", error),
+        }
+    }
 
     if let Some(matches) = big_matches.subcommand_matches("clean")
     {
