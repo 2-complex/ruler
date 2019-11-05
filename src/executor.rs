@@ -88,7 +88,6 @@ impl FakeExecutor
     }
 }
 
-
 #[derive(Clone)]
 pub struct OsExecutor
 {
