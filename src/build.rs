@@ -320,7 +320,7 @@ pub fn build<
 
                                 if output.out != ""
                                 {
-                                    println!("output:\n{}", output.out);
+                                    println!("{}", output.out);
                                 }
 
                                 if output.err != ""

@@ -17,7 +17,7 @@ mod metadata;
 mod internet;
 
 use self::build::build;
-use self::work::OsExecutor;
+use self::executor::OsExecutor;
 use self::metadata::OsMetadataGetter;
 use self::ticket::TicketFactory;
 
