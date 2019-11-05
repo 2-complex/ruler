@@ -97,7 +97,9 @@ impl OsExecutor
 {
     pub fn new() -> OsExecutor
     {
-        OsExecutor{}
+        OsExecutor
+        {
+        }
     }
 }
 
