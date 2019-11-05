@@ -16,7 +16,7 @@ mod packet;
 mod metadata;
 
 use self::build::build;
-use self::work::OsExecutor;
+use self::executor::OsExecutor;
 use self::metadata::OsMetadataGetter;
 
 fn main()

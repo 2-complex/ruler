@@ -1,5 +1,9 @@
 use std::str::from_utf8;
 use std::process::Output;
+use std::collections::VecDeque;
+use std::process::Command;
+
+#[cfg(test)]
 use std::path::Path;
 
 use filesystem::{FileSystem, FakeFileSystem};
@@ -70,6 +74,54 @@ impl FakeExecutor
     }
 }
 
+#[derive(Clone)]
+pub struct OsExecutor
+{
+}
+
+impl OsExecutor
+{
+    pub fn new() -> OsExecutor
+    {
+        OsExecutor{}
+    }
+}
+
+impl Executor for OsExecutor
+{
+    fn execute_command(&self, command_list: Vec<String>) -> Result<CommandLineOutput, String>
+    {
+        let mut command_queue = VecDeque::from(command_list);
+        let command_opt = match command_queue.pop_front()
+        {
+            Some(first) =>
+            {
+                let mut command = Command::new(first);
+                while let Some(argument) = command_queue.pop_front()
+                {
+                    command.arg(argument);
+                }
+                Some(command)
+            },
+            None => None
+        };
+
+        match command_opt
+        {
+            Some(mut command) =>
+            {
+                match command.output()
+                {
+                    Ok(out) => Ok(CommandLineOutput::from_output(out)),
+                    Err(why) => Err(why.to_string()),
+                }
+            },
+            None => Ok(CommandLineOutput::new()),
+        }
+    }
+}
+
+#[cfg(test)]
 impl Executor for FakeExecutor
 {
     fn execute_command(&self, command_list : Vec<String>) -> Result<CommandLineOutput, String>

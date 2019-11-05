@@ -314,7 +314,7 @@ pub fn build<
 
                                 if output.out != ""
                                 {
-                                    println!("output: {}", output.out);
+                                    println!("{}", output.out);
                                 }
 
                                 if output.err != ""
