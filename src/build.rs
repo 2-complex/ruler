@@ -15,6 +15,7 @@ use crate::rule::{Record, parse, topological_sort};
 use crate::packet::Packet;
 use crate::work::
 {
+    WorkOption,
     WorkResult,
     WorkError,
     build_targets,
@@ -309,9 +310,26 @@ pub fn build<
                 {
                     Ok(work_result) =>
                     {
-                        match work_result.command_line_output
+                        match work_result.work_option
                         {
-                            Some(output) =>
+                            WorkOption::AlreadyCorrect =>
+                            {
+                            },
+
+                            WorkOption::SourceOnly =>
+                            {
+                            },
+
+                            WorkOption::Recovered =>
+                            {
+                                println!("Recovered from cache:");
+                                for target_info in work_result.target_infos.iter()
+                                {
+                                    println!("{}", target_info.path);
+                                }
+                            },
+
+                            WorkOption::CommandExecuted(output) =>
                             {
                                 for target_info in work_result.target_infos.iter()
                                 {
@@ -340,7 +358,6 @@ pub fn build<
                                 }
 
                             },
-                            None => {},
                         }
 
                         match record_ticket

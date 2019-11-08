@@ -13,10 +13,18 @@ use filesystem::FileSystem;
 use std::sync::mpsc::{Sender, Receiver, RecvError};
 use std::fmt;
 
+pub enum WorkOption
+{
+    SourceOnly,
+    AlreadyCorrect,
+    CommandExecuted(CommandLineOutput),
+    Recovered
+}
+
 pub struct WorkResult
 {
     pub target_infos : Vec<TargetFileInfo>,
-    pub command_line_output : Option<CommandLineOutput>,
+    pub work_option : WorkOption,
     pub rule_history : Option<RuleHistory>,
 }
 
@@ -104,7 +112,8 @@ impl fmt::Display for WorkError
 
 enum ResolveResult
 {
-    Success,
+    Recovered,
+    AlreadyCorrect,
     NeedsRebuild,
     Error(WorkError),
 }
@@ -128,7 +137,7 @@ fn resolve_with_cache
     {
         Some(remembered_target_tickets) =>
         {
-            let mut result = ResolveResult::Success;
+            let mut result = ResolveResult::AlreadyCorrect;
             for (i, target_info) in target_infos.iter().enumerate()
             {
                 let remembered_ticket =
@@ -144,6 +153,12 @@ fn resolve_with_cache
                     {
                         if *remembered_ticket != current_target_ticket
                         {
+                            match result
+                            {
+                                ResolveResult::AlreadyCorrect => result = ResolveResult::Recovered,
+                                _ => {},
+                            }
+
                             match cache.back_up_file_with_ticket(
                                 file_system,
                                 &current_target_ticket,
@@ -174,6 +189,12 @@ fn resolve_with_cache
                     },
                     Ok(None) =>
                     {
+                        match result
+                        {
+                            ResolveResult::AlreadyCorrect => result = ResolveResult::Recovered,
+                            _ => {},
+                        }
+
                         match cache.restore_file(
                             file_system,
                             remembered_ticket,
@@ -329,7 +350,7 @@ pub fn build_targets<
                 WorkResult
                 {
                     target_infos : station.target_infos,
-                    command_line_output : None,
+                    work_option : WorkOption::SourceOnly,
                     rule_history : None
                 }
             )
@@ -344,7 +365,7 @@ pub fn build_targets<
                 &sources_ticket,
                 &station.target_infos)
             {
-                ResolveResult::Success =>
+                ResolveResult::AlreadyCorrect  =>
                 {
                     let target_tickets = match get_current_target_tickets(
                         &station.file_system,
@@ -369,7 +390,38 @@ pub fn build_targets<
                         WorkResult
                         {
                             target_infos : station.target_infos,
-                            command_line_output : None,
+                            work_option : WorkOption::AlreadyCorrect,
+                            rule_history : Some(rule_history),
+                        }
+                    )
+                },
+
+                ResolveResult::Recovered  =>
+                {
+                    let target_tickets = match get_current_target_tickets(
+                        &station.file_system,
+                        &station.metadata_getter,
+                        &station.target_infos)
+                    {
+                        Ok(target_tickets) => target_tickets,
+                        Err(error) => return Err(error),
+                    };
+
+                    for (sub_index, sender) in senders
+                    {
+                        match sender.send(
+                            Packet::from_ticket(target_tickets[sub_index].clone()))
+                        {
+                            Ok(_) => {},
+                            Err(_error) => return Err(WorkError::SenderError),
+                        }
+                    }
+
+                    Ok(
+                        WorkResult
+                        {
+                            target_infos : station.target_infos,
+                            work_option : WorkOption::Recovered,
                             rule_history : Some(rule_history),
                         }
                     )
@@ -443,7 +495,7 @@ pub fn build_targets<
                                 WorkResult
                                 {
                                     target_infos : station.target_infos,
-                                    command_line_output : Some(command_result),
+                                    work_option : WorkOption::CommandExecuted(command_result),
                                     rule_history : Some(rule_history),
                                 }
                             )
@@ -544,7 +596,13 @@ pub fn upload_targets<FileSystemType: FileSystem>
 mod test
 {
     use crate::station::{Station, TargetFileInfo};
-    use crate::work::{build_targets, WorkResult, WorkError};
+    use crate::work::
+    {
+        build_targets,
+        WorkResult,
+        WorkOption,
+        WorkError
+    };
     use crate::ticket::TicketFactory;
     use crate::memory::{RuleHistory, TargetHistory};
     use crate::executor::FakeExecutor;
@@ -604,10 +662,10 @@ mod test
         {
             Ok(result) =>
             {
-                match result.command_line_output
+                match result.work_option
                 {
-                    Some(_output) => panic!("Commandline output received when empty command given"),
-                    None => {},
+                    WorkOption::SourceOnly => {},
+                    _ => panic!("Wrong kind of WorkOption in result when command empty"),
                 }
             },
             Err(why) => panic!("Command failed: {}", why),
@@ -668,16 +726,16 @@ mod test
         {
             Ok(result) =>
             {
-                match result.command_line_output
+                match result.work_option
                 {
-                    Some(output) =>
+                    WorkOption::CommandExecuted(output) =>
                     {
                         assert_eq!(output.out, "");
                         assert_eq!(output.err, "");
                         assert_eq!(output.code, Some(0));
                         assert_eq!(output.success, true);
                     },
-                    None => panic!("Output wasn't there"),
+                    _ => panic!("Wrong type of work option.  Command was supposed to execute."),
                 }
 
                 match receiver_c.recv()
@@ -811,16 +869,16 @@ mod test
         {
             Ok(result) =>
             {
-                match result.command_line_output
+                match result.work_option
                 {
-                    Some(output)=>
+                    WorkOption::CommandExecuted(output)=>
                     {
                         assert_eq!(output.out, "");
                         assert_eq!(output.err, "");
                         assert_eq!(output.code, Some(0));
                         assert_eq!(output.success, true);
                     },
-                    None => panic!("Output wasn't there."),
+                    _ => panic!("Comand was supposed to execute.  Output wasn't there."),
                 }
 
                 match receiver_c.recv()
@@ -921,10 +979,10 @@ mod test
         {
             Ok(result) =>
             {
-                match result.command_line_output
+                match result.work_option
                 {
-                    Some(_output) => panic!("Output present when none was expected."),
-                    None => {},
+                    WorkOption::AlreadyCorrect => {},
+                    _ => panic!("Expected poem to already be correct, was some other work option {}"),
                 }
 
                 match receiver_c.recv()
