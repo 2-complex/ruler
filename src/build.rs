@@ -321,6 +321,17 @@ pub fn build<
                             {
                             },
 
+                            WorkOption::Downloaded =>
+                            {
+                                println!("Downloaded from internet:");
+                                // This is wrong.  Individual files can be built or recovered or downloaded.
+                                // This thing should return a list of pairs.
+                                for target_info in work_result.target_infos.iter()
+                                {
+                                    println!("{}", target_info.path);
+                                }
+                            },
+
                             WorkOption::Recovered =>
                             {
                                 println!("Recovered from cache:");

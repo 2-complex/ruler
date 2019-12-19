@@ -18,7 +18,8 @@ pub enum WorkOption
     SourceOnly,
     AlreadyCorrect,
     CommandExecuted(CommandLineOutput),
-    Recovered
+    Recovered,
+    Downloaded
 }
 
 pub struct WorkResult
@@ -112,8 +113,9 @@ impl fmt::Display for WorkError
 
 enum ResolveResult
 {
-    Recovered,
     AlreadyCorrect,
+    Recovered,
+    Downloaded,
     NeedsRebuild,
     Error(WorkError),
 }
@@ -180,6 +182,8 @@ fn resolve_with_cache
                                 RestoreResult::Done => {},
                                 RestoreResult::NotThere =>
                                 {
+                                    result = ResolveResult::NeedsRebuild;
+
                                     for url in download_urls.iter()
                                     {
                                         match download(
@@ -187,11 +191,12 @@ fn resolve_with_cache
                                             file_system,
                                             &target_infos[i].path)
                                         {
-                                            Ok(_) => {},
+                                            Ok(_) =>
+                                            {
+                                                result = ResolveResult::Downloaded;
+                                            },
                                             Err(_) =>
                                             {
-                                                // Not right: needs to fail if all downloads fail.
-                                                result = ResolveResult::NeedsRebuild
                                             }
                                         }
                                     }
@@ -442,6 +447,37 @@ pub fn build_targets<
                         {
                             target_infos : station.target_infos,
                             work_option : WorkOption::Recovered,
+                            rule_history : Some(rule_history),
+                        }
+                    )
+                },
+
+                ResolveResult::Downloaded  =>
+                {
+                    let target_tickets = match get_current_target_tickets(
+                        &station.file_system,
+                        &station.metadata_getter,
+                        &station.target_infos)
+                    {
+                        Ok(target_tickets) => target_tickets,
+                        Err(error) => return Err(error),
+                    };
+
+                    for (sub_index, sender) in senders
+                    {
+                        match sender.send(
+                            Packet::from_ticket(target_tickets[sub_index].clone()))
+                        {
+                            Ok(_) => {},
+                            Err(_error) => return Err(WorkError::SenderError),
+                        }
+                    }
+
+                    Ok(
+                        WorkResult
+                        {
+                            target_infos : station.target_infos,
+                            work_option : WorkOption::Downloaded,
                             rule_history : Some(rule_history),
                         }
                     )
