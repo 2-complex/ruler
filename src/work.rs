@@ -7,7 +7,7 @@ use crate::executor::{CommandLineOutput, Executor};
 use crate::metadata::MetadataGetter;
 use crate::memory::{RuleHistory, RuleHistoryError};
 use crate::cache::{LocalCache, RestoreResult};
-use crate::internet::{upload, UploadError};
+use crate::internet::{upload, download, UploadError};
 
 use filesystem::FileSystem;
 use std::sync::mpsc::{Sender, Receiver, RecvError};
@@ -127,6 +127,7 @@ fn resolve_with_cache
     file_system : &FileSystemType,
     metadata_getter : &MetadataGetterType,
     cache : &LocalCache,
+    download_urls : Vec<String>,
     rule_history : &RuleHistory,
     sources_ticket : &Ticket,
     target_infos : &Vec<TargetFileInfo>,
@@ -177,7 +178,24 @@ fn resolve_with_cache
                                 &target_infos[i].path)
                             {
                                 RestoreResult::Done => {},
-                                RestoreResult::NotThere => result = ResolveResult::NeedsRebuild,
+                                RestoreResult::NotThere =>
+                                {
+                                    for url in download_urls.iter()
+                                    {
+                                        match download(
+                                            &format!("{}{}", url, remembered_ticket),
+                                            file_system,
+                                            &target_infos[i].path)
+                                        {
+                                            Ok(_) => {},
+                                            Err(_) =>
+                                            {
+                                                // Not right: needs to fail if all downloads fail.
+                                                result = ResolveResult::NeedsRebuild
+                                            }
+                                        }
+                                    }
+                                },
 
                                 RestoreResult::CacheDirectoryMissing =>
                                     return ResolveResult::Error(WorkError::CacheDirectoryMissing),
@@ -294,7 +312,8 @@ pub fn build_targets<
     senders : Vec<(usize, Sender<Packet>)>,
     receivers : Vec<Receiver<Packet>>,
     executor : ExecType,
-    cache : LocalCache
+    cache : LocalCache,
+    download_urls : Vec<String>
 )
 -> Result<WorkResult, WorkError>
 {
@@ -361,6 +380,7 @@ pub fn build_targets<
                 &station.file_system,
                 &station.metadata_getter,
                 &cache,
+                download_urls,
                 &rule_history,
                 &sources_ticket,
                 &station.target_infos)
@@ -658,7 +678,8 @@ mod test
             Vec::new(),
             Vec::new(),
             FakeExecutor::new(file_system.clone()),
-            LocalCache::new(".ruler-cache"))
+            LocalCache::new(".ruler-cache"),
+            vec![])
         {
             Ok(result) =>
             {
@@ -722,7 +743,8 @@ mod test
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
             FakeExecutor::new(file_system.clone()),
-            LocalCache::new(".ruler-cache"))
+            LocalCache::new(".ruler-cache"),
+            vec![])
         {
             Ok(result) =>
             {
@@ -799,7 +821,8 @@ mod test
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
             FakeExecutor::new(file_system.clone()),
-            LocalCache::new(".ruler-cache"))
+            LocalCache::new(".ruler-cache"),
+            vec![])
         {
             Ok(_) => panic!("Unexpected command success"),
             Err(WorkError::CommandExecutedButErrored(message)) =>
@@ -865,7 +888,8 @@ mod test
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
             FakeExecutor::new(file_system.clone()),
-            LocalCache::new(".ruler-cache"))
+            LocalCache::new(".ruler-cache"),
+            vec![])
         {
             Ok(result) =>
             {
@@ -975,7 +999,8 @@ mod test
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
             FakeExecutor::new(file_system.clone()),
-            LocalCache::new(".ruler-cache"))
+            LocalCache::new(".ruler-cache"),
+            vec![])
         {
             Ok(result) =>
             {
@@ -1089,7 +1114,8 @@ mod test
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
             FakeExecutor::new(file_system.clone()),
-            LocalCache::new(".ruler-cache"))
+            LocalCache::new(".ruler-cache"),
+            vec![])
         {
             Ok(_result) =>
             {
@@ -1132,7 +1158,8 @@ mod test
             vec![],
             vec![],
             FakeExecutor::new(file_system.clone()),
-            LocalCache::new(".ruler-cache"))
+            LocalCache::new(".ruler-cache"),
+            vec![])
         {
             Ok(_) =>
             {
@@ -1172,7 +1199,8 @@ mod test
             vec![],
             vec![],
             FakeExecutor::new(file_system.clone()),
-            LocalCache::new(".rule-cache"))
+            LocalCache::new(".rule-cache"),
+            vec![])
         {
             Ok(_) =>
             {
@@ -1202,7 +1230,7 @@ mod test
         thread::spawn(
             move || -> Result<WorkResult, WorkError>
             {
-                build_targets(station, senders, receivers, executor, LocalCache::new(".ruler-cache"))
+                build_targets(station, senders, receivers, executor, LocalCache::new(".ruler-cache"), vec![])
             }
         )
     }

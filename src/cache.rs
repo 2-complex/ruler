@@ -24,7 +24,7 @@ pub struct LocalCache
 impl LocalCache
 {
     pub fn new(path : &str)
-        -> LocalCache
+    -> LocalCache
     {
         LocalCache
         {
@@ -32,8 +32,12 @@ impl LocalCache
         }
     }
 
-    pub fn restore_file<FileSystemType : FileSystem>(&self, file_system : &FileSystemType, ticket : &Ticket, target_path : &str)
-        -> RestoreResult
+    pub fn restore_file<FileSystemType : FileSystem>(
+        &self,
+        file_system : &FileSystemType,
+        ticket : &Ticket,
+        target_path : &str
+    ) -> RestoreResult
     {
         if file_system.is_dir(&self.path)
         {
