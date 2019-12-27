@@ -355,19 +355,16 @@ Result<WorkResult, WorkError>
     )
 }
 
-pub fn handle_node<
-    FileSystemType: FileSystem,
-    ExecType: Executor,
-    MetadataGetterType: MetadataGetter>
+/*  Takes a vector of receivers, and waits for them all to receive, so it can
+    hash together all their results into one Ticket obejct.  Returns an error
+    if the receivers error or if the packet produces an error when it tries to
+    get the ticket from it. */
+fn wait_for_sources_ticket
 (
-    station : Station<FileSystemType, MetadataGetterType>,
-    senders : Vec<(usize, Sender<Packet>)>,
-    receivers : Vec<Receiver<Packet>>,
-    executor : ExecType,
-    cache : LocalCache,
-    download_urls : Vec<String>
+    receivers : Vec<Receiver<Packet>>
 )
--> Result<WorkResult, WorkError>
+->
+Result<Ticket, WorkError>
 {
     let mut factory = TicketFactory::new();
 
@@ -387,7 +384,29 @@ pub fn handle_node<
         }
     }
 
-    let sources_ticket = factory.result();
+    Ok(factory.result())
+}
+
+pub fn handle_node<
+    FileSystemType: FileSystem,
+    ExecType: Executor,
+    MetadataGetterType: MetadataGetter>
+(
+    station : Station<FileSystemType, MetadataGetterType>,
+    senders : Vec<(usize, Sender<Packet>)>,
+    receivers : Vec<Receiver<Packet>>,
+    executor : ExecType,
+    cache : LocalCache,
+    download_urls : Vec<String>
+)
+->
+Result<WorkResult, WorkError>
+{
+    let sources_ticket = match wait_for_sources_ticket(receivers)
+    {
+        Ok(ticket) => ticket,
+        Err(error) => return Err(error),
+    };
 
     match station.rule_history
     {
