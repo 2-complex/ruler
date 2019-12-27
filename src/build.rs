@@ -18,7 +18,7 @@ use crate::work::
     WorkOption,
     WorkResult,
     WorkError,
-    build_targets,
+    handle_node,
     clean_targets,
     upload_targets
 };
@@ -283,7 +283,7 @@ pub fn build<
                 thread::spawn(
                     move || -> Result<WorkResult, WorkError>
                     {
-                        build_targets(
+                        handle_node(
                             station,
                             sender_vec,
                             receiver_vec,
@@ -321,20 +321,9 @@ pub fn build<
                             {
                             },
 
-                            WorkOption::Downloaded =>
+                            WorkOption::DownloadedOrRecovered =>
                             {
-                                println!("Downloaded from internet:");
-                                // This is wrong.  Individual files can be built or recovered or downloaded.
-                                // This thing should return a list of pairs.
-                                for target_info in work_result.target_infos.iter()
-                                {
-                                    println!("{}", target_info.path);
-                                }
-                            },
-
-                            WorkOption::Recovered =>
-                            {
-                                println!("Recovered from cache:");
+                                println!("Downloaded or Recovered:");
                                 for target_info in work_result.target_infos.iter()
                                 {
                                     println!("{}", target_info.path);

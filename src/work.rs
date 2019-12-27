@@ -18,8 +18,7 @@ pub enum WorkOption
     SourceOnly,
     AlreadyCorrect,
     CommandExecuted(CommandLineOutput),
-    Recovered,
-    Downloaded
+    DownloadedOrRecovered
 }
 
 pub struct WorkResult
@@ -129,7 +128,7 @@ fn resolve_with_cache
     file_system : &FileSystemType,
     metadata_getter : &MetadataGetterType,
     cache : &LocalCache,
-    download_urls : Vec<String>,
+    download_urls : &Vec<String>,
     rule_history : &RuleHistory,
     sources_ticket : &Ticket,
     target_infos : &Vec<TargetFileInfo>,
@@ -184,7 +183,7 @@ fn resolve_with_cache
                                 {
                                     result = ResolveResult::NeedsRebuild;
 
-                                    for url in download_urls.iter()
+                                    for url in download_urls
                                     {
                                         match download(
                                             &format!("{}{}", url, remembered_ticket),
@@ -308,7 +307,55 @@ fn get_current_target_tickets
     Ok(target_tickets)
 }
 
-pub fn build_targets<
+/*  A rule_history of None means that the node in question doesn't represent a rule.
+    So, error if there is a command specified, and at the end return SourceOnly. */
+fn handle_source_only_node
+<
+    FileSystemType: FileSystem,
+    MetadataGetterType: MetadataGetter
+>
+(
+    station : Station<FileSystemType, MetadataGetterType>,
+    senders : Vec<(usize, Sender<Packet>)>
+)
+->
+Result<WorkResult, WorkError>
+{
+    if station.command.len() != 0
+    {
+        return Err(WorkError::CommandWithNoRuleHistory)
+    }
+
+    let current_target_tickets = match get_current_target_tickets(
+        &station.file_system,
+        &station.metadata_getter,
+        &station.target_infos)
+    {
+        Ok(target_tickets) => target_tickets,
+        Err(error) => return Err(error),
+    };
+
+    for (sub_index, sender) in senders
+    {
+        match sender.send(Packet::from_ticket(
+            current_target_tickets[sub_index].clone()))
+        {
+            Ok(_) => {},
+            Err(_error) => return Err(WorkError::SenderError),
+        }
+    }
+
+    Ok(
+        WorkResult
+        {
+            target_infos : station.target_infos,
+            work_option : WorkOption::SourceOnly,
+            rule_history : None
+        }
+    )
+}
+
+pub fn handle_node<
     FileSystemType: FileSystem,
     ExecType: Executor,
     MetadataGetterType: MetadataGetter>
@@ -324,9 +371,9 @@ pub fn build_targets<
 {
     let mut factory = TicketFactory::new();
 
-    for rcv in receivers.iter()
+    for receiver in receivers.iter()
     {
-        match rcv.recv()
+        match receiver.recv()
         {
             Ok(packet) => 
             {
@@ -344,48 +391,15 @@ pub fn build_targets<
 
     match station.rule_history
     {
-        None =>
-        {
-            if station.command.len() != 0
-            {
-                return Err(WorkError::CommandWithNoRuleHistory)
-            }
+        None => handle_source_only_node(station, senders),
 
-            let target_tickets = match get_current_target_tickets(
-                &station.file_system,
-                &station.metadata_getter,
-                &station.target_infos)
-            {
-                Ok(target_tickets) => target_tickets,
-                Err(error) => return Err(error),
-            };
-
-            for (sub_index, sender) in senders
-            {
-                match sender.send(Packet::from_ticket(
-                    target_tickets[sub_index].clone()))
-                {
-                    Ok(_) => {},
-                    Err(_error) => return Err(WorkError::SenderError),
-                }
-            }
-
-            Ok(
-                WorkResult
-                {
-                    target_infos : station.target_infos,
-                    work_option : WorkOption::SourceOnly,
-                    rule_history : None
-                }
-            )
-        },
         Some(mut rule_history) =>
         {
             match resolve_with_cache(
                 &station.file_system,
                 &station.metadata_getter,
                 &cache,
-                download_urls,
+                &download_urls,
                 &rule_history,
                 &sources_ticket,
                 &station.target_infos)
@@ -446,13 +460,13 @@ pub fn build_targets<
                         WorkResult
                         {
                             target_infos : station.target_infos,
-                            work_option : WorkOption::Recovered,
+                            work_option : WorkOption::DownloadedOrRecovered,
                             rule_history : Some(rule_history),
                         }
                     )
                 },
 
-                ResolveResult::Downloaded  =>
+                ResolveResult::Downloaded =>
                 {
                     let target_tickets = match get_current_target_tickets(
                         &station.file_system,
@@ -477,13 +491,13 @@ pub fn build_targets<
                         WorkResult
                         {
                             target_infos : station.target_infos,
-                            work_option : WorkOption::Downloaded,
+                            work_option : WorkOption::DownloadedOrRecovered,
                             rule_history : Some(rule_history),
                         }
                     )
                 },
 
-                ResolveResult::NeedsRebuild=>
+                ResolveResult::NeedsRebuild =>
                 {
                     match executor.execute_command(station.command)
                     {
@@ -654,7 +668,7 @@ mod test
     use crate::station::{Station, TargetFileInfo};
     use crate::work::
     {
-        build_targets,
+        handle_node,
         WorkResult,
         WorkOption,
         WorkError
@@ -704,7 +718,7 @@ mod test
             Err(_) => panic!("File write operation failed"),
         }
 
-        match build_targets(
+        match handle_node(
             Station::new(
                 to_info(vec!["A".to_string()]),
                 vec![],
@@ -769,7 +783,7 @@ mod test
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        match build_targets(
+        match handle_node(
             Station::new(
                 to_info(vec!["A.txt".to_string()]),
                 vec!["mycat".to_string(), "A-source.txt".to_string(), "A.txt".to_string()],
@@ -847,7 +861,7 @@ mod test
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        match build_targets(
+        match handle_node(
             Station::new(
                 to_info(vec!["poem.txt".to_string()]),
                 vec!["error".to_string()],
@@ -909,7 +923,7 @@ mod test
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        match build_targets(
+        match handle_node(
             Station::new(
                 to_info(vec!["poem.txt".to_string()]),
                 vec![
@@ -1020,7 +1034,7 @@ mod test
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        match build_targets(
+        match handle_node(
             Station::new(
                 to_info(vec!["poem.txt".to_string()]),
                 vec![
@@ -1134,7 +1148,7 @@ mod test
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        match build_targets(
+        match handle_node(
             Station::new(
                 to_info(vec!["poem.txt".to_string()]),
                 vec![
@@ -1183,7 +1197,7 @@ mod test
             Err(_) => panic!("File write operation failed"),
         }
 
-        match build_targets(
+        match handle_node(
             Station::new(
                 to_info(vec!["verse1.txt".to_string()]),
                 vec![],
@@ -1224,7 +1238,7 @@ mod test
             Err(_) => panic!("File write operation failed"),
         }
 
-        match build_targets(
+        match handle_node(
             Station::new(
                 to_info(vec!["verse1.txt".to_string()]),
                 vec!["rm".to_string(), "verse1.txt".to_string()],
@@ -1266,7 +1280,7 @@ mod test
         thread::spawn(
             move || -> Result<WorkResult, WorkError>
             {
-                build_targets(station, senders, receivers, executor, LocalCache::new(".ruler-cache"), vec![])
+                handle_node(station, senders, receivers, executor, LocalCache::new(".ruler-cache"), vec![])
             }
         )
     }
