@@ -13,12 +13,20 @@ use filesystem::FileSystem;
 use std::sync::mpsc::{Sender, Receiver, RecvError};
 use std::fmt;
 
+pub enum FileResolution
+{
+    AlreadyCorrect,
+    Recovered,
+    Downloaded,
+    NeedsRebuild,
+}
+
 pub enum WorkOption
 {
     SourceOnly,
-    AlreadyCorrect,
+    AllAlreadyCorrect,
+    TargetResolutions(Vec<FileResolution>),
     CommandExecuted(CommandLineOutput),
-    DownloadedOrRecovered
 }
 
 pub struct WorkResult
@@ -110,19 +118,129 @@ impl fmt::Display for WorkError
     }
 }
 
-enum ResolveResult
+fn attempt_download
+<
+    FileSystemType : FileSystem
+>
+(
+    file_system : &FileSystemType,
+    download_urls : &Vec<String>,
+    remembered_ticket : &Ticket,
+    target_path : &str
+)
+->
+FileResolution
 {
-    AlreadyCorrect,
-    Recovered,
-    Downloaded,
-    NeedsRebuild,
-    Error(WorkError),
+    for url in download_urls
+    {
+        match download(
+            &format!("{}{}", url, remembered_ticket),
+            file_system,
+            target_path)
+        {
+            Ok(_) =>
+            {
+                // TODO: Might want to check that the ticket matches
+                return FileResolution::Downloaded
+            },
+            Err(_) =>
+            {
+            }
+        }
+    }
+
+    FileResolution::NeedsRebuild
+}
+
+/*  Given a target-info and a remembered ticket for that target file, check the current
+    ticket, and if it matches, return AlreadyCorrect.  If it doesn't match, back up the current
+    file, and then attempt to restore the remembered file from cache, if the cache doesn't have it
+    attempt to download.  If no recovery or download works, shrug and return NeedsRebuild */
+fn resolve_single_target
+<
+    FileSystemType : FileSystem,
+    MetadataGetterType : MetadataGetter,
+>
+(
+    file_system : &FileSystemType,
+    metadata_getter : &MetadataGetterType,
+    cache : &LocalCache,
+    download_urls : &Vec<String>,
+    remembered_ticket : &Ticket,
+    target_info : &TargetFileInfo
+)
+->
+Result<FileResolution, WorkError>
+{
+    match get_file_ticket(file_system, metadata_getter, target_info)
+    {
+        Ok(Some(current_target_ticket)) =>
+        {
+            if *remembered_ticket == current_target_ticket
+            {
+                return Ok(FileResolution::AlreadyCorrect);
+            }
+
+            match cache.back_up_file_with_ticket(
+                file_system,
+                &current_target_ticket,
+                &target_info.path)
+            {
+                Ok(_) => {},
+                Err(_error) => return Err(
+                    WorkError::FileNotAvailableToCache(
+                        target_info.path.clone())),
+            }
+
+            match cache.restore_file(
+                file_system,
+                &remembered_ticket,
+                &target_info.path)
+            {
+                RestoreResult::Done =>
+                    Ok(FileResolution::Recovered),
+
+                RestoreResult::NotThere =>
+                    Ok(attempt_download(file_system, download_urls, remembered_ticket, &target_info.path)),
+
+                RestoreResult::CacheDirectoryMissing =>
+                    Err(WorkError::CacheDirectoryMissing),
+
+                RestoreResult::FileSystemError(error) =>
+                    Err(WorkError::CacheMalfunction(error)),
+            }
+        },
+
+        // None means the file is not there, in which case, we just try to restore/download, and then go home.
+        Ok(None) =>
+        {
+            match cache.restore_file(
+                file_system,
+                &remembered_ticket,
+                &target_info.path)
+            {
+                RestoreResult::Done =>
+                    Ok(FileResolution::Recovered),
+
+                RestoreResult::NotThere =>
+                    Ok(attempt_download(file_system, download_urls, remembered_ticket, &target_info.path)),
+
+                RestoreResult::CacheDirectoryMissing =>
+                    Err(WorkError::CacheDirectoryMissing),
+
+                RestoreResult::FileSystemError(error) =>
+                    Err(WorkError::CacheMalfunction(error)),
+            }
+        },
+        Err(error) =>
+            Err(WorkError::TicketAlignmentError(error)),
+    }
 }
 
 fn resolve_with_cache
 <
-    FileSystemType: FileSystem,
-    MetadataGetterType: MetadataGetter
+    FileSystemType : FileSystem,
+    MetadataGetterType : MetadataGetter
 >
 (
     file_system : &FileSystemType,
@@ -133,112 +251,38 @@ fn resolve_with_cache
     sources_ticket : &Ticket,
     target_infos : &Vec<TargetFileInfo>,
 )
--> ResolveResult
+->
+Result<Vec<FileResolution>, WorkError>
 {
+    let mut resolutions = Vec::new();
+
     match rule_history.get_target_tickets(sources_ticket)
     {
         Some(remembered_target_tickets) =>
         {
-            let mut result = ResolveResult::AlreadyCorrect;
             for (i, target_info) in target_infos.iter().enumerate()
             {
                 let remembered_ticket =
                 match remembered_target_tickets.get(i)
                 {
                     Some(ticket) => ticket,
-                    None => return ResolveResult::Error(WorkError::Weird),
+                    None => return Err(WorkError::Weird),
                 };
 
-                match get_file_ticket(file_system, metadata_getter, target_info)
+                match resolve_single_target(
+                    file_system,
+                    metadata_getter,
+                    cache,
+                    download_urls,
+                    remembered_ticket,
+                    target_info)
                 {
-                    Ok(Some(current_target_ticket)) =>
-                    {
-                        if *remembered_ticket != current_target_ticket
-                        {
-                            match result
-                            {
-                                ResolveResult::AlreadyCorrect => result = ResolveResult::Recovered,
-                                _ => {},
-                            }
-
-                            match cache.back_up_file_with_ticket(
-                                file_system,
-                                &current_target_ticket,
-                                &target_info.path)
-                            {
-                                Ok(_) => {},
-                                Err(_error) =>
-                                    return ResolveResult::Error(
-                                        WorkError::FileNotAvailableToCache(
-                                            target_info.path.clone())),
-                            }
-
-                            match cache.restore_file(
-                                file_system,
-                                remembered_ticket,
-                                &target_infos[i].path)
-                            {
-                                RestoreResult::Done => {},
-                                RestoreResult::NotThere =>
-                                {
-                                    result = ResolveResult::NeedsRebuild;
-
-                                    for url in download_urls
-                                    {
-                                        match download(
-                                            &format!("{}{}", url, remembered_ticket),
-                                            file_system,
-                                            &target_infos[i].path)
-                                        {
-                                            Ok(_) =>
-                                            {
-                                                result = ResolveResult::Downloaded;
-                                            },
-                                            Err(_) =>
-                                            {
-                                            }
-                                        }
-                                    }
-                                },
-
-                                RestoreResult::CacheDirectoryMissing =>
-                                    return ResolveResult::Error(WorkError::CacheDirectoryMissing),
-
-                                RestoreResult::FileSystemError(error) =>
-                                    return ResolveResult::Error(WorkError::CacheMalfunction(error)),
-                            };
-                        }
-                    },
-                    Ok(None) =>
-                    {
-                        match result
-                        {
-                            ResolveResult::AlreadyCorrect => result = ResolveResult::Recovered,
-                            _ => {},
-                        }
-
-                        match cache.restore_file(
-                            file_system,
-                            remembered_ticket,
-                            &target_infos[i].path)
-                        {
-                            RestoreResult::Done => {},
-                            RestoreResult::NotThere => result = ResolveResult::NeedsRebuild,
-
-                            RestoreResult::CacheDirectoryMissing =>
-                                return ResolveResult::Error(WorkError::CacheDirectoryMissing),
-
-                            RestoreResult::FileSystemError(error) =>
-                                return ResolveResult::Error(WorkError::CacheMalfunction(error)),
-                        };
-                    },
-                    Err(error) =>
-                        return ResolveResult::Error(WorkError::TicketAlignmentError(error)),
+                    Ok(resolution) => resolutions.push(resolution),
+                    Err(error) => return Err(error),
                 }
             }
-
-            result
         },
+
         None =>
         {
             for target_info in target_infos.iter()
@@ -252,26 +296,30 @@ fn resolve_with_cache
                             &current_target_ticket,
                             &target_info.path)
                         {
-                            Ok(_) => {},
+                            Ok(_) =>
+                            {
+                                // TODO: Maybe encode whether it was cached in the FileResoluton
+                                resolutions.push(FileResolution::NeedsRebuild);
+                            },
                             Err(_error) =>
                             {
-                                return ResolveResult::Error(
+                                return Err(
                                     WorkError::FileNotAvailableToCache(
                                         target_info.path.clone()));
                             }
                         }
                     },
 
-                    Ok(None) => {},
+                    Ok(None) => resolutions.push(FileResolution::NeedsRebuild),
 
                     Err(error) =>
-                        return ResolveResult::Error(WorkError::TicketAlignmentError(error)),
+                        return Err(WorkError::TicketAlignmentError(error)),
                 }
             }
-
-            ResolveResult::NeedsRebuild
         }
     }
+
+    Ok(resolutions)
 }
 
 
@@ -387,10 +435,127 @@ Result<Ticket, WorkError>
     Ok(factory.result())
 }
 
-pub fn handle_node<
+/*  Takes a vector of resolutions, and returns true if any of them are NeedsRebuild*/
+fn needs_rebuild(resolutions : &Vec<FileResolution>) -> bool
+{
+    for resolution in resolutions
+    {
+        match resolution
+        {
+            FileResolution::NeedsRebuild =>
+            {
+                return true
+            },
+            _ => {},
+        }
+    }
+
+    false
+}
+
+fn rebuild_node
+<
+    FileSystemType : FileSystem,
+    ExecType : Executor,
+    MetadataGetterType : MetadataGetter
+>
+(
+    file_system : &FileSystemType,
+    metadata_getter : &MetadataGetterType,
+    executor : &ExecType,
+    mut rule_history : RuleHistory,
+    sources_ticket : Ticket,
+    command : Vec<String>,
+    senders : Vec<(usize, Sender<Packet>)>,
+    target_infos : Vec<TargetFileInfo>
+)
+->
+Result<WorkResult, WorkError>
+{
+    match executor.execute_command(command)
+    {
+        Ok(command_result) =>
+        {
+            if ! command_result.success
+            {
+                return Err(WorkError::CommandExecutedButErrored(command_result.err));
+            }
+
+            let mut post_command_target_tickets = Vec::new();
+            for target_info in target_infos.iter()
+            {
+                match get_file_ticket(
+                    file_system,
+                    metadata_getter,
+                    &target_info)
+                {
+                    Ok(ticket_opt) =>
+                    {
+                        match ticket_opt
+                        {
+                            Some(ticket) => post_command_target_tickets.push(ticket),
+                            None => return Err(WorkError::FileNotFound(target_info.path.clone())),
+                        }
+                    },
+                    Err(error) => return Err(WorkError::FileIoError(target_info.path.clone(), error)),
+                }
+            }
+
+            for (sub_index, sender) in senders
+            {
+                match sender.send(Packet::from_ticket(
+                    post_command_target_tickets[sub_index].clone()))
+                {
+                    Ok(_) => {},
+                    Err(_error) => return Err(WorkError::SenderError),
+                }
+            }
+
+            match rule_history.insert(sources_ticket, post_command_target_tickets)
+            {
+                Ok(_) => {},
+                Err(error) =>
+                {
+                    match error
+                    {
+                        RuleHistoryError::Contradiction(contradicting_indices) =>
+                        {
+                            let mut contradicting_target_paths = Vec::new();
+                            for index in contradicting_indices
+                            {
+                                contradicting_target_paths.push(target_infos[index].path.clone())
+                            }
+                            return Err(WorkError::Contradiction(contradicting_target_paths));
+                        }
+
+                        RuleHistoryError::TargetSizesDifferWeird =>
+                            return Err(WorkError::Weird),
+                    }
+                },
+            }
+
+            Ok(
+                WorkResult
+                {
+                    target_infos : target_infos,
+                    work_option : WorkOption::CommandExecuted(command_result),
+                    rule_history : Some(rule_history),
+                }
+            )
+        },
+        Err(error) =>
+        {
+            return Err(WorkError::CommandFailedToExecute(error))
+        },
+    }
+}
+
+pub fn handle_node
+<
     FileSystemType: FileSystem,
     ExecType: Executor,
-    MetadataGetterType: MetadataGetter>
+    MetadataGetterType: MetadataGetter
+>
 (
     station : Station<FileSystemType, MetadataGetterType>,
     senders : Vec<(usize, Sender<Packet>)>,
@@ -412,7 +577,7 @@ Result<WorkResult, WorkError>
     {
         None => handle_source_only_node(station, senders),
 
-        Some(mut rule_history) =>
+        Some(rule_history) =>
         {
             match resolve_with_cache(
                 &station.file_system,
@@ -423,180 +588,54 @@ Result<WorkResult, WorkError>
                 &sources_ticket,
                 &station.target_infos)
             {
-                ResolveResult::AlreadyCorrect  =>
+                Ok(resolutions) =>
                 {
-                    let target_tickets = match get_current_target_tickets(
-                        &station.file_system,
-                        &station.metadata_getter,
-                        &station.target_infos)
+                    if needs_rebuild(&resolutions)
                     {
-                        Ok(target_tickets) => target_tickets,
-                        Err(error) => return Err(error),
-                    };
-
-                    for (sub_index, sender) in senders
-                    {
-                        match sender.send(
-                            Packet::from_ticket(target_tickets[sub_index].clone()))
-                        {
-                            Ok(_) => {},
-                            Err(_error) => return Err(WorkError::SenderError),
-                        }
+                        rebuild_node(
+                            &station.file_system,
+                            &station.metadata_getter,
+                            &executor,
+                            rule_history,
+                            sources_ticket,
+                            station.command,
+                            senders,
+                            station.target_infos
+                        )
                     }
-
-                    Ok(
-                        WorkResult
-                        {
-                            target_infos : station.target_infos,
-                            work_option : WorkOption::AlreadyCorrect,
-                            rule_history : Some(rule_history),
-                        }
-                    )
-                },
-
-                ResolveResult::Recovered  =>
-                {
-                    let target_tickets = match get_current_target_tickets(
-                        &station.file_system,
-                        &station.metadata_getter,
-                        &station.target_infos)
+                    else
                     {
-                        Ok(target_tickets) => target_tickets,
-                        Err(error) => return Err(error),
-                    };
-
-                    for (sub_index, sender) in senders
-                    {
-                        match sender.send(
-                            Packet::from_ticket(target_tickets[sub_index].clone()))
+                        let target_tickets = match get_current_target_tickets(
+                            &station.file_system,
+                            &station.metadata_getter,
+                            &station.target_infos)
                         {
-                            Ok(_) => {},
-                            Err(_error) => return Err(WorkError::SenderError),
-                        }
-                    }
+                            Ok(target_tickets) => target_tickets,
+                            Err(error) => return Err(error),
+                        };
 
-                    Ok(
-                        WorkResult
+                        for (sub_index, sender) in senders
                         {
-                            target_infos : station.target_infos,
-                            work_option : WorkOption::DownloadedOrRecovered,
-                            rule_history : Some(rule_history),
-                        }
-                    )
-                },
-
-                ResolveResult::Downloaded =>
-                {
-                    let target_tickets = match get_current_target_tickets(
-                        &station.file_system,
-                        &station.metadata_getter,
-                        &station.target_infos)
-                    {
-                        Ok(target_tickets) => target_tickets,
-                        Err(error) => return Err(error),
-                    };
-
-                    for (sub_index, sender) in senders
-                    {
-                        match sender.send(
-                            Packet::from_ticket(target_tickets[sub_index].clone()))
-                        {
-                            Ok(_) => {},
-                            Err(_error) => return Err(WorkError::SenderError),
-                        }
-                    }
-
-                    Ok(
-                        WorkResult
-                        {
-                            target_infos : station.target_infos,
-                            work_option : WorkOption::DownloadedOrRecovered,
-                            rule_history : Some(rule_history),
-                        }
-                    )
-                },
-
-                ResolveResult::NeedsRebuild =>
-                {
-                    match executor.execute_command(station.command)
-                    {
-                        Ok(command_result) =>
-                        {
-                            if ! command_result.success
-                            {
-                                return Err(WorkError::CommandExecutedButErrored(command_result.err));
-                            }
-
-                            let mut post_command_target_tickets = Vec::new();
-                            for target_info in station.target_infos.iter()
-                            {
-                                match get_file_ticket(
-                                    &station.file_system,
-                                    &station.metadata_getter,
-                                    &target_info)
-                                {
-                                    Ok(ticket_opt) =>
-                                    {
-                                        match ticket_opt
-                                        {
-                                            Some(ticket) => post_command_target_tickets.push(ticket),
-                                            None => return Err(WorkError::FileNotFound(target_info.path.clone())),
-                                        }
-                                    },
-                                    Err(error) => return Err(WorkError::FileIoError(target_info.path.clone(), error)),
-                                }
-                            }
-
-                            for (sub_index, sender) in senders
-                            {
-                                match sender.send(Packet::from_ticket(
-                                    post_command_target_tickets[sub_index].clone()))
-                                {
-                                    Ok(_) => {},
-                                    Err(_error) => return Err(WorkError::SenderError),
-                                }
-                            }
-
-                            match rule_history.insert(sources_ticket, post_command_target_tickets)
+                            match sender.send(
+                                Packet::from_ticket(target_tickets[sub_index].clone()))
                             {
                                 Ok(_) => {},
-                                Err(error) =>
-                                {
-                                    match error
-                                    {
-                                        RuleHistoryError::Contradiction(contradicting_indices) =>
-                                        {
-                                            let mut contradicting_target_paths = Vec::new();
-                                            for index in contradicting_indices
-                                            {
-                                                contradicting_target_paths.push(station.target_infos[index].path.clone())
-                                            }
-                                            return Err(WorkError::Contradiction(contradicting_target_paths));
-                                        }
-
-                                        RuleHistoryError::TargetSizesDifferWeird =>
-                                            return Err(WorkError::Weird),
-                                    }
-                                },
+                                Err(_error) => return Err(WorkError::SenderError),
                             }
+                        }
 
-                            Ok(
-                                WorkResult
-                                {
-                                    target_infos : station.target_infos,
-                                    work_option : WorkOption::CommandExecuted(command_result),
-                                    rule_history : Some(rule_history),
-                                }
-                            )
-                        },
-                        Err(error) =>
-                        {
-                            return Err(WorkError::CommandFailedToExecute(error))
-                        },
+                        Ok(
+                            WorkResult
+                            {
+                                target_infos : station.target_infos,
+                                work_option : WorkOption::AllAlreadyCorrect,
+                                rule_history : Some(rule_history),
+                            }
+                        )
                     }
                 },
 
-                ResolveResult::Error(error) => return Err(error),
+                Err(error) => Err(error),
             }
         },
     }
@@ -1075,7 +1114,7 @@ mod test
             {
                 match result.work_option
                 {
-                    WorkOption::AlreadyCorrect => {},
+                    WorkOption::AllAlreadyCorrect => {},
                     _ => panic!("Expected poem to already be correct, was some other work option {}"),
                 }
 

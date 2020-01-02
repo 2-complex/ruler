@@ -18,9 +18,10 @@ use crate::work::
     WorkOption,
     WorkResult,
     WorkError,
+    FileResolution,
     handle_node,
     clean_targets,
-    upload_targets
+    upload_targets,
 };
 use crate::metadata::MetadataGetter;
 use crate::executor::Executor;
@@ -313,7 +314,7 @@ pub fn build<
                     {
                         match work_result.work_option
                         {
-                            WorkOption::AlreadyCorrect =>
+                            WorkOption::AllAlreadyCorrect =>
                             {
                             },
 
@@ -321,12 +322,24 @@ pub fn build<
                             {
                             },
 
-                            WorkOption::DownloadedOrRecovered =>
+                            WorkOption::TargetResolutions(resolutions) =>
                             {
-                                println!("Downloaded or Recovered:");
-                                for target_info in work_result.target_infos.iter()
+                                for (i, target_info) in work_result.target_infos.iter().enumerate()
                                 {
-                                    println!("{}", target_info.path);
+                                    println!("{} {}",
+                                        match resolutions[i]
+                                        {
+                                            FileResolution::Recovered =>
+                                                "      Recovered",
+                                            FileResolution::Downloaded =>
+                                                "     Downloaded",
+                                            FileResolution::AlreadyCorrect =>
+                                                "Areadly Correct",
+                                            FileResolution::NeedsRebuild =>
+                                                "          Built",
+                                        },
+                                        target_info.path
+                                    )
                                 }
                             },
 
