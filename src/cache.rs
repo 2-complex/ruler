@@ -61,8 +61,15 @@ impl LocalCache
         }
     }
 
-    pub fn back_up_file_with_ticket<FileSystemType : FileSystem>(&self, file_system : &FileSystemType, ticket : &Ticket, target_path : &str)
-        -> Result<(), Error>
+    pub fn back_up_file_with_ticket<FileSystemType : FileSystem>
+    (
+        &self,
+        file_system : &FileSystemType,
+        ticket : &Ticket,
+        target_path : &str
+    )
+    ->
+    Result<(), Error>
     {
         let cache_path = format!("{}/{}", self.path, ticket.base64());
         match file_system.rename(&target_path, &cache_path)

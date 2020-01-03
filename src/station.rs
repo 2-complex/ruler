@@ -59,9 +59,11 @@ Station<
     }
 }
 
-pub fn get_file_ticket<
+pub fn get_file_ticket
+<
     FileSystemType: FileSystem,
-    MetadataGetterType: MetadataGetter>
+    MetadataGetterType: MetadataGetter
+>
 (
     file_system : &FileSystemType,
     metadata_getter : &MetadataGetterType,

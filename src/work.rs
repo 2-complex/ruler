@@ -43,7 +43,7 @@ pub enum WorkError
     SenderError,
     TicketAlignmentError(std::io::Error),
     FileNotFound(String),
-    FileNotAvailableToCache(String),
+    FileNotAvailableToCache(String, std::io::Error),
     FileIoError(String, std::io::Error),
     CommandExecutedButErrored(String),
     CommandFailedToExecute(String),
@@ -76,8 +76,8 @@ impl fmt::Display for WorkError
             WorkError::FileNotFound(path) =>
                 write!(formatter, "File not found: {}", path),
 
-            WorkError::FileNotAvailableToCache(path) =>
-                write!(formatter, "File failed to cache: {}", path),
+            WorkError::FileNotAvailableToCache(path, error) =>
+                write!(formatter, "File not available to be cached: {} : {}", path, error),
 
             WorkError::FileIoError(path, error) =>
                 write!(formatter, "Error reading file: {}: {}", path, error),
@@ -187,9 +187,11 @@ Result<FileResolution, WorkError>
                 &target_info.path)
             {
                 Ok(_) => {},
-                Err(_error) => return Err(
-                    WorkError::FileNotAvailableToCache(
-                        target_info.path.clone())),
+                Err(error) =>
+                {
+                    return Err(WorkError::FileNotAvailableToCache(
+                        target_info.path.clone(), error));
+                },
             }
 
             match cache.restore_file(
@@ -301,11 +303,11 @@ Result<Vec<FileResolution>, WorkError>
                                 // TODO: Maybe encode whether it was cached in the FileResoluton
                                 resolutions.push(FileResolution::NeedsRebuild);
                             },
-                            Err(_error) =>
+                            Err(error) =>
                             {
                                 return Err(
                                     WorkError::FileNotAvailableToCache(
-                                        target_info.path.clone()));
+                                        target_info.path.clone(), error));
                             }
                         }
                     },
@@ -668,9 +670,9 @@ pub fn clean_targets<
                             &target_info.path)
                         {
                             Ok(_) => {},
-                            Err(_error) =>
+                            Err(error) =>
                                 return Err(WorkError::FileNotAvailableToCache(
-                                    target_info.path.clone())),
+                                    target_info.path.clone(), error)),
                         }
                     }
                 },
@@ -681,9 +683,9 @@ pub fn clean_targets<
                         &target_info.path)
                     {
                         Ok(_) => {},
-                        Err(_error) =>
+                        Err(error) =>
                             return Err(WorkError::FileNotAvailableToCache(
-                                target_info.path.clone())),
+                                target_info.path.clone(), error)),
                     }
                 },
                 Err(error) => return Err(WorkError::TicketAlignmentError(error)),
@@ -1318,7 +1320,7 @@ mod test
             {
                 match error
                 {
-                    WorkError::FileNotAvailableToCache(path) => assert_eq!(path, "verse1.txt"),
+                    WorkError::FileNotAvailableToCache(path, _error) => assert_eq!(path, "verse1.txt"),
                     _ => panic!("Wrong kind of error!  Incorrect error: {}", error),
                 }
             },
@@ -1436,6 +1438,110 @@ mod test
     }
 
     #[test]
+    fn one_dependence_intermediate_already_present()
+    {
+        let file_system = FakeFileSystem::new();
+
+        match file_system.create_dir(".ruler-cache")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("Failed to create directory"),
+        }
+
+        match file_system.write_file(Path::new(&"verse1.txt"), "I wish I were a windowsill")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File write operation failed"),
+        }
+
+        match file_system.write_file(Path::new(&"stanza1.txt"), "Some content")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File write operation failed"),
+        }
+
+        let (sender, receiver) = mpsc::channel();
+
+        let handle1 = spawn_command(
+            Station::new(
+                to_info(vec!["stanza1.txt".to_string()]),
+                vec![
+                    "mycat".to_string(),
+                    "verse1.txt".to_string(),
+                    "stanza1.txt".to_string()
+                ],
+                Some(RuleHistory::new()),
+                file_system.clone(),
+                FakeMetadataGetter::new(),
+            ),
+            vec![(0, sender)],
+            vec![],
+            FakeExecutor::new(file_system.clone())
+        );
+
+        let handle2 = spawn_command(
+            Station::new(
+                to_info(vec!["poem.txt".to_string()]),
+                vec![
+                    "mycat".to_string(),
+                    "stanza1.txt".to_string(),
+                    "poem.txt".to_string()
+                ],
+                Some(RuleHistory::new()),
+                file_system.clone(),
+                FakeMetadataGetter::new(),
+            ),
+            vec![],
+            vec![receiver],
+            FakeExecutor::new(file_system.clone())
+        );
+
+        match handle1.join()
+        {
+            Ok(result) =>
+            {
+                match result
+                {
+                    Ok(work_result) =>
+                    {
+                        assert_eq!(work_result.target_infos[0].path, "stanza1.txt");
+
+                        match work_result.rule_history
+                        {
+                            Some(_) => {},
+                            None => panic!("Thread left with rule-history, came back with nothing."),
+                        }
+
+                        match work_result.work_option
+                        {
+                            WorkOption::CommandExecuted(output) =>
+                            {
+                                assert_eq!(output.out, "");
+                            },
+                            _ => panic!("Thread was supposed to execute command, did something else, got wrong work-option."),
+                        }
+
+                        assert_eq!(from_utf8(&file_system.read_file("stanza1.txt").unwrap()).unwrap(), "I wish I were a windowsill");
+                    },
+                    Err(error) => panic!("Thread inside failed: {}", error),
+                }
+            },
+
+
+            Err(_) => panic!("Thread mechanics failed"),
+        }
+
+        match handle2.join()
+        {
+            Ok(_) =>
+            {
+                assert_eq!(from_utf8(&file_system.read_file("poem.txt").unwrap()).unwrap(), "I wish I were a windowsill");
+            },
+            Err(_) => panic!("Second thread failed"),
+        }
+    }
+
+    #[test]
     fn two_targets_both_not_there()
     {
         let file_system = FakeFileSystem::new();
@@ -1495,6 +1601,91 @@ mod test
                         assert_eq!(from_utf8(&file_system.read_file("stanza2.txt").unwrap()).unwrap(), "I wish I were a windowsill");
                     },
                     Err(error) => panic!("Thread inside failed {}", error),
+                }
+            },
+
+            Err(_) => panic!("Thread execution failed"),
+        }
+    }
+
+
+    #[test]
+    fn two_targets_one_already_present()
+    {
+        let file_system = FakeFileSystem::new();
+
+        match file_system.create_dir(".ruler-cache")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("Failed to create directory"),
+        }
+
+        match file_system.write_file(Path::new(&"verse1.txt"), "I wish I were a windowsill")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File write operation failed"),
+        }
+
+        match file_system.write_file(Path::new(&"stanza1.txt"), "Some content")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File write operation failed"),
+        }
+
+        let (sender, _receiver) = mpsc::channel();
+
+        let handle1 = spawn_command(
+            Station::new(
+                to_info(
+                    vec![
+                        "stanza1.txt".to_string(),
+                        "stanza2.txt".to_string()
+                    ]),
+                vec![
+                    "mycat2".to_string(),
+                    "verse1.txt".to_string(),
+                    "stanza1.txt".to_string(),
+                    "stanza2.txt".to_string(),
+                ],
+                Some(RuleHistory::new()),
+                file_system.clone(),
+                FakeMetadataGetter::new(),
+            ),
+            vec![(0, sender)],
+            vec![],
+            FakeExecutor::new(file_system.clone())
+        );
+
+        match handle1.join()
+        {
+            Ok(join_result) =>
+            {
+                match join_result
+                {
+                    Ok(work_result) =>
+                    {
+                        assert_eq!(work_result.target_infos[0].path, "stanza1.txt");
+                        assert_eq!(work_result.target_infos[1].path, "stanza2.txt");
+
+                        match work_result.rule_history
+                        {
+                            Some(_) => {},
+                            None => panic!("Thread left with rule-history, came back with nothing."),
+                        }
+
+                        match work_result.work_option
+                        {
+                            WorkOption::CommandExecuted(output) =>
+                            {
+                                assert_eq!(output.out, "");
+                            },
+                            _ => panic!("Thread was supposed to execute command, did something else, got wrong work-option."),
+                        }
+
+                        assert_eq!(from_utf8(&file_system.read_file("stanza1.txt").unwrap()).unwrap(), "I wish I were a windowsill");
+                        assert_eq!(from_utf8(&file_system.read_file("stanza2.txt").unwrap()).unwrap(), "I wish I were a windowsill");
+                    },
+                    Err(error) => panic!("Thread inside failed: {}", error),
                 }
             },
 
