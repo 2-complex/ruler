@@ -24,8 +24,7 @@ pub enum FileResolution
 pub enum WorkOption
 {
     SourceOnly,
-    AllAlreadyCorrect,
-    TargetResolutions(Vec<FileResolution>),
+    Resolutions(Vec<FileResolution>),
     CommandExecuted(CommandLineOutput),
 }
 
@@ -239,6 +238,15 @@ Result<FileResolution, WorkError>
     }
 }
 
+/*  Takes a vector of target_infos and attempts to resolve the targets using cache or download urls.
+
+    If there are remembered tickets, then this function appeals to resolve_single_target
+    to try to retrieve a backup copy either from the cache or from the internet (backing up the current copy
+    of each target as it goes)
+
+    If there are no remembered tickets, then this function goes through each target, backs up the current version
+    if it's there, and returns a vector full of NeedsRebuild
+*/
 fn resolve_with_cache
 <
     FileSystemType : FileSystem,
@@ -455,6 +463,9 @@ fn needs_rebuild(resolutions : &Vec<FileResolution>) -> bool
     false
 }
 
+/*  Handles the case when some target is irrecoverable from the cache, and the command
+    needs to execute to rebuild the node.  Natrually, return a WorkResult with option
+    indicating that the command executed (which contains the commandline result)*/
 fn rebuild_node
 <
     FileSystemType : FileSystem,
@@ -552,6 +563,8 @@ Result<WorkResult, WorkError>
     }
 }
 
+/*  This is a central, public function for handling a node in the depednece graph.
+    It is meant to be called by a dedicated thread, and as such, it eats all its arguments.*/
 pub fn handle_node
 <
     FileSystemType: FileSystem,
@@ -630,7 +643,7 @@ Result<WorkResult, WorkError>
                             WorkResult
                             {
                                 target_infos : station.target_infos,
-                                work_option : WorkOption::AllAlreadyCorrect,
+                                work_option : WorkOption::Resolutions(resolutions),
                                 rule_history : Some(rule_history),
                             }
                         )
@@ -729,6 +742,7 @@ mod test
     use crate::work::
     {
         handle_node,
+        FileResolution,
         WorkResult,
         WorkOption,
         WorkError
@@ -1116,8 +1130,17 @@ mod test
             {
                 match result.work_option
                 {
-                    WorkOption::AllAlreadyCorrect => {},
-                    _ => panic!("Expected poem to already be correct, was some other work option {}"),
+                    WorkOption::Resolutions(resolutions) =>
+                    {
+                        assert_eq!(resolutions.len(), 1);
+
+                        match resolutions[0]
+                        {
+                            FileResolution::AlreadyCorrect => {},
+                            _ => panic!("Expected poem to already be correct, was some other work option {}"),
+                        }
+                    },
+                    _ => panic!("Expected poem to already be resolved, was some other work option {}"),
                 }
 
                 match receiver_c.recv()

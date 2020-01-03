@@ -314,28 +314,16 @@ pub fn build<
                     {
                         match work_result.work_option
                         {
-                            WorkOption::AllAlreadyCorrect =>
-                            {
-                                println!("***-1\n");
-                                for (_, target_info) in work_result.target_infos.iter().enumerate()
-                                {
-                                    println!("Already correct: {}", target_info.path);
-                                }
-                            },
-
                             WorkOption::SourceOnly =>
                             {
-                                println!("***0\n");
                                 for (_, target_info) in work_result.target_infos.iter().enumerate()
                                 {
                                     println!("Source Only: {}", target_info.path);
                                 }
                             },
 
-                            WorkOption::TargetResolutions(resolutions) =>
+                            WorkOption::Resolutions(resolutions) =>
                             {
-                                println!("***1\n");
-
                                 for (i, target_info) in work_result.target_infos.iter().enumerate()
                                 {
                                     println!("{} {}",
