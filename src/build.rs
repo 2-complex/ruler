@@ -316,27 +316,39 @@ pub fn build<
                         {
                             WorkOption::AllAlreadyCorrect =>
                             {
+                                println!("***-1\n");
+                                for (_, target_info) in work_result.target_infos.iter().enumerate()
+                                {
+                                    println!("Already correct: {}", target_info.path);
+                                }
                             },
 
                             WorkOption::SourceOnly =>
                             {
+                                println!("***0\n");
+                                for (_, target_info) in work_result.target_infos.iter().enumerate()
+                                {
+                                    println!("Source Only: {}", target_info.path);
+                                }
                             },
 
                             WorkOption::TargetResolutions(resolutions) =>
                             {
+                                println!("***1\n");
+
                                 for (i, target_info) in work_result.target_infos.iter().enumerate()
                                 {
                                     println!("{} {}",
                                         match resolutions[i]
                                         {
                                             FileResolution::Recovered =>
-                                                "      Recovered",
+                                                " Recovered",
                                             FileResolution::Downloaded =>
-                                                "     Downloaded",
+                                                "Downloaded",
                                             FileResolution::AlreadyCorrect =>
-                                                "Areadly Correct",
+                                                "   Correct",
                                             FileResolution::NeedsRebuild =>
-                                                "          Built",
+                                                "     Built",
                                         },
                                         target_info.path
                                     )
@@ -345,9 +357,11 @@ pub fn build<
 
                             WorkOption::CommandExecuted(output) =>
                             {
+                                println!("***2\n");
+
                                 for target_info in work_result.target_infos.iter()
                                 {
-                                    println!("{}", target_info.path);
+                                    println!("          Built {}", target_info.path);
                                 }
 
                                 if output.out != ""

@@ -1392,11 +1392,37 @@ mod test
 
         match handle1.join()
         {
-            Ok(_) =>
+            Ok(result) =>
             {
-                assert_eq!(from_utf8(&file_system.read_file("verse1.txt").unwrap()).unwrap(), "I wish I were a windowsill");
+                match result
+                {
+                    Ok(work_result) =>
+                    {
+                        assert_eq!(work_result.target_infos[0].path, "stanza1.txt");
+
+                        match work_result.rule_history
+                        {
+                            Some(_) => {},
+                            None => panic!("Thread left with rule-history, came back with nothing."),
+                        }
+
+                        match work_result.work_option
+                        {
+                            WorkOption::CommandExecuted(output) =>
+                            {
+                                assert_eq!(output.out, "");
+                            },
+                            _ => panic!("Thread was supposed to execute command, did something else, got wrong work-option."),
+                        }
+
+                        assert_eq!(from_utf8(&file_system.read_file("stanza1.txt").unwrap()).unwrap(), "I wish I were a windowsill");
+                    },
+                    Err(_) => panic!("Thread inside failed"),
+                }
             },
-            Err(_) => panic!("First thread failed"),
+
+
+            Err(_) => panic!("Thread mechanics failed"),
         }
 
         match handle2.join()
@@ -1406,6 +1432,73 @@ mod test
                 assert_eq!(from_utf8(&file_system.read_file("poem.txt").unwrap()).unwrap(), "I wish I were a windowsill");
             },
             Err(_) => panic!("Second thread failed"),
+        }
+    }
+
+    #[test]
+    fn two_targets_both_not_there()
+    {
+        let file_system = FakeFileSystem::new();
+
+        match file_system.write_file(Path::new(&"verse1.txt"), "I wish I were a windowsill")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File write operation failed"),
+        }
+
+        let (sender, _receiver) = mpsc::channel();
+
+        let handle1 = spawn_command(
+            Station::new(
+                to_info(vec!["stanza1.txt".to_string()]),
+                vec![
+                    "mycat2".to_string(),
+                    "verse1.txt".to_string(),
+                    "stanza1.txt".to_string(),
+                    "stanza2.txt".to_string(),
+                ],
+                Some(RuleHistory::new()),
+                file_system.clone(),
+                FakeMetadataGetter::new(),
+            ),
+            vec![(0, sender)],
+            vec![],
+            FakeExecutor::new(file_system.clone())
+        );
+
+        match handle1.join()
+        {
+            Ok(join_result) =>
+            {
+                match join_result
+                {
+                    Ok(work_result) =>
+                    {
+                        assert_eq!(work_result.target_infos[0].path, "stanza1.txt");
+
+                        match work_result.rule_history
+                        {
+                            Some(_) => {},
+                            None => panic!("Thread left with rule-history, came back with nothing."),
+                        }
+
+                        match work_result.work_option
+                        {
+                            WorkOption::CommandExecuted(output) =>
+                            {
+                                assert_eq!(output.out, "");
+                            },
+                            _ => panic!("Thread was supposed to execute command, did something else, got wrong work-option."),
+                        }
+
+                        assert_eq!(from_utf8(&file_system.read_file("stanza1.txt").unwrap()).unwrap(), "I wish I were a windowsill");
+                        assert_eq!(from_utf8(&file_system.read_file("stanza2.txt").unwrap()).unwrap(), "I wish I were a windowsill");
+                    },
+                    Err(error) => panic!("Thread inside failed {}", error),
+                }
+            },
+
+            Err(_) => panic!("Thread execution failed"),
         }
     }
 

@@ -188,6 +188,55 @@ impl Executor for FakeExecutor
                     }
                 },
 
+                /*  Takes source files followed by two targets, concats the sources and puts the result in both the
+                    targets.  For instance:
+
+                    mycat2 in1.txt in2.txt out1.txt out2.txt
+
+                    concatinates in1.txt in2.txt  puts a copy in out1.txt and out2.txt.*/
+                "mycat2" =>
+                {
+                    for file in command_list[1..(n-2)].iter()
+                    {
+                        match self.file_system.read_file(file)
+                        {
+                            Ok(content) =>
+                            {
+                                match from_utf8(&content)
+                                {
+                                    Ok(content_string) =>
+                                    {
+                                        output.push_str(content_string);
+                                    }
+                                    Err(_) => return Err(format!("mycat2: file contained non utf8 bytes: {}", file)),
+                                }
+                            }
+                            Err(_) =>
+                            {
+                                return Err(format!("mycat2: file failed to open: {}", file));
+                            }
+                        }
+                    }
+
+                    match self.file_system.write_file(Path::new(&command_list[n-2]), output.clone())
+                    {
+                        Ok(_) => {},
+                        Err(why) =>
+                        {
+                            return Err(format!("mycat2: failed to cat into file: {}: {}", command_list[n-2], why));
+                        }
+                    }
+
+                    match self.file_system.write_file(Path::new(&command_list[n-1]), output)
+                    {
+                        Ok(_) => Ok(CommandLineOutput::new()),
+                        Err(why) =>
+                        {
+                            Err(format!("mycat2: failed to cat into file: {}: {}", command_list[n-1], why))
+                        }
+                    }
+                },
+
                 "rm" =>
                 {
                     for file in command_list[1..n].iter()
