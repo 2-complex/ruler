@@ -23,11 +23,22 @@ use crate::work::
     clean_targets,
     upload_targets,
 };
+
 use crate::metadata::MetadataGetter;
 use crate::executor::Executor;
 use crate::station::{Station, TargetFileInfo};
 use crate::memory::{Memory, MemoryError};
 use crate::cache::LocalCache;
+
+use std::io::Write;
+use termcolor::
+{
+    Color,
+    ColorChoice,
+    ColorSpec,
+    StandardStream,
+    WriteColor
+};
 
 
 fn make_multimaps(records : &Vec<Record>)
@@ -171,6 +182,15 @@ pub fn init_directory<
         LocalCache::new(&cache_path),
         memoryfile
     ))
+}
+
+fn print_single_banner_line(banner_text : &str, banner_color : Color, path : &str)
+{
+    let mut stdout = StandardStream::stdout(ColorChoice::Always);
+    stdout.set_color(ColorSpec::new().set_fg(Some(banner_color)));
+    write!(&mut stdout, "{}: ", banner_text);
+    stdout.set_color(ColorSpec::new().set_fg(None));
+    writeln!(&mut stdout, "{}", path);
 }
 
 pub fn build<
@@ -326,30 +346,32 @@ pub fn build<
                             {
                                 for (i, target_info) in work_result.target_infos.iter().enumerate()
                                 {
-                                    println!("{} {}",
+                                    let (banner_text, banner_color) =
                                         match resolutions[i]
                                         {
                                             FileResolution::Recovered =>
-                                                " Recovered",
+                                                (" Recovered", Color::Green),
+
                                             FileResolution::Downloaded =>
-                                                "Downloaded",
+                                                ("Downloaded", Color::Yellow),
+
                                             FileResolution::AlreadyCorrect =>
-                                                "   Correct",
+                                                ("Up-to-date", Color::Blue),
+
                                             FileResolution::NeedsRebuild =>
-                                                "     Built",
-                                        },
-                                        target_info.path
-                                    )
+                                                ("  Outdated", Color::Red),
+                                        };
+
+                                    let banner_color = Color::Green;
+                                    print_single_banner_line(banner_text, banner_color, &target_info.path);
                                 }
                             },
 
                             WorkOption::CommandExecuted(output) =>
                             {
-                                println!("***2\n");
-
                                 for target_info in work_result.target_infos.iter()
                                 {
-                                    println!("          Built {}", target_info.path);
+                                    print_single_banner_line("  Building", Color::Magenta, &target_info.path);  
                                 }
 
                                 if output.out != ""
