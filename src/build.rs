@@ -187,10 +187,39 @@ pub fn init_directory<
 fn print_single_banner_line(banner_text : &str, banner_color : Color, path : &str)
 {
     let mut stdout = StandardStream::stdout(ColorChoice::Always);
-    stdout.set_color(ColorSpec::new().set_fg(Some(banner_color)));
-    write!(&mut stdout, "{}: ", banner_text);
-    stdout.set_color(ColorSpec::new().set_fg(None));
-    writeln!(&mut stdout, "{}", path);
+    match stdout.set_color(ColorSpec::new().set_fg(Some(banner_color)))
+    {
+        Ok(_) => {},
+        Err(_error) => {},
+    }
+    match write!(&mut stdout, "{}: ", banner_text)
+    {
+        Ok(_) => {},
+        Err(_error) =>
+        {
+            /*  If the write doesn't work, change the color back, but
+                other than that, I don't know what to do. */
+            match stdout.set_color(ColorSpec::new().set_fg(None))
+            {
+                Ok(_) => {},
+                Err(_error) => {},
+            }
+            return
+        }
+    }
+    match stdout.set_color(ColorSpec::new().set_fg(None))
+    {
+        Ok(_) => {},
+        Err(_error) => {},
+    }
+    match writeln!(&mut stdout, "{}", path)
+    {
+        Ok(_) => {},
+        Err(_error) =>
+        {
+            // Again, just not sure what to do if write fails.
+        },
+    }
 }
 
 pub fn build<
@@ -336,10 +365,6 @@ pub fn build<
                         {
                             WorkOption::SourceOnly =>
                             {
-                                for (_, target_info) in work_result.target_infos.iter().enumerate()
-                                {
-                                    println!("Source Only: {}", target_info.path);
-                                }
                             },
 
                             WorkOption::Resolutions(resolutions) =>
@@ -356,13 +381,12 @@ pub fn build<
                                                 ("Downloaded", Color::Yellow),
 
                                             FileResolution::AlreadyCorrect =>
-                                                ("Up-to-date", Color::Blue),
+                                                ("Up-to-date", Color::Cyan),
 
                                             FileResolution::NeedsRebuild =>
                                                 ("  Outdated", Color::Red),
                                         };
 
-                                    let banner_color = Color::Green;
                                     print_single_banner_line(banner_text, banner_color, &target_info.path);
                                 }
                             },

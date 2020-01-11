@@ -241,7 +241,6 @@ mod test
     }
 
     use std::fs::File;
-    // use std::io::prelude::*;
 
     #[test]
     fn upload_stream_round_trip()
