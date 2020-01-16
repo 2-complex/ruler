@@ -8,6 +8,7 @@ use std::hash::{Hash, Hasher};
 use serde::{Serialize, Deserialize};
 use filesystem::FileSystem;
 use std::fmt;
+use std::io::Read;
 
 pub struct TicketFactory
 {
@@ -54,19 +55,31 @@ impl TicketFactory
         path : &str)
         -> Result<TicketFactory, std::io::Error>
     {
-        let mut dig = Sha512::new();
-        let mut buffer = Vec::new();
 
-        match file_system.read_file_into(path, &mut buffer)
+        match file_system.open(path)
         {
-            Ok(_) =>
+            Ok(mut reader) =>
             {
-                dig.input(&buffer);
-                Ok(TicketFactory{dig : dig})
+                let mut buffer = [0u8; 256];
+                let mut dig = Sha512::new();
+                loop
+                {
+                    match reader.read(&mut buffer)
+                    {
+                        Ok(0) =>
+                        {
+                            return Ok(TicketFactory{dig : dig});
+                        }
+                        Ok(size) =>
+                        {
+                            dig.input(&buffer[..size]);
+                        },
+                        Err(why) => return Err(why),
+                    }
+                }
             },
             Err(why) => return Err(why),
         }
-
     }
 }
 
