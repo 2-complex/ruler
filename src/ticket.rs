@@ -237,20 +237,20 @@ mod test
 
         println!("{} {}\n", LOREM_IPSUM.len(), LOREM_IPSUM);
 
-        match file_system.write_file("time2.txt", LOREM_IPSUM)
+        match file_system.write_file("good_and_evil.txt", LOREM_IPSUM)
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
         }
 
-        match TicketFactory::from_file(&file_system, "time2.txt")
+        match TicketFactory::from_file(&file_system, "good_and_evil.txt")
         {
             Ok(mut factory) =>
             {
                 assert_eq!(factory.result().base64(),
                     "UUIguBwMxofHdUKdfRVzVpLkqPRwg5IISF49Wc2jVd6-pmF9lxunRtP26JDPNlAgX3MoUrJEfrQ9nVKFJly8Og==");
             },
-            Err(why) => panic!("Failed to open test file time1.txt: {}", why),
+            Err(why) => panic!("Failed to open test file good_and_evil.txt: {}", why),
         }
     }
 
