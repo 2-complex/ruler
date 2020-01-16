@@ -17,5 +17,6 @@ reqwest = "0.9.22"
 hyper = "0.10"
 hyper-native-tls = "0.2.4"
 multipart = "0.13.1"
+lipsum = "0.6.0"
 
 termcolor = "1"

@@ -154,6 +154,7 @@ mod test
 {
     use crate::ticket::{Ticket, TicketFactory};
     use filesystem::{FileSystem, FakeFileSystem};
+    use lipsum::{LOREM_IPSUM};
 
     #[test]
     fn ticket_factory_string()
@@ -224,6 +225,30 @@ mod test
                 new_factory.input_ticket(factory.result());
                 assert_eq!(new_factory.result().base64(),
                     "CcCQWumbtg7N3xkZEAv-GlmKKe5XRJGzz-0fbdeG5poAnHSTVTjM2jCo5xu7_9r4GiYcevWaG2mesTMoB6NK6g==");
+            },
+            Err(why) => panic!("Failed to open test file time1.txt: {}", why),
+        }
+    }
+
+    #[test]
+    fn ticket_factory_hashes_bigger_file()
+    {
+        let file_system = FakeFileSystem::new();
+
+        println!("{} {}\n", LOREM_IPSUM.len(), LOREM_IPSUM);
+
+        match file_system.write_file("time2.txt", LOREM_IPSUM)
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File write operation failed"),
+        }
+
+        match TicketFactory::from_file(&file_system, "time2.txt")
+        {
+            Ok(mut factory) =>
+            {
+                assert_eq!(factory.result().base64(),
+                    "UUIguBwMxofHdUKdfRVzVpLkqPRwg5IISF49Wc2jVd6-pmF9lxunRtP26JDPNlAgX3MoUrJEfrQ9nVKFJly8Og==");
             },
             Err(why) => panic!("Failed to open test file time1.txt: {}", why),
         }
