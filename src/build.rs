@@ -15,6 +15,7 @@ use crate::rule::{Record, parse, topological_sort};
 use crate::packet::Packet;
 use crate::work::
 {
+    TargetFileInfo,
     WorkOption,
     WorkResult,
     WorkError,
@@ -26,7 +27,6 @@ use crate::work::
 
 use crate::metadata::MetadataGetter;
 use crate::executor::Executor;
-use crate::station::{Station, TargetFileInfo};
 use crate::memory::{Memory, MemoryError};
 use crate::cache::LocalCache;
 
@@ -312,20 +312,17 @@ pub fn build<
             );
         }
 
-        let station = Station::new(
-            target_infos,
-            record.command,
-            match &record.rule_ticket
-            {
-                Some(ticket) => Some(memory.get_rule_history(&ticket)),
-                None => None,
-            },
-            file_system.clone(),
-            metadata_getter.clone(),
-        );
-
         let executor_clone = executor.clone();
         let local_cache_clone = cache.clone();
+
+        let command = record.command;
+        let rule_history =  match &record.rule_ticket
+        {
+            Some(ticket) => Some(memory.get_rule_history(&ticket)),
+            None => None,
+        };
+        let file_system_clone = file_system.clone();
+        let metadata_getter_clone = metadata_getter.clone();
 
         handles.push(
             (
@@ -334,7 +331,11 @@ pub fn build<
                     move || -> Result<WorkResult, WorkError>
                     {
                         handle_node(
-                            station,
+                            target_infos,
+                            command,
+                            rule_history,
+                            file_system_clone,
+                            metadata_getter_clone,
                             sender_vec,
                             receiver_vec,
                             executor_clone,

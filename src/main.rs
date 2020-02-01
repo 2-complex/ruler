@@ -10,7 +10,6 @@ mod rule;
 mod ticket;
 mod work;
 mod memory;
-mod station;
 mod executor;
 mod packet;
 mod metadata;
