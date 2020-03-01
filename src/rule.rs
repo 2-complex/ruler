@@ -257,6 +257,39 @@ impl Frame
     }
 }
 
+pub enum TopologicalSortError
+{
+    TargetMissingWeird(String),
+    TargetMissing(String),
+    SelfDependentRule,
+    CircularDependence,
+    TargetInMultipleRules(String),
+}
+
+impl fmt::Display for TopologicalSortError
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
+    {
+        match self
+        {
+            TopologicalSortError::TargetMissingWeird(target) =>
+                write!(formatter, "Internal Error: target missing from rules: {}", target),
+
+            TopologicalSortError::TargetMissing(target) =>
+                write!(formatter, "Target missing from rules: {}", target),
+
+            TopologicalSortError::SelfDependentRule =>
+                write!(formatter, "Self-dependent rule"),
+
+            TopologicalSortError::CircularDependence =>
+                write!(formatter, "Circular dependence"),
+
+            TopologicalSortError::TargetInMultipleRules(target) =>
+                write!(formatter, "Target found in more than one rule: {}", target),
+        }
+    }
+}
+
 /*  Consume Rules, and in their place, make Nodes.
     In each Node, leave 'source_indices' empty.
 
@@ -292,39 +325,6 @@ fn rules_to_frame_buffer(mut rules : Vec<Rule>)
     }
 
     Ok((frame_buffer, to_buffer_index))
-}
-
-pub enum TopologicalSortError
-{
-    TargetMissingWeird(String),
-    TargetMissing(String),
-    SelfDependentRule,
-    CircularDependence,
-    TargetInMultipleRules(String),
-}
-
-impl fmt::Display for TopologicalSortError
-{
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
-    {
-        match self
-        {
-            TopologicalSortError::TargetMissingWeird(target) =>
-                write!(formatter, "Internal Error: target missing from rules: {}", target),
-
-            TopologicalSortError::TargetMissing(target) =>
-                write!(formatter, "Target missing from rules: {}", target),
-
-            TopologicalSortError::SelfDependentRule =>
-                write!(formatter, "Self-dependent rule"),
-
-            TopologicalSortError::CircularDependence =>
-                write!(formatter, "Circular dependence"),
-
-            TopologicalSortError::TargetInMultipleRules(target) =>
-                write!(formatter, "Target found in more than one rule: {}", target),
-        }
-    }
 }
 
 /*  Takes a vector or Rule's.  Rules contain enough information to create the dependence tree.
@@ -431,7 +431,7 @@ pub fn topological_sort(
                 }
             }
 
-            /*  Finally, remap the sources of all the records to indices in the new result vector itself.*/
+            /*  Finally, remap the sources of all the nodes to indices in the new result vector itself. */
             let mut result = Vec::new();
             for mut frame in frames_in_order.drain(..)
             {
@@ -462,10 +462,17 @@ pub fn topological_sort(
 #[cfg(test)]
 mod tests
 {
-    use crate::rule::rules_to_frame_buffer;
-    use crate::rule::topological_sort;
-    use crate::rule::{EndpointPair, split_along_endpoints, parse, get_line_endpoints};
-    use crate::rule::Rule;
+    use crate::rule::
+    {
+        Rule,
+        rules_to_frame_buffer,
+        topological_sort,
+        TopologicalSortError,
+        EndpointPair,
+        split_along_endpoints,
+        parse,
+        get_line_endpoints
+    };
 
     #[test]
     fn rules_are_rules()
@@ -613,9 +620,13 @@ mod tests
             {
                 panic!("Unexpected success on rules with redundant targets");
             },
-            Err(msg) =>
+            Err(error) =>
             {
-                assert_eq!(msg, "Target found in more than one rule: fruit");
+                match error
+                {
+                    TopologicalSortError::TargetInMultipleRules(target) => assert_eq!(target, "fruit"),
+                    _=> panic!("Unexpected error type when multiple fruit expected")
+                }
             }
         }
     }
@@ -623,15 +634,19 @@ mod tests
     #[test]
     fn topological_sort_empty_is_error()
     {
-        match topological_sort(vec![], "some target")
+        match topological_sort(vec![], "prune")
         {
             Ok(_) =>
             {
                 panic!("Enexpected success on topological sort of empty");
             },
-            Err(msg) =>
+            Err(error) =>
             {
-                assert_eq!(msg, "Target missing from rules: some target");
+                match error
+                {
+                    TopologicalSortError::TargetMissing(target) => assert_eq!(target, "prune"),
+                    _=> panic!("Expected target missing prune, got another type of error")
+                }
             },
         }
     }
@@ -655,7 +670,7 @@ mod tests
             {
                 assert_eq!(v.len(), 1);
             }
-            Err(why) => panic!(format!("Expected success, got: {}", why)),
+            Err(error) => panic!(format!("Expected success, got: {}", error)),
         }
     }
 
@@ -685,7 +700,7 @@ mod tests
                 assert_eq!(v[0].targets[0], "plant");
                 assert_eq!(v[1].targets[0], "fruit");
             }
-            Err(why) => panic!(format!("Expected success, got: {}", why)),
+            Err(error) => panic!(format!("Expected success, got: {}", error)),
         }
     }
 
@@ -812,9 +827,13 @@ mod tests
             "Quine")
         {
             Ok(_) => panic!("Unexpected success topologically sorting with a circular dependence"),
-            Err(why) =>
+            Err(error) =>
             {
-                assert_eq!(why, "Circular dependence in rules");
+                match error
+                {
+                    TopologicalSortError::CircularDependence => {},
+                    _=> panic!("Expected circular dependence, got another type of error")
+                }
             },
         }
     }
@@ -835,16 +854,20 @@ mod tests
             "Hofstadter")
         {
             Ok(_) => panic!("Unexpected success topologically sorting with a self-dependent rule"),
-            Err(why) =>
+            Err(error) =>
             {
-                assert_eq!(why, "Self-dependent rule");
+                match error
+                {
+                    TopologicalSortError::SelfDependentRule => {},
+                    _=> panic!("Expected self-dependent rule, got another type of error")
+                }
             },
         }
     }
 
 
     #[test]
-    fn topological_sort_make_records_for_sources()
+    fn topological_sort_make_nodes_for_sources()
     {
         match topological_sort(
             vec![
