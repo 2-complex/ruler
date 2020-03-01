@@ -261,7 +261,7 @@ pub enum TopologicalSortError
 {
     TargetMissingWeird(String),
     TargetMissing(String),
-    SelfDependentRule,
+    SelfDependentRule(String),
     CircularDependence,
     TargetInMultipleRules(String),
 }
@@ -278,8 +278,8 @@ impl fmt::Display for TopologicalSortError
             TopologicalSortError::TargetMissing(target) =>
                 write!(formatter, "Target missing from rules: {}", target),
 
-            TopologicalSortError::SelfDependentRule =>
-                write!(formatter, "Self-dependent rule"),
+            TopologicalSortError::SelfDependentRule(target)  =>
+                write!(formatter, "Self-dependent target: {}", target),
 
             TopologicalSortError::CircularDependence =>
                 write!(formatter, "Circular dependence"),
@@ -377,7 +377,7 @@ pub fn topological_sort(
                     {
                         match to_buffer_index.get(source)
                         {
-                            Some((buffer_index, _sub_index)) =>
+                            Some((buffer_index, sub_index)) =>
                             {
                                 if let Some(frame) = frame_buffer[*buffer_index].take()
                                 {
@@ -385,11 +385,10 @@ pub fn topological_sort(
                                 }
                                 else
                                 {
-                                    // I yearn for more efficiency here.
-
                                     if frame.index == *buffer_index
                                     {
-                                        return Err(TopologicalSortError::SelfDependentRule);
+                                        return Err(TopologicalSortError::SelfDependentRule(
+                                            frame.targets[*sub_index].clone()));
                                     }
 
                                     for f in stack.iter()
@@ -625,7 +624,7 @@ mod tests
                 match error
                 {
                     TopologicalSortError::TargetInMultipleRules(target) => assert_eq!(target, "fruit"),
-                    _=> panic!("Unexpected error type when multiple fruit expected")
+                    _ => panic!("Unexpected error type when multiple fruit expected")
                 }
             }
         }
@@ -645,7 +644,7 @@ mod tests
                 match error
                 {
                     TopologicalSortError::TargetMissing(target) => assert_eq!(target, "prune"),
-                    _=> panic!("Expected target missing prune, got another type of error")
+                    _ => panic!("Expected target missing prune, got another type of error")
                 }
             },
         }
@@ -832,13 +831,15 @@ mod tests
                 match error
                 {
                     TopologicalSortError::CircularDependence => {},
-                    _=> panic!("Expected circular dependence, got another type of error")
+                    _ => panic!("Expected circular dependence, got another type of error")
                 }
             },
         }
     }
 
 
+    /*  Make a Rule that depends on /itself/ as a source.  Try to topologial sort,
+        expect the error to reflect a self-dependence  */
     #[test]
     fn topological_sort_self_reference()
     {
@@ -859,7 +860,7 @@ mod tests
                 match error
                 {
                     TopologicalSortError::SelfDependentRule => {},
-                    _=> panic!("Expected self-dependent rule, got another type of error")
+                    _ => panic!("Expected self-dependent rule, got another type of error")
                 }
             },
         }
