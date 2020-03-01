@@ -28,7 +28,7 @@ impl Rule
     }
 }
 
-pub struct Record
+pub struct Node
 {
     pub targets: Vec<String>,
     pub source_indices: Vec<(usize, usize)>,
@@ -58,7 +58,7 @@ impl fmt::Display for Rule
     }
 }
 
-impl fmt::Display for Record
+impl fmt::Display for Node
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result
     {
@@ -257,8 +257,8 @@ impl Frame
     }
 }
 
-/*  Consume Rules, and in their place, make Records.
-    In each Record, leave 'source_indices' empty.
+/*  Consume Rules, and in their place, make Nodes.
+    In each Node, leave 'source_indices' empty.
 
     Returns:
         frame_buffer:
@@ -297,7 +297,7 @@ fn rules_to_frame_buffer(mut rules : Vec<Rule>) -> Result<(
 
 pub fn topological_sort(
     rules : Vec<Rule>,
-    goal_target : &str) -> Result<Vec<Record>, String>
+    goal_target : &str) -> Result<Vec<Node>, String>
 {
     match rules_to_frame_buffer(rules)
     {
@@ -406,7 +406,7 @@ pub fn topological_sort(
                 }
 
                 result.push(
-                    Record
+                    Node
                     {
                         targets: frame.targets,
                         source_indices: source_indices,

@@ -11,7 +11,7 @@ use std::str::from_utf8;
 use std::fmt;
 use std::io::Error;
 
-use crate::rule::{Record, parse, topological_sort};
+use crate::rule::{Node, parse, topological_sort};
 use crate::packet::Packet;
 use crate::work::
 {
@@ -40,8 +40,7 @@ use termcolor::
     WriteColor
 };
 
-
-fn make_multimaps(records : &Vec<Record>)
+fn make_multimaps(records : &Vec<Node>)
     -> (
         MultiMap<usize, (usize, Sender<Packet>)>,
         MultiMap<usize, (Receiver<Packet>)>
