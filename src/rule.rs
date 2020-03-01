@@ -266,10 +266,10 @@ impl Frame
         to_buffer_index:
             A map that tells us the index in frame_buffer of the
             record that has the given string as a target */
-fn rules_to_frame_buffer(mut rules : Vec<Rule>) -> Result<(
-        Vec<Option<Frame>>,
-        HashMap<String, (usize, usize)>
-    ), String>
+fn rules_to_frame_buffer(mut rules : Vec<Rule>)
+-> Result<
+    (Vec<Option<Frame>>, HashMap<String, (usize, usize)>),
+    TopologicalSortError>
 {
     let mut frame_buffer : Vec<Option<Frame>> = Vec::new();
     let mut to_buffer_index : HashMap<String, (usize, usize)> = HashMap::new();
@@ -282,22 +282,59 @@ fn rules_to_frame_buffer(mut rules : Vec<Rule>) -> Result<(
             let t_string = target.to_string();
             match to_buffer_index.get(&t_string)
             {
-                Some(_) => return Err(format!("Target found in more than one rule: {}", t_string)),
+                Some(_) => return Err(TopologicalSortError::TargetInMultipleRules(t_string)),
                 None => to_buffer_index.insert(t_string, (current_buffer_index, sub_index)),
             };
         }
 
         frame_buffer.push(Some(Frame::from_rule_and_index(rule, current_buffer_index)));
-        current_buffer_index+=1;
+        current_buffer_index += 1;
     }
 
     Ok((frame_buffer, to_buffer_index))
 }
 
+pub enum TopologicalSortError
+{
+    TargetMissingWeird(String),
+    TargetMissing(String),
+    SelfDependentRule,
+    CircularDependence,
+    TargetInMultipleRules(String),
+}
 
+impl fmt::Display for TopologicalSortError
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
+    {
+        match self
+        {
+            TopologicalSortError::TargetMissingWeird(target) =>
+                write!(formatter, "Internal Error: target missing from rules: {}", target),
+
+            TopologicalSortError::TargetMissing(target) =>
+                write!(formatter, "Target missing from rules: {}", target),
+
+            TopologicalSortError::SelfDependentRule =>
+                write!(formatter, "Self-dependent rule"),
+
+            TopologicalSortError::CircularDependence =>
+                write!(formatter, "Circular dependence"),
+
+            TopologicalSortError::TargetInMultipleRules(target) =>
+                write!(formatter, "Target found in more than one rule: {}", target),
+        }
+    }
+}
+
+/*  Takes a vector or Rule's.  Rules contain enough information to create the dependence tree.
+    This function searches that tree to create a topologically sorted list of another type: Node.
+
+    Leaves (sources which are not also listed as targets) become Nodes with a non-existant
+    RuleInfo and an empty list of sources. */
 pub fn topological_sort(
     rules : Vec<Rule>,
-    goal_target : &str) -> Result<Vec<Node>, String>
+    goal_target : &str) -> Result<Vec<Node>, TopologicalSortError>
 {
     match rules_to_frame_buffer(rules)
     {
@@ -305,7 +342,6 @@ pub fn topological_sort(
         Ok((mut frame_buffer, mut to_buffer_index)) =>
         {
             let mut current_buffer_index = frame_buffer.len();
-
             let mut stack : Vec<Frame> = Vec::new();
 
             match to_buffer_index.get(goal_target)
@@ -315,10 +351,11 @@ pub fn topological_sort(
                     match frame_buffer[*index].take()
                     {
                         Some(frame) => stack.push(frame),
-                        None => return Err(format!("Target missing from rules in weird way: {}", goal_target)),
+                        None => return Err(
+                            TopologicalSortError::TargetMissingWeird(goal_target.to_string())),
                     }
                 },
-                None => return Err(format!("Target missing from rules: {}", goal_target)),
+                None => return Err(TopologicalSortError::TargetMissing(goal_target.to_string())),
             }
 
             let mut frames_in_order : Vec<Frame> = Vec::new();
@@ -352,14 +389,14 @@ pub fn topological_sort(
 
                                     if frame.index == *buffer_index
                                     {
-                                        return Err("Self-dependent rule".to_string());
+                                        return Err(TopologicalSortError::SelfDependentRule);
                                     }
 
                                     for f in stack.iter()
                                     {
                                         if f.index == *buffer_index
                                         {
-                                            return Err("Circular dependence in rules".to_string());
+                                            return Err(TopologicalSortError::CircularDependence);
                                         }
                                     }
                                 }
@@ -370,7 +407,7 @@ pub fn topological_sort(
                                 frames_in_order.push(Frame::from_source_and_index(source, current_buffer_index));
                                 frame_buffer.push(None);
                                 to_buffer_index.insert(source.to_string(), (current_buffer_index, 0));
-                                current_buffer_index+=1;
+                                current_buffer_index += 1;
                             },
                         }
                     }

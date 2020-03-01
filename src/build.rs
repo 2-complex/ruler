@@ -11,7 +11,13 @@ use std::str::from_utf8;
 use std::fmt;
 use std::io::Error;
 
-use crate::rule::{Node, parse, topological_sort};
+use crate::rule::
+{
+    parse,
+    Node,
+    topological_sort,
+    TopologicalSortError,
+};
 use crate::packet::Packet;
 use crate::work::
 {
@@ -70,7 +76,7 @@ pub enum BuildError
     RuleFileFailedToOpen(String, Error),
     WorkErrors(Vec<WorkError>),
     RuleFileFailedToParse(String),
-    TopologicalSortFailed(String),
+    TopologicalSortFailed(TopologicalSortError),
     DirectoryMalfunction,
     Weird,
 }
