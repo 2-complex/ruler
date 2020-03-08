@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fmt;
 
 use crate::ticket::Ticket;
@@ -220,6 +221,7 @@ struct Frame
     command: Vec<String>,
     rule_ticket: Option<Ticket>,
     index: usize,
+    sub_index: usize,
     visited: bool,
 }
 
@@ -234,6 +236,7 @@ impl Frame
             command: vec![],
             rule_ticket: None,
             index: index,
+            sub_index: 0,
             visited: true,
         }
     }
@@ -252,6 +255,7 @@ impl Frame
             command: rule.command,
             rule_ticket: Some(rule_ticket),
             index: index,
+            sub_index: 0,
             visited: false,
         }
     }
@@ -262,7 +266,7 @@ pub enum TopologicalSortError
     TargetMissingWeird(String),
     TargetMissing(String),
     SelfDependentRule(String),
-    CircularDependence,
+    CircularDependence(Vec<String>),
     TargetInMultipleRules(String),
 }
 
@@ -281,8 +285,16 @@ impl fmt::Display for TopologicalSortError
             TopologicalSortError::SelfDependentRule(target)  =>
                 write!(formatter, "Self-dependent target: {}", target),
 
-            TopologicalSortError::CircularDependence =>
-                write!(formatter, "Circular dependence"),
+            TopologicalSortError::CircularDependence(cycle) =>
+            {
+                write!(formatter, "Circular dependence:\n")?;
+                for t in cycle.iter()
+                {
+                    write!(formatter, "{}\n", t)?;
+                }
+
+                Ok(())
+            },
 
             TopologicalSortError::TargetInMultipleRules(target) =>
                 write!(formatter, "Target found in more than one rule: {}", target),
@@ -298,7 +310,8 @@ impl fmt::Display for TopologicalSortError
             A vector of optional frames corresponding to original rules
         to_buffer_index:
             A map that tells us the index in frame_buffer of the
-            record that has the given string as a target */
+            ndoe that has the given string as a target, and also subindex, the index in that
+            node's target list of the target in question  */
 fn rules_to_frame_buffer(mut rules : Vec<Rule>)
 -> Result<
     (Vec<Option<Frame>>, HashMap<String, (usize, usize)>),
@@ -327,8 +340,11 @@ fn rules_to_frame_buffer(mut rules : Vec<Rule>)
     Ok((frame_buffer, to_buffer_index))
 }
 
-/*  Takes a vector or Rule's.  Rules contain enough information to create the dependence tree.
-    This function searches that tree to create a topologically sorted list of another type: Node.
+/*  Takes a vector of Rules and goal_target, goal target is the target in whose rule the
+    search originates.
+
+    Rules contain enough information to establish a dependence tree. This function
+    searches that tree to create a sorted list of another type: Node.
 
     Leaves (sources which are not also listed as targets) become Nodes with a non-existant
     RuleInfo and an empty list of sources. */
@@ -336,21 +352,33 @@ pub fn topological_sort(
     rules : Vec<Rule>,
     goal_target : &str) -> Result<Vec<Node>, TopologicalSortError>
 {
+    /*  Convert Rules to Frames.  Frame has some extra eleements
+        that facilitate the topolotical sort. */
     match rules_to_frame_buffer(rules)
     {
-        Err(why) => return Err(why),
+        Err(error) =>
+        {
+            /*  If two rules have the same target, we wind up here. */
+            return Err(error);
+        },
         Ok((mut frame_buffer, mut to_buffer_index)) =>
         {
+            /*  The "buffer" referred to by variable-names here is
+                the buffer of frames (frame_buffer) */
             let mut current_buffer_index = frame_buffer.len();
-            let mut stack : Vec<Frame> = Vec::new();
+            let mut stack : Vec<Frame> = vec![];
 
             match to_buffer_index.get(goal_target)
             {
-                Some((index, _)) =>
+                Some((index, sub_index)) =>
                 {
                     match frame_buffer[*index].take()
                     {
-                        Some(frame) => stack.push(frame),
+                        Some(mut frame) =>
+                        {
+                            frame.sub_index = *sub_index;
+                            stack.push(frame);
+                        },
                         None => return Err(
                             TopologicalSortError::TargetMissingWeird(goal_target.to_string())),
                     }
@@ -358,12 +386,21 @@ pub fn topological_sort(
                 None => return Err(TopologicalSortError::TargetMissing(goal_target.to_string())),
             }
 
+            /*  Recall frame_buffer is a vector of options.  That's so that
+                the frames can be taken from frame_buffer and added to frames_in_order */
             let mut frames_in_order : Vec<Frame> = Vec::new();
+
+            /*  This maps index in frame_buffer to index in frames_in_order */
             let mut index_bijection : HashMap<usize, usize> = HashMap::new();
 
-            // Now do a straight-forward depth-first traversal using 'stack'
+            /*  This makes it theoretically faster to tell if there's a cycle */
+            let mut indices_in_stack : HashSet<usize> = HashSet::new();
+
+            /*  Depth-first traversal using 'stack' */
             while let Some(frame) = stack.pop()
             {
+                indices_in_stack.remove(&frame.index);
+
                 if frame.visited
                 {
                     index_bijection.insert(frame.index, frames_in_order.len());
@@ -371,7 +408,7 @@ pub fn topological_sort(
                 }
                 else
                 {
-                    let mut buffer = Vec::new();
+                    let mut reverser = vec![];
 
                     for source in frame.sources.iter()
                     {
@@ -379,9 +416,10 @@ pub fn topological_sort(
                         {
                             Some((buffer_index, sub_index)) =>
                             {
-                                if let Some(frame) = frame_buffer[*buffer_index].take()
+                                if let Some(mut frame) = frame_buffer[*buffer_index].take()
                                 {
-                                    buffer.push(frame);
+                                    frame.sub_index = *sub_index;
+                                    reverser.push(frame);
                                 }
                                 else
                                 {
@@ -391,12 +429,18 @@ pub fn topological_sort(
                                             frame.targets[*sub_index].clone()));
                                     }
 
-                                    for f in stack.iter()
+                                    /*  Look for a cycle by checking the stack for another instance of the node we're
+                                        currently on */
+                                    if indices_in_stack.contains(buffer_index)
                                     {
-                                        if f.index == *buffer_index
+                                        let mut target_cycle = vec![];
+                                        for f in stack.iter()
                                         {
-                                            return Err(TopologicalSortError::CircularDependence);
+                                            target_cycle.push(f.targets[f.sub_index].clone());
                                         }
+                                        target_cycle.push(frame.targets[frame.sub_index].clone());
+
+                                        return Err(TopologicalSortError::CircularDependence(target_cycle));
                                     }
                                 }
                             },
@@ -419,12 +463,15 @@ pub fn topological_sort(
                             command: frame.command,
                             rule_ticket: frame.rule_ticket,
                             index: frame.index,
+                            sub_index: frame.sub_index,
                             visited: true
                         }
                     );
+                    indices_in_stack.insert(frame.index);
 
-                    while let Some(f) = buffer.pop()
+                    while let Some(f) = reverser.pop()
                     {
+                        indices_in_stack.insert(f.index);
                         stack.push(f);
                     }
                 }
@@ -812,13 +859,13 @@ mod tests
             vec![
                 Rule
                 {
-                    targets: vec!["Quine".to_string()],
+                    targets: vec!["Quine".to_string(), "SomethingElse".to_string()],
                     sources: vec!["Hofstadter".to_string()],
                     command: vec!["poemcat Hofstadter".to_string()],
                 },
                 Rule
                 {
-                    targets: vec!["Hofstadter".to_string()],
+                    targets: vec!["AnotherThing".to_string(), "Hofstadter".to_string()],
                     sources: vec!["Quine".to_string()],
                     command: vec!["poemcat Quine".to_string()],
                 },
@@ -830,7 +877,11 @@ mod tests
             {
                 match error
                 {
-                    TopologicalSortError::CircularDependence => {},
+                    TopologicalSortError::CircularDependence(cycle) =>
+                    {
+                        assert_eq!(cycle[0], "Quine");
+                        assert_eq!(cycle[1], "Hofstadter");
+                    },
                     _ => panic!("Expected circular dependence, got another type of error")
                 }
             },
@@ -859,7 +910,7 @@ mod tests
             {
                 match error
                 {
-                    TopologicalSortError::SelfDependentRule => {},
+                    TopologicalSortError::SelfDependentRule(target) => assert_eq!(target, "Hofstadter"),
                     _ => panic!("Expected self-dependent rule, got another type of error")
                 }
             },
