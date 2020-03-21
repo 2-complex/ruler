@@ -14,6 +14,7 @@ use std::io::Error;
 use crate::rule::
 {
     parse,
+    ParseError,
     Node,
     topological_sort,
     TopologicalSortError,
@@ -75,7 +76,7 @@ pub enum BuildError
     RuleFileNotUTF8,
     RuleFileFailedToOpen(String, Error),
     WorkErrors(Vec<WorkError>),
-    RuleFileFailedToParse(String),
+    RuleFileFailedToParse(ParseError),
     TopologicalSortFailed(TopologicalSortError),
     DirectoryMalfunction,
     Weird,

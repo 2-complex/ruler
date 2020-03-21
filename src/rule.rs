@@ -143,7 +143,45 @@ use self::Mode::Sources;
 use self::Mode::Command;
 use self::Mode::NewLine;
 
-pub fn parse(content: String) -> Result<Vec<Rule>, String>
+pub enum ParseError
+{
+    UnexpectedEmptyLine(usize),
+    UnexpectedExtraColon(usize),
+    UnexpectedContent(usize),
+    UnexpectedEndOfFileMidTargets,
+    UnexpectedEndOfFileMidSources,
+    UnexpectedEndOfFileMidCommand,
+}
+
+impl fmt::Display for ParseError
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
+    {
+        match self
+        {
+            ParseError::UnexpectedEmptyLine(line_number) =>
+                write!(formatter, "Unexpected emtpy line {}", line_number),
+
+            ParseError::UnexpectedExtraColon(line_number) =>
+                write!(formatter, "Unexpected extra ':' on line {}", line_number),
+
+            ParseError::UnexpectedContent(line_number) =>
+                write!(formatter, "Unexpected content on line {}", line_number),
+
+            ParseError::UnexpectedEndOfFileMidTargets =>
+                write!(formatter, "Unexpected end of file mid-targets"),
+
+            ParseError::UnexpectedEndOfFileMidSources =>
+                write!(formatter, "Unexpected end of file mid-sources"),
+
+            ParseError::UnexpectedEndOfFileMidCommand =>
+                write!(formatter, "Unexpected end of file mid-command"),
+        }
+    }
+}
+
+/*  Takes a .rules file content as a String, and parses to create a vector of Rule objects. */
+pub fn parse(content: String) -> Result<Vec<Rule>, ParseError>
 {
     let mut rules = Vec::new();
     let mut targets = vec![];
@@ -161,7 +199,7 @@ pub fn parse(content: String) -> Result<Vec<Rule>, String>
             {
                 match line.as_ref()
                 {
-                    "" => return Err(format!("Unexpected empty line ({})", line_number)),
+                    "" => return Err(ParseError::UnexpectedEmptyLine(line_number)),
                     ":" => mode = Sources,
                     _ => targets.push(line),
                 }
@@ -170,7 +208,7 @@ pub fn parse(content: String) -> Result<Vec<Rule>, String>
             {
                 match line.as_ref()
                 {
-                    "" => return Err(format!("Unexpected empty line ({})", line_number)),
+                    "" => return Err(ParseError::UnexpectedEmptyLine(line_number)),
                     ":" => mode = Command,
                     _ => sources.push(line),
                 }
@@ -179,7 +217,7 @@ pub fn parse(content: String) -> Result<Vec<Rule>, String>
             {
                 match line.as_ref()
                 {
-                    "" => return Err(format!("Unexpected empty line {}", line_number)),
+                    "" => return Err(ParseError::UnexpectedEmptyLine(line_number)),
                     ":" =>
                     {
                         mode = NewLine;
@@ -196,8 +234,8 @@ pub fn parse(content: String) -> Result<Vec<Rule>, String>
                 match line.as_ref()
                 {
                     "" => mode = Targets,
-                    ":" => return Err(format!("Unexpected extra ':' on line {}", line_number)),
-                    _ => return Err(format!("Unexpected content on line {}", line_number)),
+                    ":" => return Err(ParseError::UnexpectedExtraColon(line_number)),
+                    _ => return Err(ParseError::UnexpectedContent(line_number)),
                 }
             },
         }
@@ -208,9 +246,9 @@ pub fn parse(content: String) -> Result<Vec<Rule>, String>
     match mode
     {
         NewLine => return Ok(rules),
-        Targets => return Err(format!("Unexpected end of file mid-targets")),
-        Sources => return Err(format!("Unexpected end of file mid-sources")),
-        Command => return Err(format!("Unexpected end of file mid-command")),
+        Targets => return Err(ParseError::UnexpectedEndOfFileMidTargets),
+        Sources => return Err(ParseError::UnexpectedEndOfFileMidSources),
+        Command => return Err(ParseError::UnexpectedEndOfFileMidCommand),
     }
 }
 
@@ -572,7 +610,8 @@ mod tests
         EndpointPair,
         split_along_endpoints,
         parse,
-        get_line_endpoints
+        ParseError,
+        get_line_endpoints,
     };
 
     /*  Use the Rule constructor with some vectors of strings, and check that the
@@ -1313,11 +1352,17 @@ mod tests
             },
             Err(error) =>
             {
-                assert_eq!(error, "Unexpected end of file mid-targets")
+                match error
+                {
+                    ParseError::UnexpectedEndOfFileMidTargets => {},
+                    _=> panic!("Expected unexpected end of file mid-targets error"),
+                }
             }
         };
     }
 
+    /*  Call parse on a properly formatted rule, check that the targets,
+        sources and command are what was in the text. */
     #[test]
     fn parse_one()
     {
@@ -1334,6 +1379,8 @@ mod tests
         };
     }
 
+    /*  Call parse on twp properly formatted rules, check that the targets,
+        sources and command are what was in the text. */
     #[test]
     fn parse_two()
     {
@@ -1353,55 +1400,220 @@ mod tests
         };
     }
 
+    /*  Call parse on improperly formatted rules, check the error. */
     #[test]
     fn parse_extra_newline_error1()
     {
         match parse("\na\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\nf\n:\n".to_string())
         {
             Ok(_) => panic!(format!("Unexpected success")),
-            Err(why) =>
+            Err(error) =>
             {
-                assert_eq!(why, "Unexpected empty line (1)");
+                match error
+                {
+                    ParseError::UnexpectedEmptyLine(line_number) => assert_eq!(line_number, 1),
+                    _=>panic!("Expected unexpected empty line error"),
+                }
             }
         };
     }
 
+    /*  Call parse on improperly formatted rules, check the error. */
     #[test]
     fn parse_extra_newline_error2()
     {
         match parse("a\n:\nb\n\n:\nc\n:\n\nd\n:\ne\n:\nf\n:\n".to_string())
         {
             Ok(_) => panic!(format!("Unexpected success")),
-            Err(why) =>
+            Err(error) =>
             {
-                assert_eq!(why, "Unexpected empty line (4)");
+                match error
+                {
+                    ParseError::UnexpectedEmptyLine(line_number) => assert_eq!(line_number, 4),
+                    _=>panic!("Expected unexpected empty line error"),
+                }
             }
         };
     }
 
+    /*  Call parse on improperly formatted rules, check the error. */
     #[test]
     fn parse_extra_newline_error3()
     {
         match parse("a\n:\nb\n:\nc\n:\n\n\nd\n:\ne\n:\nf\n:\n".to_string())
         {
             Ok(_) => panic!(format!("Unexpected success")),
-            Err(why) =>
+            Err(error) =>
             {
-                assert_eq!(why, "Unexpected empty line (8)");
+                match error
+                {
+                    ParseError::UnexpectedEmptyLine(line_number) => assert_eq!(line_number, 8),
+                    _=>panic!("Expected unexpected empty line error"),
+                }
             }
         };
     }
 
+    /*  Call parse on improperly formatted rules, check the error. */
     #[test]
-    fn parse_extra_newline_error4()
+    fn parse_unexpected_eof_mid_targets1()
     {
         match parse("a\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\nf\n:\n\n".to_string())
         {
             Ok(_) => panic!(format!("Unexpected success")),
-            Err(why) =>
+            Err(error) =>
             {
-                assert_eq!(why, "Unexpected end of file mid-targets");
+                match error
+                {
+                    ParseError::UnexpectedEndOfFileMidTargets => {},
+                    _=>panic!("Expected unexpected end of file mid targets error"),
+                }
             }
         };
     }
+
+    /*  Call parse on improperly formatted rules, check the error. */
+    #[test]
+    fn parse_unexpected_eof_mid_targets2()
+    {
+        match parse("a\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\nf\n:\n\nt".to_string())
+        {
+            Ok(_) => panic!(format!("Unexpected success")),
+            Err(error) =>
+            {
+                match error
+                {
+                    ParseError::UnexpectedEndOfFileMidTargets => {},
+                    _=>panic!("Expected unexpected end of file mid targets error"),
+                }
+            }
+        };
+    }
+
+    /*  Call parse on improperly formatted rules, check the error. */
+    #[test]
+    fn parse_unexpected_eof_mid_targets3()
+    {
+        match parse("a\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\nf\n:\n\nt\n".to_string())
+        {
+            Ok(_) => panic!(format!("Unexpected success")),
+            Err(error) =>
+            {
+                match error
+                {
+                    ParseError::UnexpectedEndOfFileMidTargets => {},
+                    _=>panic!("Expected unexpected end of file mid targets error"),
+                }
+            }
+        };
+    }
+
+    /*  Call parse on improperly formatted rules, check the error. */
+    #[test]
+    fn parse_unexpected_eof_mid_sources1()
+    {
+        match parse("a\n:\nb\n:\nc\n:\n\nd\n:\n".to_string())
+        {
+            Ok(_) => panic!(format!("Unexpected success")),
+            Err(error) =>
+            {
+                match error
+                {
+                    ParseError::UnexpectedEndOfFileMidSources => {},
+                    _=>panic!("Expected unexpected end of file mid sources error"),
+                }
+            }
+        };
+    }
+
+    /*  Call parse on improperly formatted rules, check the error. */
+    #[test]
+    fn parse_unexpected_eof_mid_sources2()
+    {
+        match parse("a\n:\nb\n:\nc\n:\n\nd\n:\ns".to_string())
+        {
+            Ok(_) => panic!(format!("Unexpected success")),
+            Err(error) =>
+            {
+                match error
+                {
+                    ParseError::UnexpectedEndOfFileMidSources => {},
+                    _=>panic!("Expected unexpected end of file mid sources error"),
+                }
+            }
+        };
+    }
+
+    /*  Call parse on improperly formatted rules, check the error. */
+    #[test]
+    fn parse_unexpected_eof_mid_sources3()
+    {
+        match parse("a\n:\nb\n:\nc\n:\n\nd\n:\ns\n".to_string())
+        {
+            Ok(_) => panic!(format!("Unexpected success")),
+            Err(error) =>
+            {
+                match error
+                {
+                    ParseError::UnexpectedEndOfFileMidSources => {},
+                    _=>panic!("Expected unexpected end of file mid sources error"),
+                }
+            }
+        };
+    }
+
+    /*  Call parse on improperly formatted rules, check the error. */
+    #[test]
+    fn parse_unexpected_eof_mid_command1()
+    {
+        match parse("a\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\n:".to_string())
+        {
+            Ok(_) => panic!(format!("Unexpected success")),
+            Err(error) =>
+            {
+                match error
+                {
+                    ParseError::UnexpectedEndOfFileMidCommand => {},
+                    _=>panic!("Expected unexpected end of file mid command error"),
+                }
+            }
+        };
+    }
+
+    /*  Call parse on improperly formatted rules, check the error. */
+    #[test]
+    fn parse_unexpected_eof_mid_command2()
+    {
+        match parse("a\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\n".to_string())
+        {
+            Ok(_) => panic!(format!("Unexpected success")),
+            Err(error) =>
+            {
+                match error
+                {
+                    ParseError::UnexpectedEndOfFileMidCommand => {},
+                    _=>panic!("Expected unexpected end of file mid command error"),
+                }
+            }
+        };
+    }
+
+    /*  Call parse on improperly formatted rules, check the error. */
+    #[test]
+    fn parse_unexpected_eof_mid_command3()
+    {
+        match parse("a\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\nf".to_string())
+        {
+            Ok(_) => panic!(format!("Unexpected success")),
+            Err(error) =>
+            {
+                match error
+                {
+                    ParseError::UnexpectedEndOfFileMidCommand => {},
+                    _=>panic!("Expected unexpected end of file mid command error"),
+                }
+            }
+        };
+    }
+
 }
