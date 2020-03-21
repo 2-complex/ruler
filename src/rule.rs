@@ -11,6 +11,10 @@ pub struct Rule
     pub command : Vec<String>,
 }
 
+/*  When a rule is first parsed, it goes into this struct, the targets,
+    sources and command are simply parsed into vecs.  This is before the
+    topological-sort step which puts the data into a list of Nodes and
+    creates Nodes for sources that are not listed as targest of rules. */
 impl Rule
 {
     fn new(
@@ -29,6 +33,12 @@ impl Rule
     }
 }
 
+/*  Once the rules are topologically sorted, the data in them gets put into
+    this struct.  Instead of storing each source as a path, this stores
+    indices indicating which other node has the source as a target.
+
+    Node also carries an optional Ticket.  If the Node came from a rule,
+    that's the hash of the rule itself (not file content). */
 pub struct Node
 {
     pub targets: Vec<String>,
@@ -81,36 +91,51 @@ impl fmt::Display for Node
     }
 }
 
-
 struct EndpointPair
 {
     start : usize,
     end : usize,
 }
 
+/*  Iterates through the given str, returns an EndpointPair indicating
+    the line content (without the newline character itself) */
 fn get_line_endpoints(content : &str) -> Vec<EndpointPair>
 {
     let mut endpoints = Vec::new();
     let mut last_i = 0usize;
+    let mut current_i = 0usize;
     for (i, c) in content.chars().enumerate()
     {
+        current_i = i;
         match c
         {
             '\n' =>
             {
                 endpoints.push(EndpointPair{
                     start:last_i,
-                    end:i,
+                    end:current_i,
                 });
-                last_i = i+1;
+                last_i = current_i+1;
             },
             _ => {},
         }
+    }
+    current_i += 1;
+
+    if current_i > 1 && last_i < current_i
+    {
+        endpoints.push(EndpointPair{
+            start:last_i,
+            end:current_i,
+        });
     }
 
     endpoints
 }
 
+/*  Takes a String and a vector of EndpointPairs.  Consumes both inputs and
+    outputs a vector of Strings split off from the input String at the indices
+    indicated by the endpoints. */
 fn split_along_endpoints(
     mut content : String,
     mut endpoints : Vec<EndpointPair>) -> Vec<String>
@@ -129,19 +154,6 @@ fn split_along_endpoints(
 
     result
 }
-
-enum Mode
-{
-    Targets,
-    Sources,
-    Command,
-    NewLine
-}
-
-use self::Mode::Targets;
-use self::Mode::Sources;
-use self::Mode::Command;
-use self::Mode::NewLine;
 
 pub enum ParseError
 {
@@ -180,14 +192,22 @@ impl fmt::Display for ParseError
     }
 }
 
-/*  Takes a .rules file content as a String, and parses to create a vector of Rule objects. */
+/*  Reads in a .rules file content as a String, and creates a vector of Rule objects. */
 pub fn parse(content: String) -> Result<Vec<Rule>, ParseError>
 {
+    enum Mode
+    {
+        Targets,
+        Sources,
+        Command,
+        NewLine
+    }
+
     let mut rules = Vec::new();
     let mut targets = vec![];
     let mut sources = vec![];
     let mut command = vec![];
-    let mut mode = Targets;
+    let mut mode = Mode::Targets;
     let mut line_number = 1;
 
     let endpoints = get_line_endpoints(&content);
@@ -195,32 +215,32 @@ pub fn parse(content: String) -> Result<Vec<Rule>, ParseError>
     {
         match mode
         {
-            Targets =>
+            Mode::Targets =>
             {
                 match line.as_ref()
                 {
                     "" => return Err(ParseError::UnexpectedEmptyLine(line_number)),
-                    ":" => mode = Sources,
+                    ":" => mode = Mode::Sources,
                     _ => targets.push(line),
                 }
             },
-            Sources =>
+            Mode::Sources =>
             {
                 match line.as_ref()
                 {
                     "" => return Err(ParseError::UnexpectedEmptyLine(line_number)),
-                    ":" => mode = Command,
+                    ":" => mode = Mode::Command,
                     _ => sources.push(line),
                 }
             },
-            Command =>
+            Mode::Command =>
             {
                 match line.as_ref()
                 {
                     "" => return Err(ParseError::UnexpectedEmptyLine(line_number)),
                     ":" =>
                     {
-                        mode = NewLine;
+                        mode = Mode::NewLine;
                         rules.push(Rule::new(targets, sources, command));
                         targets = vec![];
                         sources = vec![];
@@ -229,11 +249,11 @@ pub fn parse(content: String) -> Result<Vec<Rule>, ParseError>
                     _ => command.push(line),
                 }
             },
-            NewLine =>
+            Mode::NewLine =>
             {
                 match line.as_ref()
                 {
-                    "" => mode = Targets,
+                    "" => mode = Mode::Targets,
                     ":" => return Err(ParseError::UnexpectedExtraColon(line_number)),
                     _ => return Err(ParseError::UnexpectedContent(line_number)),
                 }
@@ -245,10 +265,10 @@ pub fn parse(content: String) -> Result<Vec<Rule>, ParseError>
 
     match mode
     {
-        NewLine => return Ok(rules),
-        Targets => return Err(ParseError::UnexpectedEndOfFileMidTargets),
-        Sources => return Err(ParseError::UnexpectedEndOfFileMidSources),
-        Command => return Err(ParseError::UnexpectedEndOfFileMidCommand),
+        Mode::NewLine => return Ok(rules),
+        Mode::Targets => return Err(ParseError::UnexpectedEndOfFileMidTargets),
+        Mode::Sources => return Err(ParseError::UnexpectedEndOfFileMidSources),
+        Mode::Command => return Err(ParseError::UnexpectedEndOfFileMidCommand),
     }
 }
 
@@ -1274,12 +1294,14 @@ mod tests
         assert_eq!(v[1], "bananas");
     }
 
-    /*  Call get_line_endpoints on a string with no newlines. Check that we get the empty vec. */
+    /*  Call get_line_endpoints on a string with no newlines.  Check we get that string's endpoints in a vec */
     #[test]
     fn get_line_endpoints_empty()
     {
         let v = get_line_endpoints("abcd");
-        assert_eq!(v.len(), 0);
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].start, 0);
+        assert_eq!(v[0].end, 4);
     }
 
     /*  Call get_line_endpoints on a string ending in a newline. Check that we get endpoints capturing the
@@ -1299,6 +1321,19 @@ mod tests
     fn get_line_endpoints_two()
     {
         let v = get_line_endpoints("ab\ncd\n");
+        assert_eq!(v.len(), 2);
+        assert_eq!(v[0].start, 0);
+        assert_eq!(v[0].end, 2);
+        assert_eq!(v[1].start, 3);
+        assert_eq!(v[1].end, 5);
+    }
+
+    /*  Call get_line_endpoints on a string with no newline at the end. Check that we get endpoints capturing
+        the non-newline content. */
+    #[test]
+    fn get_line_endpoints_no_newline_at_end()
+    {
+        let v = get_line_endpoints("ab\ncd");
         assert_eq!(v.len(), 2);
         assert_eq!(v[0].start, 0);
         assert_eq!(v[0].end, 2);
