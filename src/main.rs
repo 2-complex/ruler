@@ -15,7 +15,6 @@ mod packet;
 mod metadata;
 mod internet;
 
-use self::build::build;
 use self::executor::OsExecutor;
 use self::metadata::OsMetadataGetter;
 use self::ticket::TicketFactory;
@@ -31,8 +30,8 @@ fn main()
             SubCommand::with_name("clean")
             .help("Removes all files and directories specificed as targets in the rules file")
             .arg(Arg::with_name("target")
-                .help("The path to the target file (or directory) to be cleaned.  Clean command will remove all files which are:\n - listed as targets in the rule\n - dependencies of the target specified ")
-                .required(true)
+                .help("The path to the clean-target file to be cleaned.  Clean command removes all files which are listed as targets in rules that the clean-target depends on.\nIf no clean-target is specified, clean command removes all files listed as targets in any rule.")
+                .required(false)
                 .index(1)
             )
         )
@@ -55,7 +54,7 @@ fn main()
             .help("Builds the given target.\nThe target must be a file listed in the target section of the current rules file.\nThe rules file is either a file in the current working directory called \"build.rules\" or it can be specificed using --rules=<path>")
             .arg(Arg::with_name("target")
                 .help("The path to the target file (or directory) to be built")
-                .required(true)
+                .required(false)
                 .index(1)
             )
         )
@@ -142,8 +141,8 @@ fn main()
         let target =
         match matches.value_of("target")
         {
-            Some(value) => value,
-            None => panic!("No target!"),
+            Some(value) => Some(value.to_string()),
+            None => None,
         };
 
         match build::clean(
@@ -193,15 +192,17 @@ fn main()
         let target =
         match matches.value_of("target")
         {
-            Some(value) => value,
-            None => panic!("No target!"),
+            Some(value) => Some(value.to_string()),
+            None => None,
         };
 
-        match build(
+        match build::build(
             OsFileSystem::new(),
             OsExecutor::new(),
             OsMetadataGetter::new(),
-            directory, rulefile, target)
+            directory,
+            rulefile,
+            target)
         {
             Ok(()) => {},
             Err(error) => eprintln!("{}", error),

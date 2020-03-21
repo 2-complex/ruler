@@ -17,6 +17,7 @@ use crate::rule::
     ParseError,
     Node,
     topological_sort,
+    topological_sort_all,
     TopologicalSortError,
 };
 use crate::packet::Packet;
@@ -47,7 +48,7 @@ use termcolor::
     WriteColor
 };
 
-fn make_multimaps(records : &Vec<Node>)
+fn make_multimaps(nodes : &Vec<Node>)
     -> (
         MultiMap<usize, (usize, Sender<Packet>)>,
         MultiMap<usize, (Receiver<Packet>)>
@@ -56,9 +57,9 @@ fn make_multimaps(records : &Vec<Node>)
     let mut senders : MultiMap<usize, (usize, Sender<Packet>)> = MultiMap::new();
     let mut receivers : MultiMap<usize, (Receiver<Packet>)> = MultiMap::new();
 
-    for (target_index, record) in records.iter().enumerate()
+    for (target_index, node) in nodes.iter().enumerate()
     {
-        for (source_index, sub_index) in record.source_indices.iter()
+        for (source_index, sub_index) in node.source_indices.iter()
         {
             let (sender, receiver) : (Sender<Packet>, Receiver<Packet>) = mpsc::channel();
             senders.insert(*source_index, (*sub_index, sender));
@@ -241,7 +242,7 @@ pub fn build<
     metadata_getter: MetadataGetterType,
     directory : &str,
     rulefile: &str,
-    target: &str
+    goal_target_opt: Option<String>
 )
 -> Result<(), BuildError>
 {
@@ -281,18 +282,32 @@ pub fn build<
         Err(error) => return Err(BuildError::RuleFileFailedToParse(error)),
     };
 
-    let mut records =
-    match topological_sort(rules, &target)
+    let mut nodes =
+    match goal_target_opt
     {
-        Ok(records) => records,
-        Err(error) => return Err(BuildError::TopologicalSortFailed(error)),
+        Some(goal_target) =>
+        {
+            match topological_sort(rules, &goal_target)
+            {
+                Ok(nodes) => nodes,
+                Err(error) => return Err(BuildError::TopologicalSortFailed(error)),
+            }
+        },
+        None =>
+        {
+            match topological_sort_all(rules)
+            {
+                Ok(nodes) => nodes,
+                Err(error) => return Err(BuildError::TopologicalSortFailed(error)),
+            }
+        }
     };
 
-    let (mut senders, mut receivers) = make_multimaps(&records);
+    let (mut senders, mut receivers) = make_multimaps(&nodes);
     let mut handles = Vec::new();
     let mut index : usize = 0;
 
-    for mut record in records.drain(..)
+    for mut node in nodes.drain(..)
     {
         let sender_vec = match senders.remove(&index)
         {
@@ -307,7 +322,7 @@ pub fn build<
         };
 
         let mut target_infos = Vec::new();
-        for target_path in record.targets.drain(..)
+        for target_path in node.targets.drain(..)
         {
             target_infos.push(
                 TargetFileInfo
@@ -321,8 +336,8 @@ pub fn build<
         let executor_clone = executor.clone();
         let local_cache_clone = cache.clone();
 
-        let command = record.command;
-        let rule_history =  match &record.rule_ticket
+        let command = node.command;
+        let rule_history =  match &node.rule_ticket
         {
             Some(ticket) => Some(memory.get_rule_history(&ticket)),
             None => None,
@@ -332,7 +347,7 @@ pub fn build<
 
         handles.push(
             (
-                record.rule_ticket,
+                node.rule_ticket,
                 thread::spawn(
                     move || -> Result<WorkResult, WorkError>
                     {
@@ -357,7 +372,7 @@ pub fn build<
 
     let mut work_errors = Vec::new();
 
-    for (record_ticket, handle) in handles
+    for (node_ticket, handle) in handles
     {
         match handle.join()
         {
@@ -429,7 +444,7 @@ pub fn build<
                             },
                         }
 
-                        match record_ticket
+                        match node_ticket
                         {
                             Some(ticket) =>
                             {
@@ -486,7 +501,7 @@ pub fn clean<
     metadata_getter: MetadataGetterType,
     directory : &str,
     rulefile: &str,
-    target: &str
+    goal_target_opt: Option<String>
 )
 -> Result<(), BuildError>
 {
@@ -526,19 +541,33 @@ pub fn clean<
         Err(error) => return Err(BuildError::RuleFileFailedToParse(error)),
     };
 
-    let mut records =
-    match topological_sort(rules, &target)
+    let mut nodes =
+    match goal_target_opt
     {
-        Ok(records) => records,
-        Err(error) => return Err(BuildError::TopologicalSortFailed(error)),
+        Some(goal_target) =>
+        {
+            match topological_sort(rules, &goal_target)
+            {
+                Ok(nodes) => nodes,
+                Err(error) => return Err(BuildError::TopologicalSortFailed(error)),
+            }
+        },
+        None =>
+        {
+            match topological_sort_all(rules)
+            {
+                Ok(nodes) => nodes,
+                Err(error) => return Err(BuildError::TopologicalSortFailed(error)),
+            }
+        }
     };
 
     let mut handles = Vec::new();
 
-    for mut record in records.drain(..)
+    for mut node in nodes.drain(..)
     {
         let mut target_infos = Vec::new();
-        for target_path in record.targets.drain(..)
+        for target_path in node.targets.drain(..)
         {
             target_infos.push(
                 TargetFileInfo
@@ -553,7 +582,7 @@ pub fn clean<
         let metadata_getter_clone = metadata_getter.clone();
         let local_cache_clone = cache.clone();
 
-        match record.rule_ticket
+        match node.rule_ticket
         {
             Some(_ticket) =>
                 handles.push(
@@ -641,19 +670,19 @@ pub fn upload<
         Err(error) => return Err(BuildError::RuleFileFailedToParse(error)),
     };
 
-    let mut records =
+    let mut nodes =
     match topological_sort(rules, &target)
     {
-        Ok(records) => records,
+        Ok(nodes) => nodes,
         Err(error) => return Err(BuildError::TopologicalSortFailed(error)),
     };
 
     let mut handles = Vec::new();
 
-    for mut record in records.drain(..)
+    for mut node in nodes.drain(..)
     {
         let mut target_paths = Vec::new();
-        for target_path in record.targets.drain(..)
+        for target_path in node.targets.drain(..)
         {
             target_paths.push(target_path);
         }
@@ -661,7 +690,7 @@ pub fn upload<
         let file_system_clone = file_system.clone();
         let server_url_clone = server_url.to_string();
 
-        match record.rule_ticket
+        match node.rule_ticket
         {
             Some(_ticket) =>
                 handles.push(
@@ -772,7 +801,7 @@ poem.txt
             metadata_getter,
             "test.directory",
             "test.rules",
-            "poem.txt")
+            Some("poem.txt".to_string()))
         {
             Ok(()) => {},
             Err(error) => panic!("Unexpected build error: {}", error),
@@ -841,7 +870,7 @@ poem.txt
             metadata_getter.clone(),
             "test.directory",
             "test.rules",
-            "poem.txt")
+            Some("poem.txt".to_string()))
         {
             Ok(()) => {},
             Err(error) => panic!("Unexpected build error: {}", error),
@@ -878,7 +907,7 @@ poem.txt
             metadata_getter.clone(),
             "test.directory",
             "test.rules",
-            "poem.txt")
+            Some("poem.txt".to_string()))
         {
             Ok(()) => panic!("Unexpected silence when contradiction should arise"),
             Err(error) =>
@@ -956,7 +985,7 @@ poem.txt
             metadata_getter.clone(),
             ".ruler",
             "test.rules",
-            "poem.txt")
+            Some("poem.txt".to_string()))
         {
             Ok(()) => {},
             Err(error) => panic!("Unexpected build error: {}", error),
@@ -994,7 +1023,7 @@ poem.txt
             metadata_getter.clone(),
             ".ruler",
             "test.rules",
-            "poem.txt")
+            Some("poem.txt".to_string()))
         {
             Ok(()) => {},
             Err(error) => panic!("Unexpected build error: {}", error),
@@ -1047,7 +1076,7 @@ poem.txt
             metadata_getter.clone(),
             ".ruler",
             "test.rules",
-            "poem.txt")
+            Some("poem.txt".to_string()))
         {
             Ok(()) => {},
             Err(error) => panic!("Unexpected build error: {}", error),

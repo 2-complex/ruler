@@ -321,7 +321,6 @@ impl Frame
 
 pub enum TopologicalSortError
 {
-    TargetMissingWeird,
     TargetMissing(String),
     SelfDependentRule(String),
     CircularDependence(Vec<String>),
@@ -334,9 +333,6 @@ impl fmt::Display for TopologicalSortError
     {
         match self
         {
-            TopologicalSortError::TargetMissingWeird =>
-                write!(formatter, "Internal Error: target missing from rules"),
-
             TopologicalSortError::TargetMissing(target) =>
                 write!(formatter, "Target missing from rules: {}", target),
 
@@ -456,7 +452,13 @@ impl TopologicalSortMachine
                 frame.sub_index = sub_index;
                 frame
             },
-            None => return Err(TopologicalSortError::TargetMissingWeird),
+            None =>
+            {
+                /*  Assume we're in the middle of a build-all operation,
+                    and we've already handle this rule. */
+                return Ok(());
+            }, 
+                
         };
 
         let mut indices_in_stack = HashSet::new();
@@ -588,7 +590,7 @@ pub fn topological_sort(
     goal_target : &str) -> Result<Vec<Node>, TopologicalSortError>
 {
     /*  Convert Rules to Frames.  Frame has some extra eleements
-        that facilitate the topolotical sort. */
+        that facilitate the topological sort. */
     match rules_to_frame_buffer(rules)
     {
         Err(error) =>
@@ -613,7 +615,36 @@ pub fn topological_sort(
             return machine.get_result();
         }
     }
+}
 
+/*  For building all targets.  This function calls rules_to_frame_buffer to generate frames for the rules,
+    then iterates through all the frames */
+pub fn topological_sort_all(
+    rules : Vec<Rule>) -> Result<Vec<Node>, TopologicalSortError>
+{
+    /*  Convert Rules to Frames.  Frame has some extra eleements
+        that facilitate the topological sort. */
+    match rules_to_frame_buffer(rules)
+    {
+        Err(error) =>
+        {
+            /*  If two rules have the same target, we wind up here. */
+            return Err(error);
+        },
+        Ok((frame_buffer, to_buffer_index)) =>
+        {
+            let frame_buffer_len = frame_buffer.len();
+
+            let mut machine = TopologicalSortMachine::new(frame_buffer, to_buffer_index);
+
+            for index in 0..frame_buffer_len
+            {
+                machine.sort_once(index, 0)?;
+            }
+
+            return machine.get_result();
+        }
+    }
 }
 
 
@@ -626,6 +657,7 @@ mod tests
         Rule,
         rules_to_frame_buffer,
         topological_sort,
+        topological_sort_all,
         TopologicalSortError,
         EndpointPair,
         split_along_endpoints,
@@ -815,7 +847,7 @@ mod tests
         }
     }
 
-    /*  Topological sort the empty set of rules, check that the result is empty. */
+    /*  Topological sort the empty set of rules, but with a goal-target.  That should error. */
     #[test]
     fn topological_sort_empty_is_error()
     {
@@ -836,6 +868,22 @@ mod tests
         }
     }
 
+    /*  Topological sort all of an empty set of rules, check that the result is empty. */
+    #[test]
+    fn topological_sort_all_empty_is_empty()
+    {
+        match topological_sort_all(vec![])
+        {
+            Ok(result) =>
+            {
+                assert_eq!(result.len(), 0);
+            },
+            Err(error) =>
+            {
+                panic!("Expected success topological sorting empty vector of rules, got {}", error);
+            },
+        }
+    }
 
     /*  Topological sort a list of one rule only.  Check the result
         contains a frame with just that one rule's data. */
@@ -852,6 +900,30 @@ mod tests
                 },
             ],
             "plant")
+        {
+            Ok(nodes) =>
+            {
+                assert_eq!(nodes.len(), 1);
+                assert_eq!(nodes[0].targets[0], "plant");
+            }
+            Err(error) => panic!(format!("Expected success, got: {}", error)),
+        }
+    }
+
+    /*  Topological sort a list of one rule only.  Check the result
+        contains a frame with just that one rule's data. */
+    #[test]
+    fn topological_sort_all_one_rule()
+    {
+        match topological_sort_all(
+            vec![
+                Rule
+                {
+                    targets: vec!["plant".to_string()],
+                    sources: vec![],
+                    command: vec![],
+                },
+            ])
         {
             Ok(nodes) =>
             {
@@ -883,6 +955,37 @@ mod tests
                 },
             ],
             "fruit")
+        {
+            Ok(nodes) =>
+            {
+                assert_eq!(nodes.len(), 2);
+                assert_eq!(nodes[0].targets[0], "plant");
+                assert_eq!(nodes[1].targets[0], "fruit");
+            }
+            Err(error) => panic!(format!("Expected success, got: {}", error)),
+        }
+    }
+
+    /*  Topological sort all of a list of two rules only, one depends on the other as a source, but
+        the order in the given list is backwards.  Check that the topological sort reverses the order. */
+    #[test]
+    fn topological_sort_all_two_rules()
+    {
+        match topological_sort_all(
+            vec![
+                Rule
+                {
+                    targets: vec!["fruit".to_string()],
+                    sources: vec!["plant".to_string()],
+                    command: vec!["pick occasionally".to_string()],
+                },
+                Rule
+                {
+                    targets: vec!["plant".to_string()],
+                    sources: vec![],
+                    command: vec![],
+                },
+            ])
         {
             Ok(nodes) =>
             {
@@ -986,6 +1089,63 @@ mod tests
                 },
             ],
             "game")
+        {
+            Ok(v) =>
+            {
+                assert_eq!(v.len(), 4);
+                assert_eq!(v[0].targets[0], "math");
+                assert_eq!(v[1].targets[0], "graphics");
+                assert_eq!(v[2].targets[0], "physics");
+                assert_eq!(v[3].targets[0], "game");
+
+                assert_eq!(v[0].source_indices.len(), 0);
+                assert_eq!(v[1].source_indices.len(), 1);
+                assert_eq!(v[1].source_indices[0], (0, 0));
+                assert_eq!(v[2].source_indices.len(), 1);
+                assert_eq!(v[2].source_indices[0], (0, 0));
+                assert_eq!(v[3].source_indices.len(), 2);
+                assert_eq!(v[3].source_indices[0], (1, 0));
+                assert_eq!(v[3].source_indices[1], (2, 0));
+            }
+            Err(why) => panic!(format!("Expected success, got: {}", why)),
+        }
+    }
+
+    /*  Topological sort all rules in a DAG that is not a tree.  Four nodes math, physics, graphics, game
+        physics and graphics both depend on math, and game depends on physics and graphics.
+
+        This is the same test as above, except the given vector is in the wrong order.  The result
+        should be the same as the above.  Part of this is to test well-definedness of order. */
+    #[test]
+    fn topological_sort_all_four_rules_diamond_scrambled()
+    {
+        match topological_sort_all(
+            vec![
+                Rule
+                {
+                    targets: vec!["graphics".to_string()],
+                    sources: vec!["math".to_string()],
+                    command: vec!["build graphics".to_string()],
+                },
+                Rule
+                {
+                    targets: vec!["physics".to_string()],
+                    sources: vec!["math".to_string()],
+                    command: vec!["build physics".to_string()],
+                },
+                Rule
+                {
+                    targets: vec!["math".to_string()],
+                    sources: vec![],
+                    command: vec![],
+                },
+                Rule
+                {
+                    targets: vec!["game".to_string()],
+                    sources: vec!["physics".to_string(), "graphics".to_string()],
+                    command: vec!["build game".to_string()],
+                },
+            ])
         {
             Ok(v) =>
             {
@@ -1112,6 +1272,104 @@ mod tests
         }
     }
 
+    /*  Topological sort a poetry example.  This test is just like the one above but with the
+        given list of rules in a different order.  The result should be the same. */
+    #[test]
+    fn topological_sort_all_poem_scrambled()
+    {
+        match topological_sort_all(
+            vec![
+                Rule
+                {
+                    targets: vec!["poem".to_string()],
+                    sources: vec!["stanza1".to_string(), "stanza2".to_string()],
+                    command: vec!["poemcat stanza1 stanza2".to_string()],
+                },
+                Rule
+                {
+                    targets: vec!["stanza2".to_string()],
+                    sources: vec!["verse2".to_string(), "chorus".to_string()],
+                    command: vec!["poemcat verse2 chorus".to_string()],
+                },
+                Rule
+                {
+                    targets: vec!["stanza1".to_string()],
+                    sources: vec!["verse1".to_string(), "chorus".to_string()],
+                    command: vec!["poemcat verse1 chorus".to_string()],
+                },
+            ])
+        {
+            Ok(v) =>
+            {
+                assert_eq!(v.len(), 6);
+                assert_eq!(v[0].targets[0], "chorus");
+                assert_eq!(v[1].targets[0], "verse1");
+                assert_eq!(v[2].targets[0], "stanza1");
+                assert_eq!(v[3].targets[0], "verse2");
+                assert_eq!(v[4].targets[0], "stanza2");
+                assert_eq!(v[5].targets[0], "poem");
+
+                assert_eq!(v[0].source_indices.len(), 0);
+                assert_eq!(v[1].source_indices.len(), 0);
+                assert_eq!(v[3].source_indices.len(), 0);
+
+                assert_eq!(v[2].source_indices, [(0, 0), (1, 0)]);
+                assert_eq!(v[4].source_indices, [(0, 0), (3, 0)]);
+                assert_eq!(v[5].source_indices, [(2, 0), (4, 0)]);
+            }
+            Err(why) => panic!(format!("Expected success, got: {}", why)),
+        }
+    }
+
+    /*  Topological sort a poetry example.  This test is just like the one above but with the
+        given list of rules in a different order.  The result should be the same. */
+    #[test]
+    fn topological_sort_all_disconnected_graph()
+    {
+        match topological_sort_all(
+            vec![
+                Rule
+                {
+                    targets: vec!["poem".to_string()],
+                    sources: vec!["stanza1".to_string(), "stanza2".to_string()],
+                    command: vec!["poemcat stanza1 stanza2".to_string()],
+                },
+                Rule
+                {
+                    targets: vec!["stanza2".to_string()],
+                    sources: vec!["verse2".to_string(), "chorus".to_string()],
+                    command: vec!["poemcat verse2 chorus".to_string()],
+                },
+                Rule
+                {
+                    targets: vec!["stanza1".to_string()],
+                    sources: vec!["verse1".to_string(), "chorus".to_string()],
+                    command: vec!["poemcat verse1 chorus".to_string()],
+                },
+            ])
+        {
+            Ok(v) =>
+            {
+                assert_eq!(v.len(), 6);
+                assert_eq!(v[0].targets[0], "chorus");
+                assert_eq!(v[1].targets[0], "verse1");
+                assert_eq!(v[2].targets[0], "stanza1");
+                assert_eq!(v[3].targets[0], "verse2");
+                assert_eq!(v[4].targets[0], "stanza2");
+                assert_eq!(v[5].targets[0], "poem");
+
+                assert_eq!(v[0].source_indices.len(), 0);
+                assert_eq!(v[1].source_indices.len(), 0);
+                assert_eq!(v[3].source_indices.len(), 0);
+
+                assert_eq!(v[2].source_indices, [(0, 0), (1, 0)]);
+                assert_eq!(v[4].source_indices, [(0, 0), (3, 0)]);
+                assert_eq!(v[5].source_indices, [(2, 0), (4, 0)]);
+            }
+            Err(why) => panic!(format!("Expected success, got: {}", why)),
+        }
+    }
+
     /*  Topological sort a dependence graph with a cycle in it.  Check that the error
         returned points to the cycle. */
     #[test]
@@ -1149,7 +1407,6 @@ mod tests
             },
         }
     }
-
 
     /*  Make a Rule that depends on /itself/ as a source.  Try to topologial sort,
         expect the error to reflect the self-dependence  */
@@ -1601,7 +1858,7 @@ mod tests
     #[test]
     fn parse_unexpected_eof_mid_command1()
     {
-        match parse("a\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\n:".to_string())
+        match parse("a\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\n".to_string())
         {
             Ok(_) => panic!(format!("Unexpected success")),
             Err(error) =>
