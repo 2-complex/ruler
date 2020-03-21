@@ -321,8 +321,10 @@ fn rules_to_frame_buffer(mut rules : Vec<Rule>)
     let mut to_buffer_index : HashMap<String, (usize, usize)> = HashMap::new();
 
     let mut current_buffer_index = 0usize;
-    for rule in rules.drain(..)
+    for mut rule in rules.drain(..)
     {
+        rule.targets.sort();
+        rule.sources.sort();
         for (sub_index, target) in rule.targets.iter().enumerate()
         {
             let t_string = target.to_string();
@@ -345,7 +347,13 @@ struct TopologicalSortMachine
     /*  The "buffer" referred to by variable-names here is
         the buffer of frames (frame_buffer) */
     frame_buffer : Vec<Option<Frame>>,
+
+    /*  Sends the target name to a pair of indices:
+        - index of the rule in which it's a target
+        - index of the target in the rule's target list */
     to_buffer_index : HashMap<String, (usize, usize)>,
+
+    /*  Keeps track of the next index to insert into frame_buffer with */
     current_buffer_index : usize,
 
     /*  Recall frame_buffer is a vector of options.  That's so that
@@ -378,7 +386,7 @@ impl TopologicalSortMachine
     }
 
     /*  Originates a topological sort DFS from the frame indicated by the given index, noting
-        the given sub_index as the location of the goal-target in that frame's target list */
+        the given sub_index as the location of the goal-target in that frame's target list. */
     pub fn sort_once(&mut self, index : usize, sub_index : usize)
     -> Result<(), TopologicalSortError>
     {
@@ -390,8 +398,7 @@ impl TopologicalSortMachine
                 frame.sub_index = sub_index;
                 frame
             },
-            None => return Err(
-                TopologicalSortError::TargetMissingWeird),
+            None => return Err(TopologicalSortError::TargetMissingWeird),
         };
 
         let mut indices_in_stack = HashSet::new();
@@ -568,6 +575,8 @@ mod tests
         get_line_endpoints
     };
 
+    /*  Use the Rule constructor with some vectors of strings, and check that the
+        strings end up in the right place. */
     #[test]
     fn rules_are_rules()
     {
@@ -584,6 +593,8 @@ mod tests
         assert_eq!(r.command[0], "c");
     }
 
+    /*  Call rules_to_frame_buffer with an empty vector, make sure we get an empty
+        frame_buffer and an empty map. */
     #[test]
     fn rules_to_frame_buffer_empty_to_empty()
     {
@@ -598,6 +609,8 @@ mod tests
         }
     }
 
+    /*  Call rules_to_frame_buffer with a vector with just one rule in it,
+        one rule with a A couple sources a couple targets and a command. */
     #[test]
     fn rules_to_frame_buffer_one_to_one()
     {
@@ -614,25 +627,41 @@ mod tests
         {
             Ok((frame_buffer, to_frame_buffer_index)) =>
             {
+                /*  There should be one frame, and pairs in the map:
+                    plant -> (0, 0)
+                    tangerine -> (0, 1) */
                 assert_eq!(frame_buffer.len(), 1);
                 assert_eq!(to_frame_buffer_index.len(), 2);
 
                 assert_eq!(*to_frame_buffer_index.get("plant").unwrap(), (0usize, 0usize));
                 assert_eq!(*to_frame_buffer_index.get("tangerine").unwrap(), (0usize, 1usize));
 
-                let (record_index, target_index) = to_frame_buffer_index.get("plant").unwrap();
-                assert_eq!(*record_index, 0usize);
+                /*  to_frame_buffer_index maps a target to a pair of indices: the index of the node
+                    and the index of the target in the node. */
+                let (node_index, target_index) = to_frame_buffer_index.get("plant").unwrap();
+                assert_eq!(*node_index, 0usize);
 
-                match &frame_buffer[*record_index]
+                /*  Check that there's a node at that index with the right target */
+                match &frame_buffer[*node_index]
                 {
                     Some(frame) => assert_eq!(frame.targets[*target_index], "plant"),
-                    None => panic!("Expected some record found None"),
+                    None => panic!("Expected some node with target 'plant' found None"),
                 }
 
-                let (record_index, target_index) = to_frame_buffer_index.get("tangerine").unwrap();
-                assert_eq!(*record_index, 0usize);
+                /*  to_frame_buffer_index maps a target to a pair of indices: the index of the node
+                    and the index of the target in the node. */
+                let (node_index, target_index) = to_frame_buffer_index.get("tangerine").unwrap();
+                assert_eq!(*node_index, 0usize);
 
-                match &frame_buffer[*record_index]
+                /*  Check that there's a node at that index with the right target */
+                match &frame_buffer[*node_index]
+                {
+                    Some(frame) => assert_eq!(frame.targets[*target_index], "tangerine"),
+                    None => panic!("Expected some node with target 'tangerine' found None"),
+                }
+
+                /*  Get the frame (at index 0), and check that the sources and command are what was set above. */
+                match &frame_buffer[*node_index]
                 {
                     Some(frame) =>
                     {
@@ -648,7 +677,7 @@ mod tests
                             None => panic!("Expected some command found None"),
                         }
                     }
-                    None => panic!("Expected some record found None"),
+                    None => panic!("Expected some node found None"),
                 }
 
                 assert_eq!(*to_frame_buffer_index.get("tangerine").unwrap(), (0usize, 1usize));
@@ -690,6 +719,8 @@ mod tests
         }
     }
 
+    /*  Create a list of rules where two rules list the same target.
+        Try to call rules_to_frame_buffer, and check that an error-result is returned reporting the redundant target */
     #[test]
     fn rules_to_frame_buffer_redundancy_error()
     {
@@ -725,6 +756,7 @@ mod tests
         }
     }
 
+    /*  Topological sort the empty set of rules, check that the result is empty. */
     #[test]
     fn topological_sort_empty_is_error()
     {
@@ -746,6 +778,8 @@ mod tests
     }
 
 
+    /*  Topological sort a list of one rule only.  Check the result
+        contains a frame with just that one rule's data. */
     #[test]
     fn topological_sort_one_rule()
     {
@@ -760,14 +794,17 @@ mod tests
             ],
             "plant")
         {
-            Ok(v) =>
+            Ok(nodes) =>
             {
-                assert_eq!(v.len(), 1);
+                assert_eq!(nodes.len(), 1);
+                assert_eq!(nodes[0].targets[0], "plant");
             }
             Err(error) => panic!(format!("Expected success, got: {}", error)),
         }
     }
 
+    /*  Topological sort a list of two rules only, one depends on the other as a source, but
+        the order in the given list is backwards.  Check that the topological sort reverses the order. */
     #[test]
     fn topological_sort_two_rules()
     {
@@ -788,18 +825,20 @@ mod tests
             ],
             "fruit")
         {
-            Ok(v) =>
+            Ok(nodes) =>
             {
-                assert_eq!(v.len(), 2);
-                assert_eq!(v[0].targets[0], "plant");
-                assert_eq!(v[1].targets[0], "fruit");
+                assert_eq!(nodes.len(), 2);
+                assert_eq!(nodes[0].targets[0], "plant");
+                assert_eq!(nodes[1].targets[0], "fruit");
             }
             Err(error) => panic!(format!("Expected success, got: {}", error)),
         }
     }
 
+    /*  Topological sort a DAG that is not a tree.  Four nodes math, physics, graphics, game
+        physics and graphics both depend on math, and game depends on physics and graphics. */
     #[test]
-    fn topological_sort_four_rules_diamond()
+    fn topological_sort_four_rules_diamond_already_in_order()
     {
         match topological_sort(
             vec![
@@ -824,7 +863,7 @@ mod tests
                 Rule
                 {
                     targets: vec!["game".to_string()],
-                    sources: vec!["physics".to_string(), "graphics".to_string()],
+                    sources: vec!["graphics".to_string(), "physics".to_string()],
                     command: vec!["build game".to_string()],
                 },
             ],
@@ -834,8 +873,8 @@ mod tests
             {
                 assert_eq!(v.len(), 4);
                 assert_eq!(v[0].targets[0], "math");
-                assert_eq!(v[1].targets[0], "physics");
-                assert_eq!(v[2].targets[0], "graphics");
+                assert_eq!(v[1].targets[0], "graphics");
+                assert_eq!(v[2].targets[0], "physics");
                 assert_eq!(v[3].targets[0], "game");
 
                 assert_eq!(v[0].source_indices.len(), 0);
@@ -851,6 +890,71 @@ mod tests
         }
     }
 
+
+    /*  Topological sort a DAG that is not a tree.  Four nodes math, physics, graphics, game
+        physics and graphics both depend on math, and game depends on physics and graphics.
+
+        This is the same test as above, except the given vector is in the wrong order.  The result
+        should be the same as the above.  Part of this is to test well-definedness of order. */
+    #[test]
+    fn topological_sort_four_rules_diamond_scrambled()
+    {
+        match topological_sort(
+            vec![
+                Rule
+                {
+                    targets: vec!["graphics".to_string()],
+                    sources: vec!["math".to_string()],
+                    command: vec!["build graphics".to_string()],
+                },
+                Rule
+                {
+                    targets: vec!["physics".to_string()],
+                    sources: vec!["math".to_string()],
+                    command: vec!["build physics".to_string()],
+                },
+                Rule
+                {
+                    targets: vec!["math".to_string()],
+                    sources: vec![],
+                    command: vec![],
+                },
+                Rule
+                {
+                    targets: vec!["game".to_string()],
+                    sources: vec!["physics".to_string(), "graphics".to_string()],
+                    command: vec!["build game".to_string()],
+                },
+            ],
+            "game")
+        {
+            Ok(v) =>
+            {
+                assert_eq!(v.len(), 4);
+                assert_eq!(v[0].targets[0], "math");
+                assert_eq!(v[1].targets[0], "graphics");
+                assert_eq!(v[2].targets[0], "physics");
+                assert_eq!(v[3].targets[0], "game");
+
+                assert_eq!(v[0].source_indices.len(), 0);
+                assert_eq!(v[1].source_indices.len(), 1);
+                assert_eq!(v[1].source_indices[0], (0, 0));
+                assert_eq!(v[2].source_indices.len(), 1);
+                assert_eq!(v[2].source_indices[0], (0, 0));
+                assert_eq!(v[3].source_indices.len(), 2);
+                assert_eq!(v[3].source_indices[0], (1, 0));
+                assert_eq!(v[3].source_indices[1], (2, 0));
+            }
+            Err(why) => panic!(format!("Expected success, got: {}", why)),
+        }
+    }
+
+    /*  Topological sort a poetry example.  This has two intermediate build results that share
+        a source file.  It's a bit like the diamond, except the shared source is not a rule,
+        just a file in the file system, and there are other source-files, too.
+
+        The topologial sort should not only put the nodes in order, but also create nodes for the
+        source files not specifically represented as rules. */
     #[test]
     fn topological_sort_poem()
     {
@@ -899,7 +1003,58 @@ mod tests
         }
     }
 
+    /*  Topological sort a poetry example.  This test is just like the one above but with the
+        given list of rules in a different order.  The result should be the same. */
+    #[test]
+    fn topological_sort_poem_scrambled()
+    {
+        match topological_sort(
+            vec![
+                Rule
+                {
+                    targets: vec!["poem".to_string()],
+                    sources: vec!["stanza1".to_string(), "stanza2".to_string()],
+                    command: vec!["poemcat stanza1 stanza2".to_string()],
+                },
+                Rule
+                {
+                    targets: vec!["stanza2".to_string()],
+                    sources: vec!["verse2".to_string(), "chorus".to_string()],
+                    command: vec!["poemcat verse2 chorus".to_string()],
+                },
+                Rule
+                {
+                    targets: vec!["stanza1".to_string()],
+                    sources: vec!["verse1".to_string(), "chorus".to_string()],
+                    command: vec!["poemcat verse1 chorus".to_string()],
+                },
+            ],
+            "poem")
+        {
+            Ok(v) =>
+            {
+                assert_eq!(v.len(), 6);
+                assert_eq!(v[0].targets[0], "chorus");
+                assert_eq!(v[1].targets[0], "verse1");
+                assert_eq!(v[2].targets[0], "stanza1");
+                assert_eq!(v[3].targets[0], "verse2");
+                assert_eq!(v[4].targets[0], "stanza2");
+                assert_eq!(v[5].targets[0], "poem");
 
+                assert_eq!(v[0].source_indices.len(), 0);
+                assert_eq!(v[1].source_indices.len(), 0);
+                assert_eq!(v[3].source_indices.len(), 0);
+
+                assert_eq!(v[2].source_indices, [(0, 0), (1, 0)]);
+                assert_eq!(v[4].source_indices, [(0, 0), (3, 0)]);
+                assert_eq!(v[5].source_indices, [(2, 0), (4, 0)]);
+            }
+            Err(why) => panic!(format!("Expected success, got: {}", why)),
+        }
+    }
+
+    /*  Topological sort a dependence graph with a cycle in it.  Check that the error
+        returned points to the cycle. */
     #[test]
     fn topological_sort_circular()
     {
@@ -938,7 +1093,7 @@ mod tests
 
 
     /*  Make a Rule that depends on /itself/ as a source.  Try to topologial sort,
-        expect the error to reflect a self-dependence  */
+        expect the error to reflect the self-dependence  */
     #[test]
     fn topological_sort_self_reference()
     {
@@ -965,7 +1120,8 @@ mod tests
         }
     }
 
-
+    /*  Create a rule with a few sources that don't exist as targets of other rules.
+        Perform a topological sort and check that the sources are created as nodes. */
     #[test]
     fn topological_sort_make_nodes_for_sources()
     {
@@ -1005,6 +1161,7 @@ mod tests
         }
     }
 
+    /*  Check the function split_along_endpoints returns an empty list when given the empty string. */
     #[test]
     fn split_along_endpoints_empty()
     {
@@ -1012,6 +1169,8 @@ mod tests
         assert_eq!(v.len(), 0);
     }
 
+    /*  Call split_along_endpoints with a string and endpoints that cut a prefix off the string,
+        Check that the prefix is returned. */
     #[test]
     fn split_along_endpoints_one()
     {
@@ -1028,6 +1187,8 @@ mod tests
         assert_eq!(v[0], "app");
     }
 
+    /*  Call split_along_endpoints with two words and endpoints that cut the string into the two words,
+        Check that two words are returned as separate strings. */
     #[test]
     fn split_along_endpoints_two()
     {
@@ -1050,6 +1211,8 @@ mod tests
         assert_eq!(v[1], "bananas");
     }
 
+    /*  Call split_along_endpoints with two words with junk interspersed and endpoints that separate out the two words,
+        Check that two words are returned as separate strings. */
     #[test]
     fn split_along_endpoints_two_padding()
     {
@@ -1072,6 +1235,7 @@ mod tests
         assert_eq!(v[1], "bananas");
     }
 
+    /*  Call get_line_endpoints on a string with no newlines. Check that we get the empty vec. */
     #[test]
     fn get_line_endpoints_empty()
     {
@@ -1079,6 +1243,8 @@ mod tests
         assert_eq!(v.len(), 0);
     }
 
+    /*  Call get_line_endpoints on a string ending in a newline. Check that we get endpoints capturing the
+        string upto but not including the newline. */
     #[test]
     fn get_line_endpoints_one()
     {
@@ -1088,6 +1254,8 @@ mod tests
         assert_eq!(v[0].end, 4);
     }
 
+    /*  Call get_line_endpoints on a string with newlines interspersed. Check that we get endpoints capturing
+        the non-newline content. */
     #[test]
     fn get_line_endpoints_two()
     {
@@ -1099,6 +1267,8 @@ mod tests
         assert_eq!(v[1].end, 5);
     }
 
+    /*  Call get_line_endpoints on a string with newlines interspersed. Check that we get endpoints capturing
+        the non-newline content.  This time by extracting substrings using the endpoints */
     #[test]
     fn get_line_endpoints_rule()
     {
@@ -1113,6 +1283,7 @@ mod tests
         assert_eq!(s[v[5].start..v[5].end], *":");
     }
 
+    /*  Combine get_line_endpoints and split_along_endpoints to parse a properly formatted rule. */
     #[test]
     fn split_along_endpoints_rule()
     {
@@ -1122,8 +1293,15 @@ mod tests
 
         let v = split_along_endpoints(text, endpoints);
         assert_eq!(v.len(), 6);
+        assert_eq!(v[0], "a");
+        assert_eq!(v[1], ":");
+        assert_eq!(v[2], "b");
+        assert_eq!(v[3], ":");
+        assert_eq!(v[4], "c");
+        assert_eq!(v[5], ":");
     }
 
+    /*  Call parse on an empty string, check that the rule list is empty. */
     #[test]
     fn parse_empty()
     {
@@ -1133,9 +1311,9 @@ mod tests
             {
                 panic!(format!("Unexpected success when parsing empty string"));
             },
-            Err(why) =>
+            Err(error) =>
             {
-                assert_eq!(why, "Unexpected end of file mid-targets")
+                assert_eq!(error, "Unexpected end of file mid-targets")
             }
         };
     }
