@@ -6,7 +6,7 @@ use crate::executor::{CommandLineOutput, Executor};
 use crate::metadata::MetadataGetter;
 use crate::memory::{RuleHistory, TargetHistory, RuleHistoryError};
 use crate::cache::{LocalCache, RestoreResult};
-use crate::internet::{upload, download, UploadError};
+use crate::internet::{download};
 
 use filesystem::FileSystem;
 use std::sync::mpsc::{Sender, Receiver, RecvError};
@@ -110,7 +110,6 @@ pub enum WorkError
     CacheDirectoryMissing,
     CacheMalfunction(std::io::Error),
     CommandWithNoRuleHistory,
-    UploadError(UploadError),
     Weird,
 }
 
@@ -146,9 +145,6 @@ impl fmt::Display for WorkError
 
             WorkError::CommandFailedToExecute(error) =>
                 write!(formatter, "Failed to execute command with message: {}", error),
-
-            WorkError::UploadError(error) =>
-                write!(formatter, "File Failed to upload: {}", error),
 
             WorkError::Contradiction(contradicting_target_paths) =>
             {
@@ -780,31 +776,6 @@ pub fn clean_targets<
 
     Ok(())
 }
-
-
-pub fn upload_targets<FileSystemType: FileSystem>
-(
-    file_system : &FileSystemType,
-    target_paths : Vec<String>,
-    server_url : String,
-)
--> Result<(), WorkError>
-{
-    for path in target_paths
-    {
-        if file_system.is_file(&path)
-        {
-            match upload(&server_url, file_system, &path)
-            {
-                Ok(_) => {},
-                Err(error) => return Err(WorkError::UploadError(error)),
-            }
-        }
-    }
-
-    Ok(())
-}
-
 
 
 #[cfg(test)]

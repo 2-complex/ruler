@@ -30,7 +30,6 @@ use crate::work::
     FileResolution,
     handle_node,
     clean_targets,
-    upload_targets,
 };
 
 use crate::metadata::MetadataGetter;
@@ -594,113 +593,6 @@ pub fn clean<
                                 &file_system_clone,
                                 &metadata_getter_clone,
                                 &local_cache_clone)
-                        }
-                    )
-                ),
-            None => {},
-        }
-    }
-
-    let mut work_errors = Vec::new();
-
-    for handle in handles
-    {
-        match handle.join()
-        {
-            Err(_error) => return Err(BuildError::Weird),
-            Ok(remove_result_result) =>
-            {
-                match remove_result_result
-                {
-                    Ok(_) => {},
-                    Err(work_error) =>
-                    {
-                        match work_error
-                        {
-                            _ =>
-                            {
-                                work_errors.push(work_error);
-                            }
-                        }
-                    },
-                }
-            }
-        }
-    }
-
-    if work_errors.len() == 0
-    {
-        Ok(())
-    }
-    else
-    {
-        Err(BuildError::WorkErrors(work_errors))
-    }
-}
-
-pub fn upload<
-    FileSystemType : FileSystem
-        + Clone + Send + 'static,
->(
-    file_system : FileSystemType,
-    rulefile : &str,
-    target : &str,
-    server_url : &str,
-)
--> Result<(), BuildError>
-{
-    let rule_text =
-    match file_system.read_file(rulefile)
-    {
-        Ok(rule_content) =>
-        {
-            match from_utf8(&rule_content)
-            {
-                Ok(rule_text) => rule_text.to_owned(),
-                Err(_) => return Err(BuildError::RuleFileNotUTF8),
-            }
-        },
-        Err(error) => return Err(BuildError::RuleFileFailedToOpen(rulefile.to_string(), error)),
-    };
-
-    let rules =
-    match parse(rule_text)
-    {
-        Ok(rules) => rules,
-        Err(error) => return Err(BuildError::RuleFileFailedToParse(error)),
-    };
-
-    let mut nodes =
-    match topological_sort(rules, &target)
-    {
-        Ok(nodes) => nodes,
-        Err(error) => return Err(BuildError::TopologicalSortFailed(error)),
-    };
-
-    let mut handles = Vec::new();
-
-    for mut node in nodes.drain(..)
-    {
-        let mut target_paths = Vec::new();
-        for target_path in node.targets.drain(..)
-        {
-            target_paths.push(target_path);
-        }
-
-        let file_system_clone = file_system.clone();
-        let server_url_clone = server_url.to_string();
-
-        match node.rule_ticket
-        {
-            Some(_ticket) =>
-                handles.push(
-                    thread::spawn(
-                        move || -> Result<(), WorkError>
-                        {
-                            upload_targets(
-                                &file_system_clone,
-                                target_paths,
-                                server_url_clone)
                         }
                     )
                 ),

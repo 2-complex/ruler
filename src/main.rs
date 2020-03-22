@@ -17,7 +17,6 @@ mod internet;
 
 use self::executor::OsExecutor;
 use self::metadata::OsMetadataGetter;
-use self::ticket::TicketFactory;
 
 fn main()
 {
@@ -36,20 +35,6 @@ fn main()
             )
         )
         .subcommand(
-            SubCommand::with_name("upload")
-            .help("Uploads all intermediates")
-            .arg(Arg::with_name("target")
-                .help("The path to the target file (or directory) to be uploaded.  Upload command will upload the target and all its intermeidate:\n")
-                .required(true)
-                .index(1)
-            )
-            .arg(Arg::with_name("server")
-                .help("The upload url")
-                .required(true)
-                .index(2)
-            )
-        )
-        .subcommand(
             SubCommand::with_name("build")
             .help("Builds the given target.\nThe target must be a file listed in the target section of the current rules file.\nThe rules file is either a file in the current working directory called \"build.rules\" or it can be specificed using --rules=<path>")
             .arg(Arg::with_name("target")
@@ -58,69 +43,8 @@ fn main()
                 .index(1)
             )
         )
-        .subcommand(
-            SubCommand::with_name("hash")
-            .help("Prints out the hash of a file.")
-            .arg(Arg::with_name("path")
-                .help("The path to the file to be hashed")
-                .required(true)
-                .index(1)
-            )
-        )
-        .subcommand(
-            SubCommand::with_name("memory")
-            .help("Shows the content of ruler memory.  This includes rule histores and target histories.")
-        )
         .get_matches();
 
-
-    if let Some(matches) = big_matches.subcommand_matches("hash")
-    {
-        let path =
-        match matches.value_of("path")
-        {
-            Some(value) => value,
-            None => panic!("No path!"),
-        };
-
-        match TicketFactory::from_file(&OsFileSystem::new(), path)
-        {
-            Ok(mut factory) =>
-            {
-                println!("{}", factory.result().base64());
-            },
-            Err(error) => eprintln!("{}", error),
-        }
-    }
-
-    if let Some(matches) = big_matches.subcommand_matches("upload")
-    {
-        let rulefile = "build.rules";
-
-        let target =
-        match matches.value_of("target")
-        {
-            Some(value) => value,
-            None => panic!("No target!"),
-        };
-
-        let server_url =
-        match matches.value_of("server")
-        {
-            Some(value) => value,
-            None => panic!("No server!"),
-        };
-
-        match build::upload(
-            OsFileSystem::new(),
-            rulefile,
-            target,
-            server_url)
-        {
-            Ok(()) => {},
-            Err(error) => eprintln!("{}", error),
-        }
-    }
 
     if let Some(matches) = big_matches.subcommand_matches("clean")
     {
@@ -151,24 +75,6 @@ fn main()
             directory, rulefile, target)
         {
             Ok(()) => {},
-            Err(error) => eprintln!("{}", error),
-        }
-    }
-
-    if let Some(matches) = big_matches.subcommand_matches("memory")
-    {
-        let directory =
-        match matches.value_of("directory")
-        {
-            Some(value) => value,
-            None => ".ruler",
-        };
-
-        let mut file_system = OsFileSystem::new();
-
-        match build::init_directory(&mut file_system, directory)
-        {
-            Ok((memory, _, _)) => println!("{}", memory),
             Err(error) => eprintln!("{}", error),
         }
     }
