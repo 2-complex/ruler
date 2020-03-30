@@ -55,7 +55,6 @@ impl TicketFactory
         path : &str)
         -> Result<TicketFactory, std::io::Error>
     {
-
         match file_system.open(path)
         {
             Ok(mut reader) =>
