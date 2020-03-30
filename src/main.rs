@@ -4,6 +4,11 @@ extern crate filesystem;
 use clap::{Arg, App, SubCommand};
 use filesystem::OsFileSystem;
 
+use std::io::prelude::*;
+use std::net::TcpStream;
+use std::net::TcpListener;
+use std::fs;
+
 mod cache;
 mod build;
 mod rule;
@@ -21,6 +26,66 @@ use self::executor::OsExecutor;
 use self::metadata::OsMetadataGetter;
 use self::ticket::TicketFactory;
 
+
+pub enum SplitError
+{
+    Contradiction(Vec<usize>),
+    TargetSizesDifferWeird,
+}
+
+fn handle_connection(mut stream: TcpStream)
+{
+    let mut buffer = [0; 512];
+    stream.read(&mut buffer).unwrap();
+
+    let requeststring = std::str::from_utf8(&buffer).unwrap();
+
+    let mut splitthing = requeststring.split_whitespace();
+
+    match(splitthing.next())
+    {
+        Some("GET") =>
+        {
+            match(splitthing.next())
+            {
+                Some(token) =>
+                {
+                    println!("token = {}", token);
+
+                    let filesystem = OsFileSystem::new();
+
+                    let contents = fs::read_to_string("bobomb.png").unwrap();
+                    let response = format!("HTTP/1.1 200 OK\r\n\r\n{}", contents);
+
+                    stream.write(response.as_bytes()).unwrap();
+                    stream.flush().unwrap();
+                },
+                None=>
+                {
+                    let response = "HTTP/1.1 404 File Not Found\r\n\r\n".to_string();
+
+                    stream.write(response.as_bytes()).unwrap();
+                    stream.flush().unwrap();
+                },
+            }
+        },
+        Some(_) =>
+        {
+            let response = "HTTP/1.1 405 Method Not Allowed\r\n\r\n".to_string();
+
+            stream.write(response.as_bytes()).unwrap();
+            stream.flush().unwrap();
+        },
+        None =>
+        {
+            let response = "".to_string();
+            stream.write(response.as_bytes()).unwrap();
+            stream.flush().unwrap();
+        }
+    }
+
+}
+
 fn main()
 {
     let big_matches = App::new("Ruler")
@@ -35,20 +100,6 @@ fn main()
                 .help("The path to the target file (or directory) to be cleaned.  Clean command will remove all files which are:\n - listed as targets in the rule\n - dependencies of the target specified ")
                 .required(true)
                 .index(1)
-            )
-        )
-        .subcommand(
-            SubCommand::with_name("upload")
-            .help("Uploads all intermediates")
-            .arg(Arg::with_name("target")
-                .help("The path to the target file (or directory) to be uploaded.  Upload command will upload the target and all its intermeidate:\n")
-                .required(true)
-                .index(1)
-            )
-            .arg(Arg::with_name("server")
-                .help("The upload url")
-                .required(true)
-                .index(2)
             )
         )
         .subcommand(
@@ -68,6 +119,10 @@ fn main()
                 .required(true)
                 .index(1)
             )
+        )
+        .subcommand(
+            SubCommand::with_name("serve")
+            .help("Serves the current project and cache to any other clients on other computers who want to get intermediate build files from the network instead of building them.")
         )
         .subcommand(
             SubCommand::with_name("memory")
@@ -208,4 +263,16 @@ fn main()
             Err(error) => eprintln!("{}", error),
         }
     }
+
+    if let Some(matches) = big_matches.subcommand_matches("serve")
+    {
+        let listener = TcpListener::bind("0.0.0.0:7878").unwrap();
+
+        for stream in listener.incoming()
+        {
+            let stream = stream.unwrap();
+            handle_connection(stream);
+        }
+    }
 }
+
