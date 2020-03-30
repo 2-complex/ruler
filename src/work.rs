@@ -2,16 +2,76 @@ extern crate filesystem;
 
 use crate::packet::Packet;
 use crate::ticket::{Ticket, TicketFactory};
-use crate::station::{Station, get_file_ticket, TargetFileInfo};
 use crate::executor::{CommandLineOutput, Executor};
 use crate::metadata::MetadataGetter;
-use crate::memory::{RuleHistory, RuleHistoryError};
+use crate::memory::{RuleHistory, TargetHistory, RuleHistoryError};
 use crate::cache::{LocalCache, RestoreResult};
 use crate::internet::{upload, download, UploadError};
 
 use filesystem::FileSystem;
 use std::sync::mpsc::{Sender, Receiver, RecvError};
 use std::fmt;
+use std::time::{SystemTime, SystemTimeError};
+
+fn get_timestamp(system_time : SystemTime) -> Result<u64, SystemTimeError>
+{
+    match system_time.duration_since(SystemTime::UNIX_EPOCH)
+    {
+        Ok(duration) => Ok(1_000_000u64 * duration.as_secs() + u64::from(duration.subsec_micros())),
+        Err(e) => Err(e),
+    }
+}
+
+pub fn get_file_ticket
+<
+    FileSystemType: FileSystem,
+    MetadataGetterType: MetadataGetter
+>
+(
+    file_system : &FileSystemType,
+    metadata_getter : &MetadataGetterType,
+    target_info : &TargetFileInfo
+)
+-> Result<Option<Ticket>, std::io::Error>
+{
+    match metadata_getter.get_modified(&target_info.path)
+    {
+        Ok(system_time) =>
+        {
+            match get_timestamp(system_time)
+            {
+                Ok(timestamp) =>
+                {
+                    if timestamp == target_info.history.timestamp
+                    {
+                        return Ok(Some(target_info.history.ticket.clone()))
+                    }
+                },
+                Err(_) => {},
+            }
+        },
+        Err(_) => {},
+    }
+
+    if file_system.is_file(&target_info.path) || file_system.is_dir(&target_info.path)
+    {
+        match TicketFactory::from_file(file_system, &target_info.path)
+        {
+            Ok(mut factory) => Ok(Some(factory.result())),
+            Err(err) => Err(err),
+        }
+    }
+    else
+    {
+        Ok(None)
+    }
+}
+
+pub struct TargetFileInfo
+{
+    pub path : String,
+    pub history : TargetHistory,
+}
 
 pub enum FileResolution
 {
@@ -373,21 +433,24 @@ fn handle_source_only_node
     MetadataGetterType: MetadataGetter
 >
 (
-    station : Station<FileSystemType, MetadataGetterType>,
+    target_infos : Vec<TargetFileInfo>,
+    command : Vec<String>,
+    file_system : FileSystemType,
+    metadata_getter : MetadataGetterType,
     senders : Vec<(usize, Sender<Packet>)>
 )
 ->
 Result<WorkResult, WorkError>
 {
-    if station.command.len() != 0
+    if command.len() != 0
     {
         return Err(WorkError::CommandWithNoRuleHistory)
     }
 
     let current_target_tickets = match get_current_target_tickets(
-        &station.file_system,
-        &station.metadata_getter,
-        &station.target_infos)
+        &file_system,
+        &metadata_getter,
+        &target_infos)
     {
         Ok(target_tickets) => target_tickets,
         Err(error) => return Err(error),
@@ -406,7 +469,7 @@ Result<WorkResult, WorkError>
     Ok(
         WorkResult
         {
-            target_infos : station.target_infos,
+            target_infos : target_infos,
             work_option : WorkOption::SourceOnly,
             rule_history : None
         }
@@ -572,7 +635,11 @@ pub fn handle_node
     MetadataGetterType: MetadataGetter
 >
 (
-    station : Station<FileSystemType, MetadataGetterType>,
+    target_infos : Vec<TargetFileInfo>,
+    command : Vec<String>,
+    rule_history_opt : Option<RuleHistory>,
+    file_system : FileSystemType,
+    metadata_getter : MetadataGetterType,
     senders : Vec<(usize, Sender<Packet>)>,
     receivers : Vec<Receiver<Packet>>,
     executor : ExecType,
@@ -588,42 +655,47 @@ Result<WorkResult, WorkError>
         Err(error) => return Err(error),
     };
 
-    match station.rule_history
+    match rule_history_opt
     {
-        None => handle_source_only_node(station, senders),
+        None => handle_source_only_node(
+            target_infos,
+            command,
+            file_system,
+            metadata_getter,
+            senders),
 
         Some(rule_history) =>
         {
             match resolve_with_cache(
-                &station.file_system,
-                &station.metadata_getter,
+                &file_system,
+                &metadata_getter,
                 &cache,
                 &download_urls,
                 &rule_history,
                 &sources_ticket,
-                &station.target_infos)
+                &target_infos)
             {
                 Ok(resolutions) =>
                 {
                     if needs_rebuild(&resolutions)
                     {
                         rebuild_node(
-                            &station.file_system,
-                            &station.metadata_getter,
+                            &file_system,
+                            &metadata_getter,
                             &executor,
                             rule_history,
                             sources_ticket,
-                            station.command,
+                            command,
                             senders,
-                            station.target_infos
+                            target_infos
                         )
                     }
                     else
                     {
                         let target_tickets = match get_current_target_tickets(
-                            &station.file_system,
-                            &station.metadata_getter,
-                            &station.target_infos)
+                            &file_system,
+                            &metadata_getter,
+                            &target_infos)
                         {
                             Ok(target_tickets) => target_tickets,
                             Err(error) => return Err(error),
@@ -642,7 +714,7 @@ Result<WorkResult, WorkError>
                         Ok(
                             WorkResult
                             {
-                                target_infos : station.target_infos,
+                                target_infos : target_infos,
                                 work_option : WorkOption::Resolutions(resolutions),
                                 rule_history : Some(rule_history),
                             }
@@ -738,14 +810,15 @@ pub fn upload_targets<FileSystemType: FileSystem>
 #[cfg(test)]
 mod test
 {
-    use crate::station::{Station, TargetFileInfo};
     use crate::work::
     {
         handle_node,
+        get_file_ticket,
         FileResolution,
         WorkResult,
         WorkOption,
-        WorkError
+        WorkError,
+        TargetFileInfo,
     };
     use crate::ticket::TicketFactory;
     use crate::memory::{RuleHistory, TargetHistory};
@@ -781,6 +854,117 @@ mod test
         result
     }
 
+    #[test]
+    fn work_get_tickets_from_filesystem()
+    {
+        let file_system = FakeFileSystem::new();
+
+        match file_system.write_file("quine.sh", "cat $0")
+        {
+            Ok(_) => {},
+            Err(why) => panic!("Failed to make fake file: {}", why),
+        }
+
+        match get_file_ticket(
+            &file_system,
+            &FakeMetadataGetter::new(),
+            &TargetFileInfo
+            {
+                path : "quine.sh".to_string(),
+                history : TargetHistory
+                {
+                    ticket : TicketFactory::new().result(),
+                    timestamp : 0,
+                }
+            })
+        {
+            Ok(ticket_opt) => match ticket_opt
+            {
+                Some(ticket) => assert_eq!(ticket, TicketFactory::from_str("cat $0").result()),
+                None => panic!(format!("Could not get ticket")),
+            }
+            Err(err) => panic!(format!("Could not get ticket: {}", err)),
+        }
+    }
+
+    #[test]
+    fn work_get_tickets_from_history()
+    {
+        let mut rule_history = RuleHistory::new();
+        let file_system = FakeFileSystem::new();
+
+        let source_content = "int main(){printf(\"my game\"); return 0;}";
+        let target_content = "machine code for my game";
+
+        let mut source_factory = TicketFactory::new();
+        source_factory.input_ticket(TicketFactory::from_str(source_content).result());
+
+        // Make rule history remembering that the source c++ code built
+        // to the target executable.
+        match rule_history.insert(
+            source_factory.result(),
+            vec![TicketFactory::from_str(target_content).result()])
+        {
+            Ok(_) => {},
+            Err(_) => panic!("Rule history failed to insert"),
+        }
+
+        // Meanwhile, in the filesystem put some rubbish in game.cpp
+        match file_system.write_file("game.cpp", source_content)
+        {
+            Ok(_) => {},
+            Err(why) => panic!("Failed to make fake file: {}", why),
+        }
+
+        // Then get the ticket for the current source file:
+        match get_file_ticket(
+            &file_system,
+            &FakeMetadataGetter::new(),
+            &TargetFileInfo
+            {
+                path : "game.cpp".to_string(),
+                history : TargetHistory
+                {
+                    ticket : TicketFactory::new().result(),
+                    timestamp : 0,
+                }
+            })
+        {
+            Ok(ticket_opt) =>
+            {
+                match ticket_opt
+                {
+                    Some(ticket) =>
+                    {
+                        // Make sure it matches the content of the file that we wrote
+                        assert_eq!(ticket, TicketFactory::from_str(source_content).result());
+
+                        // Then create a source ticket for all (one) sources
+                        let mut source_factory = TicketFactory::new();
+                        source_factory.input_ticket(ticket);
+                        let source_ticket = source_factory.result();
+
+                        // Remember what the target tickets were when built with that source before:
+                        let target_tickets =
+                        match rule_history.get_target_tickets(&source_ticket)
+                        {
+                            Some(target_tickets) => target_tickets,
+                            None => panic!("Tickets not in history as expected"),
+                        };
+
+                        assert_eq!(
+                            vec![
+                                TicketFactory::from_str(target_content).result()
+                            ],
+                            *target_tickets
+                        );
+                    },
+                    None => panic!("No ticket found where expected"),
+                }
+            }
+            Err(err) => panic!(format!("Could not get ticket: {}", err)),
+        }
+    }
 
     #[test]
     fn do_empty_command()
@@ -793,12 +977,11 @@ mod test
         }
 
         match handle_node(
-            Station::new(
-                to_info(vec!["A".to_string()]),
-                vec![],
-                None,
-                file_system.clone(),
-                FakeMetadataGetter::new()),
+            to_info(vec!["A".to_string()]),
+            vec![],
+            None,
+            file_system.clone(),
+            FakeMetadataGetter::new(),
             Vec::new(),
             Vec::new(),
             FakeExecutor::new(file_system.clone()),
@@ -858,12 +1041,11 @@ mod test
         }
 
         match handle_node(
-            Station::new(
-                to_info(vec!["A.txt".to_string()]),
-                vec!["mycat".to_string(), "A-source.txt".to_string(), "A.txt".to_string()],
-                Some(RuleHistory::new()),
-                file_system.clone(),
-                FakeMetadataGetter::new()),
+            to_info(vec!["A.txt".to_string()]),
+            vec!["mycat".to_string(), "A-source.txt".to_string(), "A.txt".to_string()],
+            Some(RuleHistory::new()),
+            file_system.clone(),
+            FakeMetadataGetter::new(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
             FakeExecutor::new(file_system.clone()),
@@ -936,12 +1118,11 @@ mod test
         }
 
         match handle_node(
-            Station::new(
-                to_info(vec!["poem.txt".to_string()]),
-                vec!["error".to_string()],
-                Some(RuleHistory::new()),
-                file_system.clone(),
-                FakeMetadataGetter::new()),
+            to_info(vec!["poem.txt".to_string()]),
+            vec!["error".to_string()],
+            Some(RuleHistory::new()),
+            file_system.clone(),
+            FakeMetadataGetter::new(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
             FakeExecutor::new(file_system.clone()),
@@ -998,17 +1179,16 @@ mod test
         }
 
         match handle_node(
-            Station::new(
-                to_info(vec!["poem.txt".to_string()]),
-                vec![
-                    "mycat".to_string(),
-                    "verse1.txt".to_string(),
-                    "verse2.txt".to_string(),
-                    "poem.txt".to_string()
-                ],
-                Some(RuleHistory::new()),
-                file_system.clone(),
-                FakeMetadataGetter::new()),
+            to_info(vec!["poem.txt".to_string()]),
+            vec![
+                "mycat".to_string(),
+                "verse1.txt".to_string(),
+                "verse2.txt".to_string(),
+                "poem.txt".to_string()
+            ],
+            Some(RuleHistory::new()),
+            file_system.clone(),
+            FakeMetadataGetter::new(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
             FakeExecutor::new(file_system.clone()),
@@ -1109,17 +1289,15 @@ mod test
         }
 
         match handle_node(
-            Station::new(
-                to_info(vec!["poem.txt".to_string()]),
-                vec![
-                    "error".to_string(),
-                    "poem is already correct".to_string(),
-                    "this command should not run".to_string(),
-                    "the end".to_string()],
-                Some(rule_history),
-                file_system.clone(),
-                FakeMetadataGetter::new(),
-            ),
+            to_info(vec!["poem.txt".to_string()]),
+            vec![
+                "error".to_string(),
+                "poem is already correct".to_string(),
+                "this command should not run".to_string(),
+                "the end".to_string()],
+            Some(rule_history),
+            file_system.clone(),
+            FakeMetadataGetter::new(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
             FakeExecutor::new(file_system.clone()),
@@ -1232,18 +1410,16 @@ mod test
         }
 
         match handle_node(
-            Station::new(
-                to_info(vec!["poem.txt".to_string()]),
-                vec![
-                    "mycat".to_string(),
-                    "verse1.txt".to_string(),
-                    "verse2.txt".to_string(),
-                    "poem.txt".to_string()
-                ],
-                Some(rule_history),
-                file_system.clone(),
-                FakeMetadataGetter::new(),
-            ),
+            to_info(vec!["poem.txt".to_string()]),
+            vec![
+                "mycat".to_string(),
+                "verse1.txt".to_string(),
+                "verse2.txt".to_string(),
+                "poem.txt".to_string()
+            ],
+            Some(rule_history),
+            file_system.clone(),
+            FakeMetadataGetter::new(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
             FakeExecutor::new(file_system.clone()),
@@ -1281,13 +1457,11 @@ mod test
         }
 
         match handle_node(
-            Station::new(
-                to_info(vec!["verse1.txt".to_string()]),
-                vec![],
-                None,
-                file_system.clone(),
-                FakeMetadataGetter::new()
-            ),
+            to_info(vec!["verse1.txt".to_string()]),
+            vec![],
+            None,
+            file_system.clone(),
+            FakeMetadataGetter::new(),
             vec![],
             vec![],
             FakeExecutor::new(file_system.clone()),
@@ -1322,13 +1496,11 @@ mod test
         }
 
         match handle_node(
-            Station::new(
-                to_info(vec!["verse1.txt".to_string()]),
-                vec!["rm".to_string(), "verse1.txt".to_string()],
-                Some(RuleHistory::new()),
-                file_system.clone(),
-                FakeMetadataGetter::new()
-            ),
+            to_info(vec!["verse1.txt".to_string()]),
+            vec!["rm".to_string(), "verse1.txt".to_string()],
+            Some(RuleHistory::new()),
+            file_system.clone(),
+            FakeMetadataGetter::new(),
             vec![],
             vec![],
             FakeExecutor::new(file_system.clone()),
@@ -1354,7 +1526,11 @@ mod test
         FileSystemType: FileSystem + Send + 'static,
         MetadataGetterType: MetadataGetter + Send + 'static
         > (
-            station : Station<FileSystemType, MetadataGetterType>,
+            target_infos : Vec<TargetFileInfo>,
+            command : Vec<String>,
+            rule_history_opt : Option<RuleHistory>,
+            file_system : FileSystemType,
+            metadata_getter : MetadataGetterType,
             senders : Vec<(usize, Sender<Packet>)>,
             receivers : Vec<Receiver<Packet>>,
             executor: FakeExecutor
@@ -1363,7 +1539,17 @@ mod test
         thread::spawn(
             move || -> Result<WorkResult, WorkError>
             {
-                handle_node(station, senders, receivers, executor, LocalCache::new(".ruler-cache"), vec![])
+                handle_node(
+                    target_infos,
+                    command,
+                    rule_history_opt,
+                    file_system,
+                    metadata_getter,
+                    senders,
+                    receivers,
+                    executor,
+                    LocalCache::new(".ruler-cache"),
+                    vec![])
             }
         )
     }
@@ -1382,34 +1568,30 @@ mod test
         let (sender, receiver) = mpsc::channel();
 
         let handle1 = spawn_command(
-            Station::new(
-                to_info(vec!["stanza1.txt".to_string()]),
-                vec![
-                    "mycat".to_string(),
-                    "verse1.txt".to_string(),
-                    "stanza1.txt".to_string()
-                ],
-                Some(RuleHistory::new()),
-                file_system.clone(),
-                FakeMetadataGetter::new(),
-            ),
+            to_info(vec!["stanza1.txt".to_string()]),
+            vec![
+                "mycat".to_string(),
+                "verse1.txt".to_string(),
+                "stanza1.txt".to_string()
+            ],
+            Some(RuleHistory::new()),
+            file_system.clone(),
+            FakeMetadataGetter::new(),
             vec![(0, sender)],
             vec![],
             FakeExecutor::new(file_system.clone())
         );
 
         let handle2 = spawn_command(
-            Station::new(
-                to_info(vec!["poem.txt".to_string()]),
-                vec![
-                    "mycat".to_string(),
-                    "stanza1.txt".to_string(),
-                    "poem.txt".to_string()
-                ],
-                Some(RuleHistory::new()),
-                file_system.clone(),
-                FakeMetadataGetter::new(),
-            ),
+            to_info(vec!["poem.txt".to_string()]),
+            vec![
+                "mycat".to_string(),
+                "stanza1.txt".to_string(),
+                "poem.txt".to_string()
+            ],
+            Some(RuleHistory::new()),
+            file_system.clone(),
+            FakeMetadataGetter::new(),
             vec![],
             vec![receiver],
             FakeExecutor::new(file_system.clone())
@@ -1486,34 +1668,30 @@ mod test
         let (sender, receiver) = mpsc::channel();
 
         let handle1 = spawn_command(
-            Station::new(
-                to_info(vec!["stanza1.txt".to_string()]),
-                vec![
-                    "mycat".to_string(),
-                    "verse1.txt".to_string(),
-                    "stanza1.txt".to_string()
-                ],
-                Some(RuleHistory::new()),
-                file_system.clone(),
-                FakeMetadataGetter::new(),
-            ),
+            to_info(vec!["stanza1.txt".to_string()]),
+            vec![
+                "mycat".to_string(),
+                "verse1.txt".to_string(),
+                "stanza1.txt".to_string()
+            ],
+            Some(RuleHistory::new()),
+            file_system.clone(),
+            FakeMetadataGetter::new(),
             vec![(0, sender)],
             vec![],
             FakeExecutor::new(file_system.clone())
         );
 
         let handle2 = spawn_command(
-            Station::new(
-                to_info(vec!["poem.txt".to_string()]),
-                vec![
-                    "mycat".to_string(),
-                    "stanza1.txt".to_string(),
-                    "poem.txt".to_string()
-                ],
-                Some(RuleHistory::new()),
-                file_system.clone(),
-                FakeMetadataGetter::new(),
-            ),
+            to_info(vec!["poem.txt".to_string()]),
+            vec![
+                "mycat".to_string(),
+                "stanza1.txt".to_string(),
+                "poem.txt".to_string()
+            ],
+            Some(RuleHistory::new()),
+            file_system.clone(),
+            FakeMetadataGetter::new(),
             vec![],
             vec![receiver],
             FakeExecutor::new(file_system.clone())
@@ -1578,18 +1756,16 @@ mod test
         let (sender, _receiver) = mpsc::channel();
 
         let handle1 = spawn_command(
-            Station::new(
-                to_info(vec!["stanza1.txt".to_string()]),
-                vec![
-                    "mycat2".to_string(),
-                    "verse1.txt".to_string(),
-                    "stanza1.txt".to_string(),
-                    "stanza2.txt".to_string(),
-                ],
-                Some(RuleHistory::new()),
-                file_system.clone(),
-                FakeMetadataGetter::new(),
-            ),
+            to_info(vec!["stanza1.txt".to_string()]),
+            vec![
+                "mycat2".to_string(),
+                "verse1.txt".to_string(),
+                "stanza1.txt".to_string(),
+                "stanza2.txt".to_string(),
+            ],
+            Some(RuleHistory::new()),
+            file_system.clone(),
+            FakeMetadataGetter::new(),
             vec![(0, sender)],
             vec![],
             FakeExecutor::new(file_system.clone())
@@ -1658,22 +1834,20 @@ mod test
         let (sender, _receiver) = mpsc::channel();
 
         let handle1 = spawn_command(
-            Station::new(
-                to_info(
-                    vec![
-                        "stanza1.txt".to_string(),
-                        "stanza2.txt".to_string()
-                    ]),
+            to_info(
                 vec![
-                    "mycat2".to_string(),
-                    "verse1.txt".to_string(),
                     "stanza1.txt".to_string(),
-                    "stanza2.txt".to_string(),
-                ],
-                Some(RuleHistory::new()),
-                file_system.clone(),
-                FakeMetadataGetter::new(),
-            ),
+                    "stanza2.txt".to_string()
+                ]),
+            vec![
+                "mycat2".to_string(),
+                "verse1.txt".to_string(),
+                "stanza1.txt".to_string(),
+                "stanza2.txt".to_string(),
+            ],
+            Some(RuleHistory::new()),
+            file_system.clone(),
+            FakeMetadataGetter::new(),
             vec![(0, sender)],
             vec![],
             FakeExecutor::new(file_system.clone())
@@ -1753,30 +1927,26 @@ mod test
         let (sender, receiver) = mpsc::channel();
 
         let handle1 = spawn_command(
-            Station::new(
-                to_info(vec!["verse1.txt".to_string()]),
-                vec![],
-                None,
-                file_system.clone(),
-                metadata_getter1,
-            ),
+            to_info(vec!["verse1.txt".to_string()]),
+            vec![],
+            None,
+            file_system.clone(),
+            metadata_getter1,
             vec![(0, sender)],
             vec![],
             FakeExecutor::new(file_system.clone())
         );
 
         let handle2 = spawn_command(
-            Station::new(
-                to_info(vec!["poem.txt".to_string()]),
-                vec![
-                    "error".to_string(),
-                    "this file should".to_string(),
-                    "already be correct".to_string()
-                ],
-                Some(rule_history),
-                file_system.clone(),
-                metadata_getter2,
-            ),
+            to_info(vec!["poem.txt".to_string()]),
+            vec![
+                "error".to_string(),
+                "this file should".to_string(),
+                "already be correct".to_string()
+            ],
+            Some(rule_history),
+            file_system.clone(),
+            metadata_getter2,
             vec![],
             vec![receiver],
             FakeExecutor::new(file_system.clone())
@@ -1832,30 +2002,26 @@ mod test
         let (sender, receiver) = mpsc::channel();
 
         let handle1 = spawn_command(
-            Station::new(
-                to_info(vec!["verse1.txt".to_string()]),
-                vec![],
-                None,
-                file_system.clone(),
-                metadata_getter1,
-            ),
+            to_info(vec!["verse1.txt".to_string()]),
+            vec![],
+            None,
+            file_system.clone(),
+            metadata_getter1,
             vec![(0, sender)],
             vec![],
             FakeExecutor::new(file_system.clone())
         );
 
         let handle2 = spawn_command(
-            Station::new(
-                to_info(vec!["poem.txt".to_string()]),
-                vec![
-                    "nonsense".to_string(),
-                    "should".to_string(),
-                    "error".to_string(),
-                ],
-                Some(rule_history2),
-                file_system.clone(),
-                metadata_getter2,
-            ),
+            to_info(vec!["poem.txt".to_string()]),
+            vec![
+                "nonsense".to_string(),
+                "should".to_string(),
+                "error".to_string(),
+            ],
+            Some(rule_history2),
+            file_system.clone(),
+            metadata_getter2,
             vec![],
             vec![receiver],
             FakeExecutor::new(file_system.clone())
@@ -1908,34 +2074,30 @@ mod test
         let (sender, receiver) = mpsc::channel();
 
         let handle1 = spawn_command(
-            Station::new(
-                to_info(vec!["stanza1.txt".to_string()]),
-                vec![
-                    "mycat".to_string(),
-                    "verse1.txt".to_string(),
-                    "stanza1.txt".to_string()
-                ],
-                None,
-                file_system.clone(),
-                FakeMetadataGetter::new(),
-            ),
+            to_info(vec!["stanza1.txt".to_string()]),
+            vec![
+                "mycat".to_string(),
+                "verse1.txt".to_string(),
+                "stanza1.txt".to_string()
+            ],
+            None,
+            file_system.clone(),
+            FakeMetadataGetter::new(),
             vec![(0, sender)],
             vec![],
             FakeExecutor::new(file_system.clone())
         );
 
         let handle2 = spawn_command(
-            Station::new(
-                to_info(vec!["poem.txt".to_string()]),
-                vec![
-                    "mycat".to_string(),
-                    "stanza1.txt".to_string(),
-                    "poem.txt".to_string()
-                ],
-                None,
-                file_system.clone(),
-                FakeMetadataGetter::new(),
-            ),
+            to_info(vec!["poem.txt".to_string()]),
+            vec![
+                "mycat".to_string(),
+                "stanza1.txt".to_string(),
+                "poem.txt".to_string()
+            ],
+            None,
+            file_system.clone(),
+            FakeMetadataGetter::new(),
             vec![],
             vec![receiver],
             FakeExecutor::new(file_system.clone())
@@ -2007,39 +2169,35 @@ mod test
         let (sender, receiver) = mpsc::channel();
 
         let handle1 = spawn_command(
-            Station::new(
-                to_info(vec!["verse1.txt".to_string()]),
-                vec![],
-                None,
-                file_system.clone(),
-                metadata_getter1,
-            ),
+            to_info(vec!["verse1.txt".to_string()]),
+            vec![],
+            None,
+            file_system.clone(),
+            metadata_getter1,
             vec![(0, sender)],
             vec![],
             FakeExecutor::new(file_system.clone())
         );
 
         let handle2 = spawn_command(
-            Station::new(
-                vec![
-                    TargetFileInfo
-                    {
-                        path : "poem.txt".to_string(),
-                        history : TargetHistory::new(
-                            TicketFactory::from_str("I wish I were a windowsill").result(),
-                            17,
-                        ),
-                    }
-                ],
-                vec![
-                    "error".to_string(),
-                    "this file should".to_string(),
-                    "already be correct".to_string()
-                ],
-                Some(rule_history2),
-                file_system.clone(),
-                metadata_getter2,
-            ),
+            vec![
+                TargetFileInfo
+                {
+                    path : "poem.txt".to_string(),
+                    history : TargetHistory::new(
+                        TicketFactory::from_str("I wish I were a windowsill").result(),
+                        17,
+                    ),
+                }
+            ],
+            vec![
+                "error".to_string(),
+                "this file should".to_string(),
+                "already be correct".to_string()
+            ],
+            Some(rule_history2),
+            file_system.clone(),
+            metadata_getter2,
             vec![],
             vec![receiver],
             FakeExecutor::new(file_system.clone())
@@ -2110,39 +2268,35 @@ mod test
         let (sender, receiver) = mpsc::channel();
 
         let handle1 = spawn_command(
-            Station::new(
-                to_info(vec!["verse1.txt".to_string()]),
-                vec![],
-                None,
-                file_system.clone(),
-                metadata_getter1,
-            ),
+            to_info(vec!["verse1.txt".to_string()]),
+            vec![],
+            None,
+            file_system.clone(),
+            metadata_getter1,
             vec![(0, sender)],
             vec![],
             FakeExecutor::new(file_system.clone())
         );
 
         let handle2 = spawn_command(
-            Station::new(
-                vec![
-                    TargetFileInfo
-                    {
-                        path : "poem.txt".to_string(),
-                        history : TargetHistory::new(
-                            TicketFactory::from_str("I wish I were a windowsill").result(),
-                            17,
-                        ),
-                    }
-                ],
-                vec![
-                    "mycat".to_string(),
-                    "verse1.txt".to_string(),
-                    "poem.txt".to_string()
-                ],
-                Some(rule_history2),
-                file_system.clone(),
-                metadata_getter2,
-            ),
+            vec![
+                TargetFileInfo
+                {
+                    path : "poem.txt".to_string(),
+                    history : TargetHistory::new(
+                        TicketFactory::from_str("I wish I were a windowsill").result(),
+                        17,
+                    ),
+                }
+            ],
+            vec![
+                "mycat".to_string(),
+                "verse1.txt".to_string(),
+                "poem.txt".to_string()
+            ],
+            Some(rule_history2),
+            file_system.clone(),
+            metadata_getter2,
             vec![],
             vec![receiver],
             FakeExecutor::new(file_system.clone())

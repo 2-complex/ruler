@@ -11,11 +11,12 @@ base64 = "0.10.1"
 multimap = "0.5.0"
 bincode = "1.1.4"
 serde = { version = "1.0", features = ["derive"] }
-filesystem = "0.4.4"
+filesystem = { git = "https://github.com/TheSven73/filesystem-rs.git", branch = "file-objects-v2" }
 reqwest = "0.9.22"
 
 hyper = "0.10"
 hyper-native-tls = "0.2.4"
 multipart = "0.13.1"
+lipsum = "0.6.0"
 
 termcolor = "1"

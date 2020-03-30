@@ -8,6 +8,7 @@ use std::hash::{Hash, Hasher};
 use serde::{Serialize, Deserialize};
 use filesystem::FileSystem;
 use std::fmt;
+use std::io::Read;
 
 pub struct TicketFactory
 {
@@ -54,19 +55,31 @@ impl TicketFactory
         path : &str)
         -> Result<TicketFactory, std::io::Error>
     {
-        let mut dig = Sha512::new();
-        let mut buffer = Vec::new();
 
-        match file_system.read_file_into(path, &mut buffer)
+        match file_system.open(path)
         {
-            Ok(_) =>
+            Ok(mut reader) =>
             {
-                dig.input(&buffer);
-                Ok(TicketFactory{dig : dig})
+                let mut buffer = [0u8; 256];
+                let mut dig = Sha512::new();
+                loop
+                {
+                    match reader.read(&mut buffer)
+                    {
+                        Ok(0) =>
+                        {
+                            return Ok(TicketFactory{dig : dig});
+                        }
+                        Ok(size) =>
+                        {
+                            dig.input(&buffer[..size]);
+                        },
+                        Err(why) => return Err(why),
+                    }
+                }
             },
             Err(why) => return Err(why),
         }
-
     }
 }
 
@@ -141,6 +154,7 @@ mod test
 {
     use crate::ticket::{Ticket, TicketFactory};
     use filesystem::{FileSystem, FakeFileSystem};
+    use lipsum::{LOREM_IPSUM};
 
     #[test]
     fn ticket_factory_string()
@@ -213,6 +227,30 @@ mod test
                     "CcCQWumbtg7N3xkZEAv-GlmKKe5XRJGzz-0fbdeG5poAnHSTVTjM2jCo5xu7_9r4GiYcevWaG2mesTMoB6NK6g==");
             },
             Err(why) => panic!("Failed to open test file time1.txt: {}", why),
+        }
+    }
+
+    #[test]
+    fn ticket_factory_hashes_bigger_file()
+    {
+        let file_system = FakeFileSystem::new();
+
+        println!("{} {}\n", LOREM_IPSUM.len(), LOREM_IPSUM);
+
+        match file_system.write_file("good_and_evil.txt", LOREM_IPSUM)
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File write operation failed"),
+        }
+
+        match TicketFactory::from_file(&file_system, "good_and_evil.txt")
+        {
+            Ok(mut factory) =>
+            {
+                assert_eq!(factory.result().base64(),
+                    "UUIguBwMxofHdUKdfRVzVpLkqPRwg5IISF49Wc2jVd6-pmF9lxunRtP26JDPNlAgX3MoUrJEfrQ9nVKFJly8Og==");
+            },
+            Err(why) => panic!("Failed to open test file good_and_evil.txt: {}", why),
         }
     }
 
