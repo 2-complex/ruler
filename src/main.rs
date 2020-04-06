@@ -22,8 +22,30 @@ fn main()
 {
     let big_matches = App::new("Ruler")
         .version("0.1.0")
-        .author("Peterson Trethewey <ptrethewey@roblox.com>")
-        .about("You know when you have files that depend on other files?  This is for that situation.")
+        .author("Peterson Trethewey <peterson.trethewey@gmail.com>")
+        .about("
+Ruler is a tool for managing a dependence graph of files.  It works with a .rules file.
+A .rules file consists of newline separated blocks called 'rules' that look like this...
+
+<targets>
+:
+<sources>
+:
+<command>
+:
+
+... where <targets> and <sources> are newline-separated lists of paths,
+and <command> is a command-line invocation that updates <targets> based on <sources>.
+
+The command:
+
+ruler build
+
+Will read `build.rules`, and for each rule, check whether the targets need to update.
+Ruler determines this by keeping a history of the files' contents, so the first time
+you type 'ruler build' it will build everything.
+
+")
         .setting(clap::AppSettings::ArgRequiredElseHelp)
         .subcommand(
             SubCommand::with_name("clean")
