@@ -50,11 +50,11 @@ use termcolor::
 fn make_multimaps(nodes : &Vec<Node>)
     -> (
         MultiMap<usize, (usize, Sender<Packet>)>,
-        MultiMap<usize, (Receiver<Packet>)>
+        MultiMap<usize, Receiver<Packet>>
     )
 {
     let mut senders : MultiMap<usize, (usize, Sender<Packet>)> = MultiMap::new();
-    let mut receivers : MultiMap<usize, (Receiver<Packet>)> = MultiMap::new();
+    let mut receivers : MultiMap<usize, Receiver<Packet>> = MultiMap::new();
 
     for (target_index, node) in nodes.iter().enumerate()
     {
