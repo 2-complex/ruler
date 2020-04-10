@@ -13,7 +13,6 @@ mod memory;
 mod executor;
 mod packet;
 mod metadata;
-mod internet;
 
 use self::executor::OsExecutor;
 use self::metadata::OsMetadataGetter;

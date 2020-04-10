@@ -63,7 +63,7 @@ impl TicketFactory
 
     /*  Construct a TicketFactory, initialized with the contents of a file
         from a FileSystem */
-    pub fn from_file<FSType: FileSystemß>(
+    pub fn from_file<FSType: FileSystem>(
         file_system: &FSType,
         path : &str)
         -> Result<TicketFactory, std::io::Error>

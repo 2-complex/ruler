@@ -6,7 +6,6 @@ use crate::executor::{CommandLineOutput, Executor};
 use crate::metadata::MetadataGetter;
 use crate::memory::{RuleHistory, TargetHistory, RuleHistoryError};
 use crate::cache::{LocalCache, RestoreResult};
-use crate::internet::{download};
 
 use filesystem::FileSystem;
 use std::sync::mpsc::{Sender, Receiver, RecvError};
@@ -77,7 +76,7 @@ pub enum FileResolution
 {
     AlreadyCorrect,
     Recovered,
-    Downloaded,
+    #[allow(dead_code)] Downloaded,
     NeedsRebuild,
 }
 
@@ -173,40 +172,6 @@ impl fmt::Display for WorkError
     }
 }
 
-fn attempt_download
-<
-    FileSystemType : FileSystem
->
-(
-    file_system : &FileSystemType,
-    download_urls : &Vec<String>,
-    remembered_ticket : &Ticket,
-    target_path : &str
-)
-->
-FileResolution
-{
-    for url in download_urls
-    {
-        match download(
-            &format!("{}{}", url, remembered_ticket),
-            file_system,
-            target_path)
-        {
-            Ok(_) =>
-            {
-                // TODO: Might want to check that the ticket matches
-                return FileResolution::Downloaded
-            },
-            Err(_) =>
-            {
-            }
-        }
-    }
-
-    FileResolution::NeedsRebuild
-}
-
 /*  Given a target-info and a remembered ticket for that target file, check the current
     ticket, and if it matches, return AlreadyCorrect.  If it doesn't match, back up the current
     file, and then attempt to restore the remembered file from cache, if the cache doesn't have it
@@ -220,7 +185,6 @@ fn resolve_single_target
     file_system : &FileSystemType,
     metadata_getter : &MetadataGetterType,
     cache : &LocalCache,
-    download_urls : &Vec<String>,
     remembered_ticket : &Ticket,
     target_info : &TargetFileInfo
 )
@@ -258,7 +222,8 @@ Result<FileResolution, WorkError>
                     Ok(FileResolution::Recovered),
 
                 RestoreResult::NotThere =>
-                    Ok(attempt_download(file_system, download_urls, remembered_ticket, &target_info.path)),
+                    Ok(FileResolution::NeedsRebuild),
+                    // TODO: attempt a download here
 
                 RestoreResult::CacheDirectoryMissing =>
                     Err(WorkError::CacheDirectoryMissing),
@@ -280,7 +245,8 @@ Result<FileResolution, WorkError>
                     Ok(FileResolution::Recovered),
 
                 RestoreResult::NotThere =>
-                    Ok(attempt_download(file_system, download_urls, remembered_ticket, &target_info.path)),
+                    Ok(FileResolution::NeedsRebuild),
+                    // TODO: attempt a download here
 
                 RestoreResult::CacheDirectoryMissing =>
                     Err(WorkError::CacheDirectoryMissing),
@@ -312,7 +278,6 @@ fn resolve_with_cache
     file_system : &FileSystemType,
     metadata_getter : &MetadataGetterType,
     cache : &LocalCache,
-    download_urls : &Vec<String>,
     rule_history : &RuleHistory,
     sources_ticket : &Ticket,
     target_infos : &Vec<TargetFileInfo>,
@@ -339,7 +304,6 @@ Result<Vec<FileResolution>, WorkError>
                     file_system,
                     metadata_getter,
                     cache,
-                    download_urls,
                     remembered_ticket,
                     target_info)
                 {
@@ -639,8 +603,7 @@ pub fn handle_node
     senders : Vec<(usize, Sender<Packet>)>,
     receivers : Vec<Receiver<Packet>>,
     executor : ExecType,
-    cache : LocalCache,
-    download_urls : Vec<String>
+    cache : LocalCache
 )
 ->
 Result<WorkResult, WorkError>
@@ -666,7 +629,6 @@ Result<WorkResult, WorkError>
                 &file_system,
                 &metadata_getter,
                 &cache,
-                &download_urls,
                 &rule_history,
                 &sources_ticket,
                 &target_infos)
