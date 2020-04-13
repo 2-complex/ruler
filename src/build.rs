@@ -47,6 +47,8 @@ use termcolor::
     WriteColor
 };
 
+
+/*  For the purpose of  */
 fn make_multimaps(nodes : &Vec<Node>)
     -> (
         MultiMap<usize, (usize, Sender<Packet>)>,
@@ -228,6 +230,10 @@ fn print_single_banner_line(banner_text : &str, banner_color : Color, path : &st
     }
 }
 
+/*  This is the function that runs when you type "ruler build" at the commandline.
+    It opens the rulefile, parses it, and then either updates all targets in all rules
+    or, if goal_target_opt is Some, only the targets that are ancstors of goal_target_opt
+    in the dependence graph. */
 pub fn build<
     FileSystemType : FileSystem
         + Clone + Send + 'static,
@@ -338,7 +344,7 @@ pub fn build<
         let command = node.command;
         let rule_history =  match &node.rule_ticket
         {
-            Some(ticket) => Some(memory.get_rule_history(&ticket)),
+            Some(ticket) => Some(memory.take_rule_history(&ticket)),
             None => None,
         };
         let file_system_clone = file_system.clone();
@@ -489,6 +495,10 @@ pub fn build<
     }
 }
 
+/*  This is the function that runs when you type "ruler clean" at the command-line.
+    It takes a rulefile, parses it and either removes all targets to the cache,
+    or, if goal_target_opt is Some, removes only those targets that are acnestors
+    of goal_target_opt in the depdnece-graph. */
 pub fn clean<
     FileSystemType : FileSystem
         + Clone + Send + 'static,

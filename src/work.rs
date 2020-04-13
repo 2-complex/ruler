@@ -1,10 +1,23 @@
 extern crate filesystem;
 
 use crate::packet::Packet;
-use crate::ticket::{Ticket, TicketFactory};
-use crate::executor::{CommandLineOutput, Executor};
+use crate::ticket::
+{
+    Ticket,
+    TicketFactory
+};
+use crate::executor::
+{
+    CommandLineOutput,
+    Executor
+};
 use crate::metadata::MetadataGetter;
-use crate::memory::{RuleHistory, TargetHistory, RuleHistoryError};
+use crate::memory::
+{
+    RuleHistory,
+    TargetHistory,
+    RuleHistoryInsertError
+};
 use crate::cache::{LocalCache, RestoreResult};
 
 use filesystem::FileSystem;
@@ -554,7 +567,7 @@ Result<WorkResult, WorkError>
                 {
                     match error
                     {
-                        RuleHistoryError::Contradiction(contradicting_indices) =>
+                        RuleHistoryInsertError::Contradiction(contradicting_indices) =>
                         {
                             let mut contradicting_target_paths = Vec::new();
                             for index in contradicting_indices
@@ -564,7 +577,7 @@ Result<WorkResult, WorkError>
                             return Err(WorkError::Contradiction(contradicting_target_paths));
                         }
 
-                        RuleHistoryError::TargetSizesDifferWeird =>
+                        RuleHistoryInsertError::TargetSizesDifferWeird =>
                             return Err(WorkError::Weird),
                     }
                 },
@@ -918,8 +931,7 @@ mod test
             Vec::new(),
             Vec::new(),
             FakeExecutor::new(file_system.clone()),
-            LocalCache::new(".ruler-cache"),
-            vec![])
+            LocalCache::new(".ruler-cache"))
         {
             Ok(result) =>
             {
@@ -982,8 +994,7 @@ mod test
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
             FakeExecutor::new(file_system.clone()),
-            LocalCache::new(".ruler-cache"),
-            vec![])
+            LocalCache::new(".ruler-cache"))
         {
             Ok(result) =>
             {
@@ -1059,8 +1070,7 @@ mod test
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
             FakeExecutor::new(file_system.clone()),
-            LocalCache::new(".ruler-cache"),
-            vec![])
+            LocalCache::new(".ruler-cache"))
         {
             Ok(_) => panic!("Unexpected command success"),
             Err(WorkError::CommandExecutedButErrored(message)) =>
@@ -1125,8 +1135,7 @@ mod test
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
             FakeExecutor::new(file_system.clone()),
-            LocalCache::new(".ruler-cache"),
-            vec![])
+            LocalCache::new(".ruler-cache"))
         {
             Ok(result) =>
             {
@@ -1234,8 +1243,7 @@ mod test
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
             FakeExecutor::new(file_system.clone()),
-            LocalCache::new(".ruler-cache"),
-            vec![])
+            LocalCache::new(".ruler-cache"))
         {
             Ok(result) =>
             {
@@ -1356,8 +1364,7 @@ mod test
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
             FakeExecutor::new(file_system.clone()),
-            LocalCache::new(".ruler-cache"),
-            vec![])
+            LocalCache::new(".ruler-cache"))
         {
             Ok(_result) =>
             {
@@ -1398,8 +1405,7 @@ mod test
             vec![],
             vec![],
             FakeExecutor::new(file_system.clone()),
-            LocalCache::new(".ruler-cache"),
-            vec![])
+            LocalCache::new(".ruler-cache"))
         {
             Ok(_) =>
             {
@@ -1437,8 +1443,7 @@ mod test
             vec![],
             vec![],
             FakeExecutor::new(file_system.clone()),
-            LocalCache::new(".rule-cache"),
-            vec![])
+            LocalCache::new(".rule-cache"))
         {
             Ok(_) =>
             {
@@ -1481,8 +1486,7 @@ mod test
                     senders,
                     receivers,
                     executor,
-                    LocalCache::new(".ruler-cache"),
-                    vec![])
+                    LocalCache::new(".ruler-cache"))
             }
         )
     }

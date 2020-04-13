@@ -21,7 +21,7 @@ fn main()
 {
     let big_matches = App::new("Ruler")
         .version("0.1.0")
-        .author("Peterson Trethewey <peterson.trethewey@gmail.com>")
+        .author("Peterson Trethewey <peterson@2-complex.com>")
         .about("
 Ruler is a tool for managing a dependence graph of files.  It works with a .rules file.
 A .rules file consists of newline separated blocks called 'rules' that look like this...

@@ -61,8 +61,7 @@ impl TicketFactory
         }
     }
 
-    /*  Construct a TicketFactory, initialized with the contents of a file
-        from a FileSystem */
+    /*  Construct a TicketFactory, initialized with the contents of a file from a FileSystem. */
     pub fn from_file<FSType: FileSystem>(
         file_system: &FSType,
         path : &str)
@@ -204,13 +203,13 @@ mod test
         factory.input_str("wounds ");
         factory.input_str("all ");
         factory.input_str("heels.\n");
-        let ticketA = factory.result();
-        let ticketB = TicketFactory::from_str("Time wounds all heels.\n").result();
+        let ticket_a = factory.result();
+        let ticket_b = TicketFactory::from_str("Time wounds all heels.\n").result();
 
-        assert_eq!(ticketA.base64(),
+        assert_eq!(ticket_a.base64(),
             "PRemaMHXvOuGAx87EOGZY1_cGUv4udBiqVmgP8nwVX93njjGOdE41zf4rV9PAbiJp_i6ucukKrvFp3zldP42wA==");
 
-        assert_eq!(ticketA.base64(), ticketB.base64());
+        assert_eq!(ticket_a.base64(), ticket_b.base64());
     }
 
     /*  Using a fake file system, create a file, populate with some known text, use TicketFactory::from_file
