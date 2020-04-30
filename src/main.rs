@@ -24,27 +24,33 @@ fn main()
         .author("Peterson Trethewey <peterson@2-complex.com>")
         .about("
 Ruler is a tool for managing a dependence graph of files.  It works with a
-.rules file.  A .rules file consists of newline separated blocks called 'rules'
-that look like this...
+.rules file.  A .rules file contains newline-separated blocks called 'rules'.
+Each rule looks like this:
 
-<targets>
+path/to/target/file1
+path/to/target/file2
 :
-<sources>
+path/to/source/file1
+path/to/source/file2
+path/to/source/file3
 :
-<command>
+command
+--option1=value1
+--option2=value2
 :
 
-... where <targets> and <sources> are newline-separated lists of paths, and
-<command> is a command-line invocation that updates <targets> based on
-<sources>.
+The command-line invocation is meant to update the target files using the
+source files as input.
 
-This command-line invocation:
+Ruler maintains a history of file-hashes to determine whether a target needs to
+update.  When you type a build command such as:
 
 ruler build
 
-will read `build.rules`, and for each rule, check whether the targets need to
-update.  Ruler determines this by keeping a history of the files' contents, so
-the first time you type 'ruler build' it will build everything.
+Ruler checks the current state of the targets against the hashes it has on
+file, determines which ones need to update and in what order, and runs the
+commands for those rules.
+
 ")
         .setting(clap::AppSettings::ArgRequiredElseHelp)
         .subcommand(

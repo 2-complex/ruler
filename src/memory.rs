@@ -8,7 +8,7 @@ use serde::{Serialize, Deserialize};
 use std::path::Path;
 use std::fmt;
 
-/*  Recall that a Rule is a triple: sources targets and command.  For each particular rule, a RuleHistory stores
+/*  Recall that a Rule is three things: sources, targets and command.  For each particular rule, a RuleHistory stores
     the Tickets of target files witnessed by the program when the command built with a given rule-ticket.
 
     This is what Ruler uses to determine if targets are up-to-date.  It creates a ticket based on the current
