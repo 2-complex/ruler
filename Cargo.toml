@@ -5,8 +5,8 @@ authors = ["Peterson Trethewey <peterson@2-complex.com>"]
 description = "A straight-forward, general-purpose build tool"
 homepage = "https://rulerbuild.com"
 repository = "https://github.com/2-complex/ruler"
-edition = "2020"
 readme = "README.md"
+edition = "2018"
 
 [dependencies]
 clap = "2.26.0"
