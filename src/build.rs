@@ -51,13 +51,6 @@ use termcolor::
     WriteColor
 };
 
-use crate::file::
-{
-    write_str_to_file,
-    read_file_to_string,
-    ReadFileToStringError
-};
-
 
 /*  For the purpose of */
 fn make_multimaps(nodes : &Vec<Node>)
@@ -681,7 +674,6 @@ mod test
     };
 
     use filesystem::{FileSystem, FakeFileSystem};
-    use std::str::from_utf8;
 
     #[test]
     fn build_basic()

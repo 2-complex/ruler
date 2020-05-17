@@ -171,7 +171,10 @@ mod test
     {
         write_str_to_file
     };
-    use filesystem::{FileSystem, FakeFileSystem};
+    use filesystem::
+    {
+        FakeFileSystem
+    };
     use lipsum::{LOREM_IPSUM};
 
     /*  Uses a TicketFactory to construct a Ticket based on a single string with one character,

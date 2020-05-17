@@ -778,10 +778,13 @@ mod test
         read_file_to_string,
     };
 
-    use filesystem::{FileSystem, FakeFileSystem};
-    use std::path::Path;
+    use filesystem::
+    {
+        FileSystem,
+        FakeFileSystem
+    };
+
     use std::sync::mpsc::{self, Sender, Receiver};
-    use std::str::from_utf8;
     use std::thread::{self, JoinHandle};
 
     fn to_info(mut targets : Vec<String>) -> Vec<TargetFileInfo>
@@ -1757,13 +1760,13 @@ mod test
 
                         match read_file_to_string(&mut file_system, "stanza1.txt")
                         {
-                            Ok(text) => assert_eq!(text, "I wish I were a windowsill."),
+                            Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
                             Err(_) => panic!("Failed to read stanza1"),
                         }
 
                         match read_file_to_string(&mut file_system, "stanza2.txt")
                         {
-                            Ok(text) => assert_eq!(text, "I wish I were a windowsill."),
+                            Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
                             Err(_) => panic!("Failed to read stanza2"),
                         }
                     },
@@ -1849,13 +1852,13 @@ mod test
 
                         match read_file_to_string(&mut file_system, "stanza1.txt")
                         {
-                            Ok(text) => assert_eq!(text, "I wish I were a windowsill."),
+                            Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
                             Err(_) => panic!("Failed to read stanza1"),
                         }
 
                         match read_file_to_string(&mut file_system, "stanza2.txt")
                         {
-                            Ok(text) => assert_eq!(text, "I wish I were a windowsill."),
+                            Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
                             Err(_) => panic!("Failed to read stanza2"),
                         }
                     },

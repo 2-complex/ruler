@@ -6,13 +6,8 @@ use filesystem::FileSystem;
 
 use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
-use std::path::Path;
 use std::fmt;
-use std::io::
-{
-    Read,
-    Write,
-};
+use std::io::Read;
 
 /*  Recall that a Rule is three things: sources, targets and command.  For each particular rule, a RuleHistory stores
     the Tickets of target files witnessed by the program when the command built with a given rule-ticket.
@@ -375,7 +370,7 @@ impl fmt::Display for Memory
 #[cfg(test)]
 mod test
 {
-    use filesystem::{FileSystem, FakeFileSystem};
+    use filesystem::FakeFileSystem;
     use crate::memory::{RuleHistory, Memory, TargetHistory};
     use crate::ticket::{TicketFactory};
     use crate::file::

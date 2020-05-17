@@ -102,8 +102,7 @@ mod test
     use crate::file::
     {
         write_str_to_file,
-        read_file_to_string,
-        ReadFileToStringError
+        read_file_to_string
     };
 
     #[test]
@@ -155,7 +154,7 @@ mod test
     #[test]
     fn back_up_nonexistent_file()
     {
-        let mut file_system = FakeFileSystem::new();
+        let file_system = FakeFileSystem::new();
 
         match file_system.create_dir(".ruler-cache")
         {

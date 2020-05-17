@@ -1,13 +1,16 @@
 extern crate filesystem;
 use filesystem::FileSystem;
-use std::path::Path;
+
+#[cfg(test)]
 use std::str::from_utf8;
+
+#[cfg(test)]
 use std::fmt;
-use std::io::
-{
-    Read,
-    Write,
-};
+
+#[cfg(test)]
+use std::io::Read;
+
+use std::io::Write;
 
 pub fn write_file
 <
@@ -34,6 +37,7 @@ pub fn write_file
     }
 }
 
+#[cfg(test)]
 pub fn write_str_to_file
 <
     FileSystemType : FileSystem,
@@ -59,6 +63,7 @@ pub fn write_str_to_file
     }
 }
 
+#[cfg(test)]
 pub fn read_file
 <
     FileSystemType : FileSystem,
@@ -87,7 +92,7 @@ pub fn read_file
     }
 }
 
-
+#[cfg(test)]
 pub enum ReadFileToStringError
 {
     IOError(String, std::io::Error),
@@ -95,6 +100,7 @@ pub enum ReadFileToStringError
 }
 
 /*  Display a ReadFileToStringError by printing a reasonable error message. */
+#[cfg(test)]
 impl fmt::Display for ReadFileToStringError
 {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
@@ -110,6 +116,7 @@ impl fmt::Display for ReadFileToStringError
     }
 }
 
+#[cfg(test)]
 pub fn read_file_to_string
 <
     FileSystemType : FileSystem,

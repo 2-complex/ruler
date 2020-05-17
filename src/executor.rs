@@ -3,16 +3,12 @@ use std::process::Output;
 use std::collections::VecDeque;
 use std::process::Command;
 
+#[cfg(test)]
 use crate::file::
 {
     write_str_to_file,
-    read_file_to_string,
-    read_file,
-    ReadFileToStringError
+    read_file
 };
-
-#[cfg(test)]
-use std::path::Path;
 
 #[cfg(test)]
 use filesystem::{FileSystem, FakeFileSystem};
