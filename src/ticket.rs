@@ -163,11 +163,14 @@ impl Hash for Ticket
     }
 }
 
-
 #[cfg(test)]
 mod test
 {
     use crate::ticket::{Ticket, TicketFactory};
+    use crate::file::
+    {
+        write_str_to_file
+    };
     use filesystem::{FileSystem, FakeFileSystem};
     use lipsum::{LOREM_IPSUM};
 
@@ -217,8 +220,8 @@ mod test
     #[test]
     fn ticket_factory_file()
     {
-        let file_system = FakeFileSystem::new();
-        match file_system.write_file("time0.txt", "Time wounds all heels.\n")
+        let mut file_system = FakeFileSystem::new();
+        match write_str_to_file(&mut file_system, "time0.txt", "Time wounds all heels.\n")
         {
             Ok(_) => {},
             Err(why) => panic!("Failed to create temp file: {}", why),
@@ -235,13 +238,13 @@ mod test
         }
     }
 
-    /*  Using a fake filesystem, create a file, populate it with with known text, then use TicketFactory::from_str
+    /*  Using a fake file-system, create a file, populate it with with known text, then use TicketFactory::from_str
         and input_ticket to simulate making a ticket with that file as a target.  Compare the hash with an exemplar.*/
     #[test]
     fn ticket_factory_hashes()
     {
-        let file_system = FakeFileSystem::new();
-        match file_system.write_file("time1.txt", "Time wounds all heels.\n")
+        let mut file_system = FakeFileSystem::new();
+        match write_str_to_file(&mut file_system, "time1.txt", "Time wounds all heels.\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
@@ -265,11 +268,11 @@ mod test
     #[test]
     fn ticket_factory_hashes_bigger_file()
     {
-        let file_system = FakeFileSystem::new();
+        let mut file_system = FakeFileSystem::new();
 
         println!("{} {}\n", LOREM_IPSUM.len(), LOREM_IPSUM);
 
-        match file_system.write_file("good_and_evil.txt", LOREM_IPSUM)
+        match write_str_to_file(&mut file_system, "good_and_evil.txt", LOREM_IPSUM)
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),

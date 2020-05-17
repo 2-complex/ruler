@@ -511,7 +511,7 @@ fn rebuild_node
 (
     file_system : &FileSystemType,
     metadata_getter : &MetadataGetterType,
-    executor : &ExecType,
+    executor : &mut ExecType,
     mut rule_history : RuleHistory,
     sources_ticket : Ticket,
     command : Vec<String>,
@@ -615,7 +615,7 @@ pub fn handle_node
     metadata_getter : MetadataGetterType,
     senders : Vec<(usize, Sender<Packet>)>,
     receivers : Vec<Receiver<Packet>>,
-    executor : ExecType,
+    mut executor : ExecType,
     cache : LocalCache
 )
 ->
@@ -653,7 +653,7 @@ Result<WorkResult, WorkError>
                         rebuild_node(
                             &file_system,
                             &metadata_getter,
-                            &executor,
+                            &mut executor,
                             rule_history,
                             sources_ticket,
                             command,
@@ -772,6 +772,11 @@ mod test
     use crate::packet::Packet;
     use crate::metadata::{MetadataGetter, FakeMetadataGetter};
     use crate::cache::LocalCache;
+    use crate::file::
+    {
+        write_str_to_file,
+        read_file_to_string,
+    };
 
     use filesystem::{FileSystem, FakeFileSystem};
     use std::path::Path;
@@ -803,9 +808,9 @@ mod test
     #[test]
     fn work_get_tickets_from_filesystem()
     {
-        let file_system = FakeFileSystem::new();
+        let mut file_system = FakeFileSystem::new();
 
-        match file_system.write_file("quine.sh", "cat $0")
+        match write_str_to_file(&mut file_system,  "quine.sh", "cat $0")
         {
             Ok(_) => {},
             Err(why) => panic!("Failed to make fake file: {}", why),
@@ -837,7 +842,7 @@ mod test
     fn work_get_tickets_from_history()
     {
         let mut rule_history = RuleHistory::new();
-        let file_system = FakeFileSystem::new();
+        let mut file_system = FakeFileSystem::new();
 
         let source_content = "int main(){printf(\"my game\"); return 0;}";
         let target_content = "machine code for my game";
@@ -856,7 +861,7 @@ mod test
         }
 
         // Meanwhile, in the filesystem put some rubbish in game.cpp
-        match file_system.write_file("game.cpp", source_content)
+        match write_str_to_file(&mut file_system, "game.cpp", source_content)
         {
             Ok(_) => {},
             Err(why) => panic!("Failed to make fake file: {}", why),
@@ -915,8 +920,8 @@ mod test
     #[test]
     fn do_empty_command()
     {
-        let file_system = FakeFileSystem::new();
-        match file_system.write_file("A", "A-content")
+        let mut file_system = FakeFileSystem::new();
+        match write_str_to_file(&mut file_system, "A", "A-content")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
@@ -953,7 +958,7 @@ mod test
         let (sender_b, receiver_b) = mpsc::channel();
         let (sender_c, receiver_c) = mpsc::channel();
 
-        let file_system = FakeFileSystem::new();
+        let mut file_system = FakeFileSystem::new();
 
         match file_system.create_dir(".ruler-cache")
         {
@@ -961,13 +966,13 @@ mod test
             Err(_) => panic!("Failed to make cache directory"),
         }
 
-        match file_system.write_file("A-source.txt", "")
+        match write_str_to_file(&mut file_system, "A-source.txt", "")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
         }
 
-        match file_system.write_file("A.txt", "")
+        match write_str_to_file(&mut file_system, "A.txt", "")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
@@ -1035,15 +1040,15 @@ mod test
         let (sender_b, receiver_b) = mpsc::channel();
         let (sender_c, receiver_c) = mpsc::channel();
 
-        let file_system = FakeFileSystem::new();
+        let mut file_system = FakeFileSystem::new();
 
-        match file_system.write_file(Path::new(&"verse1.txt"), "Roses are red\n")
+        match write_str_to_file(&mut file_system, "verse1.txt", "Roses are red\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
         }
 
-        match file_system.write_file(Path::new(&"verse2.txt"), "Violets are violet\n")
+        match write_str_to_file(&mut file_system, "verse2.txt", "Violets are violet\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
@@ -1095,15 +1100,15 @@ mod test
         let (sender_b, receiver_b) = mpsc::channel();
         let (sender_c, receiver_c) = mpsc::channel();
 
-        let file_system = FakeFileSystem::new();
+        let mut file_system = FakeFileSystem::new();
 
-        match file_system.write_file(Path::new(&"verse1.txt"), "Roses are red\n")
+        match write_str_to_file(&mut file_system, "verse1.txt", "Roses are red\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
         }
 
-        match file_system.write_file(Path::new(&"verse2.txt"), "Violets are violet\n")
+        match write_str_to_file(&mut file_system, "verse2.txt", "Violets are violet\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
@@ -1198,21 +1203,21 @@ mod test
             Err(_) => panic!("Rule history failed to insert"),
         }
 
-        let file_system = FakeFileSystem::new();
+        let mut file_system = FakeFileSystem::new();
 
-        match file_system.write_file(Path::new(&"verse1.txt"), "Roses are red\n")
+        match write_str_to_file(&mut file_system, "verse1.txt", "Roses are red\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
         }
 
-        match file_system.write_file(Path::new(&"verse2.txt"), "Violets are violet\n")
+        match write_str_to_file(&mut file_system, "verse2.txt", "Violets are violet\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
         }
 
-        match file_system.write_file(Path::new(&"poem.txt"), "Roses are red\nViolets are violet\n")
+        match write_str_to_file(&mut file_system, "poem.txt", "Roses are red\nViolets are violet\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
@@ -1312,7 +1317,7 @@ mod test
             Err(_) => panic!("Rule history failed to insert"),
         }
 
-        let file_system = FakeFileSystem::new();
+        let mut file_system = FakeFileSystem::new();
 
         match file_system.create_dir(".ruler-cache")
         {
@@ -1320,19 +1325,19 @@ mod test
             Err(_) => panic!("Failed to create directory"),
         }
 
-        match file_system.write_file(Path::new(&"verse1.txt"), "Roses are red\n")
+        match write_str_to_file(&mut file_system, "verse1.txt", "Roses are red\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
         }
 
-        match file_system.write_file(Path::new(&"verse2.txt"), "Violets are violet\n")
+        match write_str_to_file(&mut file_system, "verse2.txt", "Violets are violet\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
         }
 
-        match file_system.write_file(Path::new(&"poem.txt"), "Arbitrary content")
+        match write_str_to_file(&mut file_system, "poem.txt", "Arbitrary content")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
@@ -1388,9 +1393,9 @@ mod test
     #[test]
     fn file_not_there()
     {
-        let file_system = FakeFileSystem::new();
+        let mut file_system = FakeFileSystem::new();
 
-        match file_system.write_file(Path::new(&"some-other-file.txt"), "Arbitrary content\n")
+        match write_str_to_file(&mut file_system, "some-other-file.txt", "Arbitrary content\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
@@ -1426,9 +1431,9 @@ mod test
     #[test]
     fn target_removed_by_command()
     {
-        let file_system = FakeFileSystem::new();
+        let mut file_system = FakeFileSystem::new();
 
-        match file_system.write_file(Path::new(&"verse1.txt"), "Arbitrary content\n")
+        match write_str_to_file(&mut file_system, "verse1.txt", "Arbitrary content\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
@@ -1494,9 +1499,9 @@ mod test
     #[test]
     fn one_dependence_only()
     {
-        let file_system = FakeFileSystem::new();
+        let mut file_system = FakeFileSystem::new();
 
-        match file_system.write_file(Path::new(&"verse1.txt"), "I wish I were a windowsill")
+        match write_str_to_file(&mut file_system, "verse1.txt", "I wish I were a windowsill")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
@@ -1559,7 +1564,12 @@ mod test
                             _ => panic!("Thread was supposed to execute command, did something else, got wrong work-option."),
                         }
 
-                        assert_eq!(from_utf8(&file_system.read_file("stanza1.txt").unwrap()).unwrap(), "I wish I were a windowsill");
+                        match read_file_to_string(&mut file_system, "stanza1.txt")
+                        {
+
+                            Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
+                            Err(_) => panic!("Failed to read stanza1.txt"),
+                        }
                     },
                     Err(_) => panic!("Thread inside failed"),
                 }
@@ -1573,7 +1583,11 @@ mod test
         {
             Ok(_) =>
             {
-                assert_eq!(from_utf8(&file_system.read_file("poem.txt").unwrap()).unwrap(), "I wish I were a windowsill");
+                match read_file_to_string(&mut file_system, "poem.txt")
+                {
+                    Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
+                    Err(_) => panic!("Failed to read poem"),
+                }
             },
             Err(_) => panic!("Second thread failed"),
         }
@@ -1582,7 +1596,7 @@ mod test
     #[test]
     fn one_dependence_intermediate_already_present()
     {
-        let file_system = FakeFileSystem::new();
+        let mut file_system = FakeFileSystem::new();
 
         match file_system.create_dir(".ruler-cache")
         {
@@ -1590,13 +1604,13 @@ mod test
             Err(_) => panic!("Failed to create directory"),
         }
 
-        match file_system.write_file(Path::new(&"verse1.txt"), "I wish I were a windowsill")
+        match write_str_to_file(&mut file_system, "verse1.txt", "I wish I were a windowsill")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
         }
 
-        match file_system.write_file(Path::new(&"stanza1.txt"), "Some content")
+        match write_str_to_file(&mut file_system, "stanza1.txt", "Some content")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
@@ -1659,7 +1673,11 @@ mod test
                             _ => panic!("Thread was supposed to execute command, did something else, got wrong work-option."),
                         }
 
-                        assert_eq!(from_utf8(&file_system.read_file("stanza1.txt").unwrap()).unwrap(), "I wish I were a windowsill");
+                        match read_file_to_string(&mut file_system, "stanza1.txt")
+                        {
+                            Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
+                            Err(_) => panic!("Failed to read stanza1.txt"),
+                        }
                     },
                     Err(error) => panic!("Thread inside failed: {}", error),
                 }
@@ -1673,7 +1691,11 @@ mod test
         {
             Ok(_) =>
             {
-                assert_eq!(from_utf8(&file_system.read_file("poem.txt").unwrap()).unwrap(), "I wish I were a windowsill");
+                match read_file_to_string(&mut file_system, "poem.txt")
+                {
+                    Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
+                    Err(_) => panic!("Failed to read poem"),
+                }
             },
             Err(_) => panic!("Second thread failed"),
         }
@@ -1682,9 +1704,9 @@ mod test
     #[test]
     fn two_targets_both_not_there()
     {
-        let file_system = FakeFileSystem::new();
+        let mut file_system = FakeFileSystem::new();
 
-        match file_system.write_file(Path::new(&"verse1.txt"), "I wish I were a windowsill")
+        match write_str_to_file(&mut file_system, "verse1.txt", "I wish I were a windowsill")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
@@ -1733,8 +1755,17 @@ mod test
                             _ => panic!("Thread was supposed to execute command, did something else, got wrong work-option."),
                         }
 
-                        assert_eq!(from_utf8(&file_system.read_file("stanza1.txt").unwrap()).unwrap(), "I wish I were a windowsill");
-                        assert_eq!(from_utf8(&file_system.read_file("stanza2.txt").unwrap()).unwrap(), "I wish I were a windowsill");
+                        match read_file_to_string(&mut file_system, "stanza1.txt")
+                        {
+                            Ok(text) => assert_eq!(text, "I wish I were a windowsill."),
+                            Err(_) => panic!("Failed to read stanza1"),
+                        }
+
+                        match read_file_to_string(&mut file_system, "stanza2.txt")
+                        {
+                            Ok(text) => assert_eq!(text, "I wish I were a windowsill."),
+                            Err(_) => panic!("Failed to read stanza2"),
+                        }
                     },
                     Err(error) => panic!("Thread inside failed {}", error),
                 }
@@ -1748,7 +1779,7 @@ mod test
     #[test]
     fn two_targets_one_already_present()
     {
-        let file_system = FakeFileSystem::new();
+        let mut file_system = FakeFileSystem::new();
 
         match file_system.create_dir(".ruler-cache")
         {
@@ -1756,13 +1787,13 @@ mod test
             Err(_) => panic!("Failed to create directory"),
         }
 
-        match file_system.write_file(Path::new(&"verse1.txt"), "I wish I were a windowsill")
+        match write_str_to_file(&mut file_system, "verse1.txt", "I wish I were a windowsill")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
         }
 
-        match file_system.write_file(Path::new(&"stanza1.txt"), "Some content")
+        match write_str_to_file(&mut file_system, "stanza1.txt", "Some content")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
@@ -1816,8 +1847,17 @@ mod test
                             _ => panic!("Thread was supposed to execute command, did something else, got wrong work-option."),
                         }
 
-                        assert_eq!(from_utf8(&file_system.read_file("stanza1.txt").unwrap()).unwrap(), "I wish I were a windowsill");
-                        assert_eq!(from_utf8(&file_system.read_file("stanza2.txt").unwrap()).unwrap(), "I wish I were a windowsill");
+                        match read_file_to_string(&mut file_system, "stanza1.txt")
+                        {
+                            Ok(text) => assert_eq!(text, "I wish I were a windowsill."),
+                            Err(_) => panic!("Failed to read stanza1"),
+                        }
+
+                        match read_file_to_string(&mut file_system, "stanza2.txt")
+                        {
+                            Ok(text) => assert_eq!(text, "I wish I were a windowsill."),
+                            Err(_) => panic!("Failed to read stanza2"),
+                        }
                     },
                     Err(error) => panic!("Thread inside failed: {}", error),
                 }
@@ -1831,18 +1871,18 @@ mod test
     #[test]
     fn one_target_already_correct_only()
     {
-        let file_system = FakeFileSystem::new();
+        let mut file_system = FakeFileSystem::new();
         let metadata_getter1 = FakeMetadataGetter::new();
         let metadata_getter2 = FakeMetadataGetter::new();
         let mut rule_history = RuleHistory::new();
 
-        match file_system.write_file(Path::new(&"verse1.txt"), "I wish I were a windowsill")
+        match write_str_to_file(&mut file_system, "verse1.txt", "I wish I were a windowsill")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
         }
 
-        match file_system.write_file(Path::new(&"poem.txt"), "I wish I were a windowsill")
+        match write_str_to_file(&mut file_system, "poem.txt", "I wish I were a windowsill")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
@@ -1893,7 +1933,11 @@ mod test
         {
             Ok(_) =>
             {
-                assert_eq!(from_utf8(&file_system.read_file("verse1.txt").unwrap()).unwrap(), "I wish I were a windowsill");
+                match read_file_to_string(&mut file_system, "verse1.txt")
+                {
+                    Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
+                    Err(_) => panic!("Failed to read verse1"),
+                }
             },
             Err(_) => panic!("First thread failed"),
         }
@@ -1902,7 +1946,11 @@ mod test
         {
             Ok(_) =>
             {
-                assert_eq!(from_utf8(&file_system.read_file("poem.txt").unwrap()).unwrap(), "I wish I were a windowsill");
+                match read_file_to_string(&mut file_system, "poem.txt")
+                {
+                    Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
+                    Err(_) => panic!("Failed to read poem"),
+                }
             },
             Err(_) => panic!("Second thread failed"),
         }
@@ -1912,12 +1960,12 @@ mod test
     #[test]
     fn one_target_not_there_error_in_command()
     {
-        let file_system = FakeFileSystem::new();
+        let mut file_system = FakeFileSystem::new();
         let metadata_getter1 = FakeMetadataGetter::new();
         let metadata_getter2 = FakeMetadataGetter::new();
         let mut rule_history2 = RuleHistory::new();
 
-        match file_system.write_file(Path::new(&"verse1.txt"), "I wish I were a windowsill")
+        match write_str_to_file(&mut file_system, "verse1.txt", "I wish I were a windowsill")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
@@ -1968,7 +2016,11 @@ mod test
         {
             Ok(_) =>
             {
-                assert_eq!(from_utf8(&file_system.read_file("verse1.txt").unwrap()).unwrap(), "I wish I were a windowsill");
+                match read_file_to_string(&mut file_system, "verse1.txt")
+                {
+                    Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
+                    Err(_) => panic!("Failed to read verse1"),
+                }
             },
             Err(_) => panic!("First thread failed"),
         }
@@ -1994,15 +2046,15 @@ mod test
     #[test]
     fn one_dependence_with_error()
     {
-        let file_system = FakeFileSystem::new();
+        let mut file_system = FakeFileSystem::new();
 
-        match file_system.write_file(Path::new(&"some-other-file.txt"), "Arbitrary content\n")
+        match write_str_to_file(&mut file_system,  "some-other-file.txt", "Arbitrary content\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
         }
 
-        match file_system.write_file(Path::new(&"stanza1.txt"), "Arbitrary content\n")
+        match write_str_to_file(&mut file_system,  "stanza1.txt", "Arbitrary content\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
@@ -2071,18 +2123,18 @@ mod test
     #[test]
     fn one_target_already_correct_according_to_timestamp()
     {
-        let file_system = FakeFileSystem::new();
+        let mut file_system = FakeFileSystem::new();
         let metadata_getter1 = FakeMetadataGetter::new();
         let mut metadata_getter2 = FakeMetadataGetter::new();
         let mut rule_history2 = RuleHistory::new();
 
-        match file_system.write_file(Path::new(&"verse1.txt"), "I wish I were a windowsill")
+        match write_str_to_file(&mut file_system,  "verse1.txt", "I wish I were a windowsill")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
         }
 
-        match file_system.write_file(Path::new(&"poem.txt"), "Content actually wrong")
+        match write_str_to_file(&mut file_system,  "poem.txt", "Content actually wrong")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
@@ -2144,7 +2196,11 @@ mod test
         {
             Ok(_) =>
             {
-                assert_eq!(from_utf8(&file_system.read_file("verse1.txt").unwrap()).unwrap(), "I wish I were a windowsill");
+                match read_file_to_string(&mut file_system, "verse1.txt")
+                {
+                    Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
+                    Err(_) => panic!("Failed to read verse1"),
+                }
             },
             Err(_) => panic!("First thread failed"),
         }
@@ -2153,7 +2209,11 @@ mod test
         {
             Ok(_) =>
             {
-                assert_eq!(from_utf8(&file_system.read_file("poem.txt").unwrap()).unwrap(), "Content actually wrong");
+                match read_file_to_string(&mut file_system, "poem.txt")
+                {
+                    Ok(text) => assert_eq!(text, "Content actually wrong"),
+                    Err(_) => panic!("Failed to read poem"),
+                }
             },
             Err(_) => panic!("Second thread failed"),
         }
@@ -2163,7 +2223,7 @@ mod test
     #[test]
     fn one_target_correct_hash_incorrect_timestamp()
     {
-        let file_system = FakeFileSystem::new();
+        let mut file_system = FakeFileSystem::new();
 
         match file_system.create_dir(".ruler-cache")
         {
@@ -2175,13 +2235,13 @@ mod test
         let mut metadata_getter2 = FakeMetadataGetter::new();
         let mut rule_history2 = RuleHistory::new();
 
-        match file_system.write_file(Path::new(&"verse1.txt"), "I wish I were a windowsill")
+        match write_str_to_file(&mut file_system,  "verse1.txt", "I wish I were a windowsill")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
         }
 
-        match file_system.write_file(Path::new(&"poem.txt"), "Content wrong at first")
+        match write_str_to_file(&mut file_system,  "poem.txt", "Content wrong at first")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
@@ -2243,7 +2303,11 @@ mod test
         {
             Ok(_) =>
             {
-                assert_eq!(from_utf8(&file_system.read_file("verse1.txt").unwrap()).unwrap(), "I wish I were a windowsill");
+                match read_file_to_string(&mut file_system, "verse1.txt")
+                {
+                    Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
+                    Err(_) => panic!("Failed to read verse1"),
+                }
             },
             Err(_) => panic!("First thread failed"),
         }
@@ -2252,7 +2316,11 @@ mod test
         {
             Ok(_) =>
             {
-                assert_eq!(from_utf8(&file_system.read_file("poem.txt").unwrap()).unwrap(), "I wish I were a windowsill");
+                match read_file_to_string(&mut file_system, "poem.txt")
+                {
+                    Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
+                    Err(_) => panic!("Failed to read verse1"),
+                }
             },
             Err(_) => panic!("Second thread failed"),
         }

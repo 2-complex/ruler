@@ -1,12 +1,18 @@
 extern crate filesystem;
 
 use crate::ticket::{TicketFactory, Ticket};
+use crate::file::write_file;
 use filesystem::FileSystem;
 
 use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 use std::path::Path;
 use std::fmt;
+use std::io::
+{
+    Read,
+    Write,
+};
 
 /*  Recall that a Rule is three things: sources, targets and command.  For each particular rule, a RuleHistory stores
     the Tickets of target files witnessed by the program when the command built with a given rule-ticket.
@@ -205,6 +211,39 @@ impl fmt::Display for MemoryError
     }
 }
 
+/*  Opens file at a path and deserializaes contents to create a Memory object. */
+fn read_all_memory_from_file
+<
+    FileSystemType : FileSystem,
+>
+(
+    file_system : &mut FileSystemType,
+    memoryfile_path : &str
+)
+-> Result<Memory, MemoryError>
+{
+    match file_system.open(memoryfile_path)
+    {
+        Ok(mut file) =>
+        {
+            let mut content = Vec::new();
+            match file.read_to_end(&mut content)
+            {
+                Ok(_size) =>
+                {
+                    match bincode::deserialize(&content)
+                    {
+                        Ok(memory) => Ok(memory),
+                        Err(_) => Err(MemoryError::CannotInterpretMemoryFile(memoryfile_path.to_string())),
+                    }
+                }
+                Err(_) => Err(MemoryError::CannotReadMemoryFile(memoryfile_path.to_string())),
+            }
+        },
+        Err(_) => Err(MemoryError::CannotReadMemoryFile(memoryfile_path.to_string())),
+    }
+}
+
 impl Memory
 {
     /*  Create a new Memory object from a file in a filesystem, create it if it doesn't exist, and If file fails to
@@ -214,30 +253,16 @@ impl Memory
         path_as_str : &str)
         -> Result<Memory, MemoryError>
     {
-        let path = Path::new(&path_as_str);
-
-        if file_system.is_file(path)
+        if file_system.is_file(path_as_str)
         {
-            match file_system.read_file(path)
-            {
-                Err(_) => Err(MemoryError::CannotReadMemoryFile(path_as_str.to_string())),
-                Ok(content) =>
-                {
-                    match bincode::deserialize(&content)
-                    {
-                        Ok(memory) => Ok(memory),
-                        Err(_) => Err(MemoryError::CannotInterpretMemoryFile(path_as_str.to_string())),
-                    }
-                }
-            }
+            return read_all_memory_from_file(file_system, path_as_str);
         }
         else
         {
             let memory = Memory::new();
-
             match bincode::serialize(&memory)
             {
-                Ok(bytes) => match file_system.write_file(path, bytes)
+                Ok(bytes) => match write_file(file_system, path_as_str, &bytes)
                 {
                     Err(_) => Err(MemoryError::CannotRecordHistoryFile(path_as_str.to_string())),
                     Ok(()) => Ok(memory),
@@ -249,11 +274,12 @@ impl Memory
 
     /*  Write a memory object to a file in a filesystem. */
     pub fn to_file<FSType: FileSystem>(
-        &self, file_system: &mut FSType,
+        &self,
+        file_system: &mut FSType,
         path_as_str : &str
     ) -> Result<(), MemoryError>
     {
-        match file_system.write_file(Path::new(&path_as_str), bincode::serialize(&self).unwrap())
+        match write_file(file_system, path_as_str, &bincode::serialize(&self).unwrap())
         {
             Err(_) => Err(MemoryError::CannotRecordHistoryFile(path_as_str.to_string())),
             Ok(_) => Ok(()),
@@ -352,6 +378,11 @@ mod test
     use filesystem::{FileSystem, FakeFileSystem};
     use crate::memory::{RuleHistory, Memory, TargetHistory};
     use crate::ticket::{TicketFactory};
+    use crate::file::
+    {
+        write_file,
+        read_file
+    };
 
     /*  Create a Memory, fill it with rule-histories and target-histories, then serialize it to binary, and deserialize
         to create a new Memory. Check that the contents of the new Memory are the same as the old one. */
@@ -405,14 +436,14 @@ mod test
 
         mem.insert_target_history("src/meta.c".to_string(), target_history);
 
-        let file_system = FakeFileSystem::new();
+        let mut file_system = FakeFileSystem::new();
 
         let encoded: Vec<u8> = bincode::serialize(&mem).unwrap();
-        match file_system.write_file("memory.file", encoded)
+        match write_file(&mut file_system, "memory.file", &encoded)
         {
             Ok(()) =>
             {
-                match file_system.read_file("memory.file")
+                match read_file(&mut file_system, "memory.file")
                 {
                     Ok(content) =>
                     {

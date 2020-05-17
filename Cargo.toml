@@ -15,7 +15,9 @@ base64 = "0.10.1"
 multimap = "0.5.0"
 bincode = "1.1.4"
 serde = { version = "1.0", features = ["derive"] }
-filesystem = { git = "https://github.com/TheSven73/filesystem-rs.git", branch = "file-objects-v2" }
+# filesystem = { git = "https://github.com/TheSven73/filesystem-rs.git", branch = "file-objects-v2" }
+filesystem = { git = "https://github.com/TheSven73/filesystem-rs.git", branch = "file-objects-v3" }
+# filesystem = { git = "https://github.com/iredelmeier/filesystem-rs", branch = "fake-file-io" }
 reqwest = "0.9.22"
 
 hyper = "0.10"

@@ -3,6 +3,14 @@ use std::process::Output;
 use std::collections::VecDeque;
 use std::process::Command;
 
+use crate::file::
+{
+    write_str_to_file,
+    read_file_to_string,
+    read_file,
+    ReadFileToStringError
+};
+
 #[cfg(test)]
 use std::path::Path;
 
@@ -66,7 +74,7 @@ impl CommandLineOutput
 
 pub trait Executor
 {
-    fn execute_command(&self, command_list: Vec<String>) -> Result<CommandLineOutput, String>;
+    fn execute_command(&mut self, command_list: Vec<String>) -> Result<CommandLineOutput, String>;
 }
 
 #[derive(Clone)]
@@ -105,7 +113,7 @@ impl OsExecutor
 
 impl Executor for OsExecutor
 {
-    fn execute_command(&self, command_list: Vec<String>) -> Result<CommandLineOutput, String>
+    fn execute_command(&mut self, command_list: Vec<String>) -> Result<CommandLineOutput, String>
     {
         let mut command_queue = VecDeque::from(command_list);
         let command_opt = match command_queue.pop_front()
@@ -140,7 +148,7 @@ impl Executor for OsExecutor
 #[cfg(test)]
 impl Executor for FakeExecutor
 {
-    fn execute_command(&self, command_list : Vec<String>) -> Result<CommandLineOutput, String>
+    fn execute_command(&mut self, command_list : Vec<String>) -> Result<CommandLineOutput, String>
     {
         let n = command_list.len();
         let mut output = String::new();
@@ -158,7 +166,7 @@ impl Executor for FakeExecutor
                 {
                     for file in command_list[1..(n-1)].iter()
                     {
-                        match self.file_system.read_file(file)
+                        match read_file(&self.file_system, file)
                         {
                             Ok(content) =>
                             {
@@ -178,7 +186,7 @@ impl Executor for FakeExecutor
                         }
                     }
 
-                    match self.file_system.write_file(Path::new(&command_list[n-1]), output)
+                    match write_str_to_file(&mut self.file_system, &command_list[n-1], &output)
                     {
                         Ok(_) => Ok(CommandLineOutput::new()),
                         Err(why) =>
@@ -198,7 +206,7 @@ impl Executor for FakeExecutor
                 {
                     for file in command_list[1..(n-2)].iter()
                     {
-                        match self.file_system.read_file(file)
+                        match read_file(&self.file_system, file)
                         {
                             Ok(content) =>
                             {
@@ -218,7 +226,7 @@ impl Executor for FakeExecutor
                         }
                     }
 
-                    match self.file_system.write_file(Path::new(&command_list[n-2]), output.clone())
+                    match write_str_to_file(&mut self.file_system, &command_list[n-2], &output)
                     {
                         Ok(_) => {},
                         Err(why) =>
@@ -227,7 +235,7 @@ impl Executor for FakeExecutor
                         }
                     }
 
-                    match self.file_system.write_file(Path::new(&command_list[n-1]), output)
+                    match write_str_to_file(&mut self.file_system, &command_list[n-1], &output)
                     {
                         Ok(_) => Ok(CommandLineOutput::new()),
                         Err(why) =>

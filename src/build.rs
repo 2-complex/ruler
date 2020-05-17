@@ -9,7 +9,11 @@ use std::sync::mpsc::{Sender, Receiver};
 use std::sync::mpsc;
 use std::str::from_utf8;
 use std::fmt;
-use std::io::Error;
+use std::io::
+{
+    Error,
+    Read
+};
 
 use crate::rule::
 {
@@ -47,8 +51,15 @@ use termcolor::
     WriteColor
 };
 
+use crate::file::
+{
+    write_str_to_file,
+    read_file_to_string,
+    ReadFileToStringError
+};
 
-/*  For the purpose of  */
+
+/*  For the purpose of */
 fn make_multimaps(nodes : &Vec<Node>)
     -> (
         MultiMap<usize, (usize, Sender<Packet>)>,
@@ -230,6 +241,38 @@ fn print_single_banner_line(banner_text : &str, banner_color : Color, path : &st
     }
 }
 
+fn read_all_rules
+<
+    FileSystemType : FileSystem,
+>
+(
+    file_system : &FileSystemType,
+    rulefile_path : &str
+)
+-> Result<String, BuildError>
+{
+    match file_system.open(rulefile_path)
+    {
+        Ok(mut file) =>
+        {
+            let mut rule_content = Vec::new();
+            match file.read_to_end(&mut rule_content)
+            {
+                Ok(_size) =>
+                {
+                    match from_utf8(&rule_content)
+                    {
+                        Ok(rule_text) => Ok(rule_text.to_owned()),
+                        Err(_) => return Err(BuildError::RuleFileNotUTF8),
+                    }
+                },
+                Err(error) => return Err(BuildError::RuleFileFailedToOpen(rulefile_path.to_string(), error)),
+            }
+        },
+        Err(error) => return Err(BuildError::RuleFileFailedToOpen(rulefile_path.to_string(), error)),
+    }
+}
+
 /*  This is the function that runs when you type "ruler build" at the commandline.
     It opens the rulefile, parses it, and then either updates all targets in all rules
     or, if goal_target_opt is Some, only the targets that are ancstors of goal_target_opt
@@ -246,7 +289,7 @@ pub fn build<
     executor : ExecType,
     metadata_getter: MetadataGetterType,
     directory : &str,
-    rulefile: &str,
+    rulefile_path: &str,
     goal_target_opt: Option<String>
 )
 -> Result<(), BuildError>
@@ -266,19 +309,7 @@ pub fn build<
         }
     };
 
-    let rule_text =
-    match file_system.read_file(rulefile)
-    {
-        Ok(rule_content) =>
-        {
-            match from_utf8(&rule_content)
-            {
-                Ok(rule_text) => rule_text.to_owned(),
-                Err(_) => return Err(BuildError::RuleFileNotUTF8),
-            }
-        },
-        Err(error) => return Err(BuildError::RuleFileFailedToOpen(rulefile.to_string(), error)),
-    };
+    let rule_text = read_all_rules(&file_system, rulefile_path)?;
 
     let rules =
     match parse(rule_text)
@@ -508,7 +539,7 @@ pub fn clean<
     mut file_system : FileSystemType,
     metadata_getter: MetadataGetterType,
     directory : &str,
-    rulefile: &str,
+    rulefile_path: &str,
     goal_target_opt: Option<String>
 )
 -> Result<(), BuildError>
@@ -528,19 +559,7 @@ pub fn clean<
         }
     };
 
-    let rule_text =
-    match file_system.read_file(rulefile)
-    {
-        Ok(rule_content) =>
-        {
-            match from_utf8(&rule_content)
-            {
-                Ok(rule_text) => rule_text.to_owned(),
-                Err(_) => return Err(BuildError::RuleFileNotUTF8),
-            }
-        },
-        Err(error) => return Err(BuildError::RuleFileFailedToOpen(rulefile.to_string(), error)),
-    };
+    let rule_text = read_all_rules(&file_system, rulefile_path)?;
 
     let rules =
     match parse(rule_text)
@@ -655,6 +674,11 @@ mod test
     use crate::work::WorkError;
     use crate::ticket::TicketFactory;
     use crate::cache::LocalCache;
+    use crate::file::
+    {
+        write_str_to_file,
+        read_file_to_string
+    };
 
     use filesystem::{FileSystem, FakeFileSystem};
     use std::str::from_utf8;
@@ -674,23 +698,23 @@ verse2.txt
 poem.txt
 :
 ";
-        let file_system = FakeFileSystem::new();
+        let mut file_system = FakeFileSystem::new();
         let executor = FakeExecutor::new(file_system.clone());
         let metadata_getter = FakeMetadataGetter::new();
 
-        match file_system.write_file("verse1.txt", "Roses are red.\n")
+        match write_str_to_file(&mut file_system, "verse1.txt", "Roses are red.\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write"),
         }
 
-        match file_system.write_file("verse2.txt", "Violets are violet.\n")
+        match write_str_to_file(&mut file_system, "verse2.txt", "Violets are violet.\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write"),
         }
 
-        match file_system.write_file("test.rules", rules)
+        match write_str_to_file(&mut file_system, "test.rules", rules)
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write"),
@@ -708,16 +732,9 @@ poem.txt
             Err(error) => panic!("Unexpected build error: {}", error),
         }
 
-        match file_system.read_file("poem.txt")
+        match read_file_to_string(&mut file_system, "poem.txt")
         {
-            Ok(content) =>
-            {
-                match from_utf8(&content)
-                {
-                    Ok(text) => assert_eq!(text, "Roses are red.\nViolets are violet.\n"),
-                    Err(_) => panic!("Poem failed to be utf8?"),
-                }
-            }
+            Ok(text) => assert_eq!(text, "Roses are red.\nViolets are violet.\n"),
             Err(_) => panic!("Failed to read poem."),
         }
     }
@@ -736,7 +753,7 @@ verse2.txt
 poem.txt
 :
 ";
-        let file_system = FakeFileSystem::new();
+        let mut file_system = FakeFileSystem::new();
 
         match file_system.create_dir(".ruler-cache")
         {
@@ -747,19 +764,19 @@ poem.txt
         let executor = FakeExecutor::new(file_system.clone());
         let metadata_getter = FakeMetadataGetter::new();
 
-        match file_system.write_file("verse1.txt", "Roses are red.\n")
+        match write_str_to_file(&mut file_system, "verse1.txt", "Roses are red.\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write"),
         }
 
-        match file_system.write_file("verse2.txt", "Violets are blue.\n")
+        match write_str_to_file(&mut file_system, "verse2.txt", "Violets are blue.\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write"),
         }
 
-        match file_system.write_file("test.rules", rules)
+        match write_str_to_file(&mut file_system, "test.rules", rules)
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write"),
@@ -777,26 +794,19 @@ poem.txt
             Err(error) => panic!("Unexpected build error: {}", error),
         }
 
-        match file_system.read_file("poem.txt")
+        match read_file_to_string(&mut file_system, "poem.txt")
         {
-            Ok(content) =>
-            {
-                match from_utf8(&content)
-                {
-                    Ok(text) => assert_eq!(text, "Roses are red.\nViolets are blue.\n"),
-                    Err(_) => panic!("Poem failed to be utf8?"),
-                }
-            }
+            Ok(text) => assert_eq!(text, "Roses are red.\nViolets are blue.\n"),
             Err(_) => panic!("Failed to read poem."),
         }
 
-        match file_system.write_file("verse2.txt", "Violets are violet.\n")
+        match write_str_to_file(&mut file_system, "verse2.txt", "Violets are violet.\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write."),
         }
 
-        match file_system.write_file("poem.txt", "Wrong content forcing a rebuild")
+        match write_str_to_file(&mut file_system, "poem.txt", "Wrong content forcing a rebuild")
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write."),
@@ -829,16 +839,9 @@ poem.txt
             },
         }
 
-        match file_system.read_file("poem.txt")
+        match read_file_to_string(&mut file_system, "poem.txt")
         {
-            Ok(content) =>
-            {
-                match from_utf8(&content)
-                {
-                    Ok(text) => assert_eq!(text, "Roses are red.\nViolets are violet.\n"),
-                    Err(_) => panic!("Poem failed to be utf8?"),
-                }
-            }
+            Ok(text) => assert_eq!(text, "Roses are red.\nViolets are violet.\n"),
             Err(_) => panic!("Failed to read poem."),
         }
     }
@@ -858,23 +861,23 @@ verse2.txt
 poem.txt
 :
 ";
-        let file_system = FakeFileSystem::new();
+        let mut file_system = FakeFileSystem::new();
         let executor = FakeExecutor::new(file_system.clone());
         let metadata_getter = FakeMetadataGetter::new();
 
-        match file_system.write_file("verse1.txt", "Roses are red.\n")
+        match write_str_to_file(&mut file_system, "verse1.txt", "Roses are red.\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write"),
         }
 
-        match file_system.write_file("verse2.txt", "Violets are blue.\n")
+        match write_str_to_file(&mut file_system, "verse2.txt", "Violets are blue.\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write"),
         }
 
-        match file_system.write_file("test.rules", rules)
+        match write_str_to_file(&mut file_system, "test.rules", rules)
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write"),
@@ -892,16 +895,9 @@ poem.txt
             Err(error) => panic!("Unexpected build error: {}", error),
         }
 
-        match file_system.read_file("poem.txt")
+        match read_file_to_string(&mut file_system, "poem.txt")
         {
-            Ok(content) =>
-            {
-                match from_utf8(&content)
-                {
-                    Ok(text) => assert_eq!(text, "Roses are red.\nViolets are blue.\n"),
-                    Err(_) => panic!("Poem failed to be utf8?"),
-                }
-            }
+            Ok(text) => assert_eq!(text, "Roses are red.\nViolets are blue.\n"),
             Err(_) => panic!("Failed to read poem."),
         }
 
@@ -912,7 +908,7 @@ poem.txt
             Err(_) => panic!("Failed to make ticket?"),
         };
 
-        match file_system.write_file("verse2.txt", "Violets are violet.\n")
+        match write_str_to_file(&mut file_system, "verse2.txt", "Violets are violet.\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write."),
@@ -930,33 +926,19 @@ poem.txt
             Err(error) => panic!("Unexpected build error: {}", error),
         }
 
-        match file_system.read_file("poem.txt")
+        match read_file_to_string(&mut file_system, "poem.txt")
         {
-            Ok(content) =>
-            {
-                match from_utf8(&content)
-                {
-                    Ok(text) => assert_eq!(text, "Roses are red.\nViolets are violet.\n"),
-                    Err(_) => panic!("Poem failed to be utf8?"),
-                }
-            }
-            Err(_) => panic!("Failed to read poem a second time."),
+            Ok(text) => assert_eq!(text, "Roses are red.\nViolets are violet.\n"),
+            Err(_) => panic!("Poem failed to be utf8?"),
         }
 
         let cache = LocalCache::new(".ruler/cache");
         cache.restore_file(&file_system, &ticket, "temp-poem.txt");
 
-        match file_system.read_file("temp-poem.txt")
+        match read_file_to_string(&mut file_system, "temp-poem.txt")
         {
-            Ok(content) =>
-            {
-                match from_utf8(&content)
-                {
-                    Ok(text) => assert_eq!(text, "Roses are red.\nViolets are blue.\n"),
-                    Err(_) => panic!("Poem failed to be utf8?"),
-                }
-            }
-            Err(_) => panic!("Failed to read temp-poem."),
+            Ok(text) => assert_eq!(text, "Roses are red.\nViolets are blue.\n"),
+            Err(_) => panic!("Poem failed to be utf8?"),
         }
 
         match cache.back_up_file_with_ticket(&file_system, &ticket, "temp-poem.txt")
@@ -965,7 +947,7 @@ poem.txt
             Err(_) => panic!("Failed to back up temp-poem"),
         }
 
-        match file_system.write_file("verse2.txt", "Violets are blue.\n")
+        match write_str_to_file(&mut file_system, "verse2.txt", "Violets are blue.\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write"),
@@ -983,16 +965,9 @@ poem.txt
             Err(error) => panic!("Unexpected build error: {}", error),
         }
 
-        match file_system.read_file("poem.txt")
+        match read_file_to_string(&mut file_system, "poem.txt")
         {
-            Ok(content) =>
-            {
-                match from_utf8(&content)
-                {
-                    Ok(text) => assert_eq!(text, "Roses are red.\nViolets are blue.\n"),
-                    Err(_) => panic!("Poem failed to be utf8?"),
-                }
-            }
+            Ok(text) => assert_eq!(text, "Roses are red.\nViolets are blue.\n"),
             Err(_) => panic!("Failed to read poem a second time."),
         }
     }

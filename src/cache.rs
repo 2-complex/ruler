@@ -99,11 +99,17 @@ mod test
     use filesystem::{FileSystem, FakeFileSystem};
     use crate::ticket::TicketFactory;
     use crate::cache::{LocalCache, RestoreResult};
+    use crate::file::
+    {
+        write_str_to_file,
+        read_file_to_string,
+        ReadFileToStringError
+    };
 
     #[test]
     fn back_up_and_restore()
     {
-        let file_system = FakeFileSystem::new();
+        let mut file_system = FakeFileSystem::new();
 
         match file_system.create_dir(".ruler-cache")
         {
@@ -113,7 +119,7 @@ mod test
 
         let cache = LocalCache::new(".ruler-cache");
 
-        match file_system.write_file("apples.txt", "apples\n")
+        match write_str_to_file(&mut file_system, "apples.txt", "apples\n")
         {
             Ok(()) => {},
             Err(error) => panic!("Failed to initialize file situation: {}", error),
@@ -139,7 +145,7 @@ mod test
 
         assert!(file_system.is_file("apples.txt"));
 
-        match file_system.read_file_to_string("apples.txt")
+        match read_file_to_string(&mut file_system, "apples.txt")
         {
             Ok(content) => assert_eq!(content, "apples\n"),
             Err(_) => panic!("Restored file was not there"),
@@ -149,7 +155,7 @@ mod test
     #[test]
     fn back_up_nonexistent_file()
     {
-        let file_system = FakeFileSystem::new();
+        let mut file_system = FakeFileSystem::new();
 
         match file_system.create_dir(".ruler-cache")
         {
@@ -171,7 +177,7 @@ mod test
     #[test]
     fn restore_nonexistent_file()
     {
-        let file_system = FakeFileSystem::new();
+        let mut file_system = FakeFileSystem::new();
 
         match file_system.create_dir(".ruler-cache")
         {
@@ -181,7 +187,7 @@ mod test
 
         let cache = LocalCache::new(".ruler-cache");
 
-        match file_system.write_file("apples.txt", "wrong content\n")
+        match write_str_to_file(&mut file_system, "apples.txt", "wrong content\n")
         {
             Ok(()) => {},
             Err(error) => panic!("Failed to initialize file situation: {}", error),
@@ -211,7 +217,7 @@ mod test
     #[test]
     fn restore_file_from_nonexistent_cache()
     {
-        let file_system = FakeFileSystem::new();
+        let mut file_system = FakeFileSystem::new();
 
         match file_system.create_dir(".wrong-cache")
         {
@@ -221,7 +227,7 @@ mod test
 
         let cache = LocalCache::new(".ruler-cache");
 
-        match file_system.write_file("apples.txt", "wrong content\n")
+        match write_str_to_file(&mut file_system, "apples.txt", "wrong content\n")
         {
             Ok(()) => {},
             Err(error) => panic!("Failed to initialize file situation: {}", error),
@@ -243,7 +249,7 @@ mod test
     #[test]
     fn back_up_twice_and_restore()
     {
-        let file_system = FakeFileSystem::new();
+        let mut file_system = FakeFileSystem::new();
 
         match file_system.create_dir(".ruler-cache")
         {
@@ -253,7 +259,7 @@ mod test
 
         let cache = LocalCache::new(".ruler-cache");
 
-        match file_system.write_file("apples.txt", "apples\n")
+        match write_str_to_file(&mut file_system, "apples.txt", "apples\n")
         {
             Ok(()) => {},
             Err(error) => panic!("Failed to initialize file situation: {}", error),
@@ -269,7 +275,7 @@ mod test
 
         assert!(!file_system.is_file("apples.txt"));
 
-        match file_system.write_file("apples.txt", "apples\n")
+        match write_str_to_file(&mut file_system, "apples.txt", "apples\n")
         {
             Ok(()) => {},
             Err(error) => panic!("Failed to initialize file situation: {}", error),
@@ -295,7 +301,7 @@ mod test
 
         assert!(file_system.is_file("apples.txt"));
 
-        match file_system.read_file_to_string("apples.txt")
+        match read_file_to_string(&mut file_system, "apples.txt")
         {
             Ok(content) => assert_eq!(content, "apples\n"),
             Err(_) => panic!("Restored file was not there"),
