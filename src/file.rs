@@ -12,6 +12,8 @@ use std::io::Read;
 
 use std::io::Write;
 
+/*  Takes a FileSystem, a path a a str and a vector of binary data.  Supplants the file at the given path in the
+    filesystem with the binary content.  If file-opening fails, this function echoes the std::io error. */
 pub fn write_file
 <
     FileSystemType : FileSystem,
@@ -37,6 +39,8 @@ pub fn write_file
     }
 }
 
+/*  Takes a FileSystem, a path as a &str and content, also a &str writes the content to the file.  If file-io fails,
+    forwards the std::io::Error. */
 #[cfg(test)]
 pub fn write_str_to_file
 <
@@ -63,6 +67,7 @@ pub fn write_str_to_file
     }
 }
 
+/*  Reads binary data from a file in a FileSystem into a Vec<u8>.  If file-io fails, forwards the std::io::Error */
 #[cfg(test)]
 pub fn read_file
 <
@@ -116,6 +121,9 @@ impl fmt::Display for ReadFileToStringError
     }
 }
 
+/*  Takes a FileSystem and a path as a str, opens the path in the filesystem, reads in the conent assuming that the
+    content is a utf8-encoded string and returns the result as a String.  Two types of error can occur, an error
+    opening the file, or an error reading utf8.  Therefore, this function has its own error type. */
 #[cfg(test)]
 pub fn read_file_to_string
 <
