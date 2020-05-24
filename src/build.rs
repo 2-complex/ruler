@@ -1,7 +1,7 @@
-extern crate filesystem;
+extern crate file_objects_rs;
 extern crate multimap;
 
-use filesystem::FileSystem;
+use file_objects_rs::FileSystem;
 use multimap::MultiMap;
 
 use std::thread;
@@ -673,7 +673,7 @@ mod test
         read_file_to_string
     };
 
-    use filesystem::{FileSystem, FakeFileSystem};
+    use file_objects_rs::{FileSystem, FakeFileSystem};
 
     #[test]
     fn build_basic()

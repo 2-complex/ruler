@@ -6,7 +6,7 @@ use base64::encode_config;
 use crypto::digest::Digest;
 use std::hash::{Hash, Hasher};
 use serde::{Serialize, Deserialize};
-use filesystem::FileSystem;
+use file_objects_rs::FileSystem;
 use std::fmt;
 use std::io::Read;
 
@@ -171,7 +171,7 @@ mod test
     {
         write_str_to_file
     };
-    use filesystem::
+    use file_objects_rs::
     {
         FakeFileSystem
     };

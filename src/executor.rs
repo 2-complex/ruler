@@ -11,7 +11,7 @@ use crate::file::
 };
 
 #[cfg(test)]
-use filesystem::{FileSystem, FakeFileSystem};
+use file_objects_rs::{FileSystem, FakeFileSystem};
 
 pub struct CommandLineOutput
 {

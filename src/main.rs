@@ -1,8 +1,8 @@
 extern crate clap;
-extern crate filesystem;
+extern crate file_objects_rs;
 
 use clap::{Arg, App, SubCommand};
-use filesystem::OsFileSystem;
+use file_objects_rs::OsFileSystem;
 
 mod cache;
 mod build;

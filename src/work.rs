@@ -1,4 +1,4 @@
-extern crate filesystem;
+extern crate file_objects_rs;
 
 use crate::packet::Packet;
 use crate::ticket::
@@ -20,7 +20,7 @@ use crate::memory::
 };
 use crate::cache::{LocalCache, RestoreResult};
 
-use filesystem::FileSystem;
+use file_objects_rs::FileSystem;
 use std::sync::mpsc::{Sender, Receiver, RecvError};
 use std::fmt;
 use std::time::{SystemTime, SystemTimeError};
@@ -778,7 +778,7 @@ mod test
         read_file_to_string,
     };
 
-    use filesystem::
+    use file_objects_rs::
     {
         FileSystem,
         FakeFileSystem

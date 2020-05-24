@@ -1,10 +1,7 @@
-extern crate filesystem;
-
 use crate::ticket::Ticket;
-
 use crate::ticket::TicketFactory;
 
-use filesystem::FileSystem;
+use file_objects_rs::FileSystem;
 use std::io::Error;
 
 pub enum RestoreResult
@@ -96,7 +93,7 @@ impl LocalCache
 #[cfg(test)]
 mod test
 {
-    use filesystem::{FileSystem, FakeFileSystem};
+    use file_objects_rs::{FileSystem, FakeFileSystem};
     use crate::ticket::TicketFactory;
     use crate::cache::{LocalCache, RestoreResult};
     use crate::file::

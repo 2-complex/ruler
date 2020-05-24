@@ -1,5 +1,5 @@
-extern crate filesystem;
-use filesystem::FileSystem;
+extern crate file_objects_rs;
+use file_objects_rs::FileSystem;
 
 #[cfg(test)]
 use std::str::from_utf8;

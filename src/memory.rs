@@ -1,8 +1,8 @@
-extern crate filesystem;
+extern crate file_objects_rs;
 
 use crate::ticket::{TicketFactory, Ticket};
 use crate::file::write_file;
-use filesystem::FileSystem;
+use file_objects_rs::FileSystem;
 
 use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
@@ -370,7 +370,7 @@ impl fmt::Display for Memory
 #[cfg(test)]
 mod test
 {
-    use filesystem::FakeFileSystem;
+    use file_objects_rs::FakeFileSystem;
     use crate::memory::{RuleHistory, Memory, TargetHistory};
     use crate::ticket::{TicketFactory};
     use crate::file::
