@@ -40,17 +40,12 @@ use crate::metadata::MetadataGetter;
 use crate::executor::Executor;
 use crate::memory::{Memory, MemoryError};
 use crate::cache::LocalCache;
+use crate::printer::Printer;
 
-use std::io::Write;
 use termcolor::
 {
     Color,
-    ColorChoice,
-    ColorSpec,
-    StandardStream,
-    WriteColor
 };
-
 
 /*  For the purpose of */
 fn make_multimaps(nodes : &Vec<Node>)
@@ -196,43 +191,6 @@ pub fn init_directory<
     ))
 }
 
-fn print_single_banner_line(banner_text : &str, banner_color : Color, path : &str)
-{
-    let mut stdout = StandardStream::stdout(ColorChoice::Always);
-    match stdout.set_color(ColorSpec::new().set_fg(Some(banner_color)))
-    {
-        Ok(_) => {},
-        Err(_error) => {},
-    }
-    match write!(&mut stdout, "{}: ", banner_text)
-    {
-        Ok(_) => {},
-        Err(_error) =>
-        {
-            /*  If the write doesn't work, change the color back, but
-                other than that, I don't know what to do. */
-            match stdout.set_color(ColorSpec::new().set_fg(None))
-            {
-                Ok(_) => {},
-                Err(_error) => {},
-            }
-            return
-        }
-    }
-    match stdout.set_color(ColorSpec::new().set_fg(None))
-    {
-        Ok(_) => {},
-        Err(_error) => {},
-    }
-    match writeln!(&mut stdout, "{}", path)
-    {
-        Ok(_) => {},
-        Err(_error) =>
-        {
-            // Again, just not sure what to do if write fails.
-        },
-    }
-}
 
 fn read_all_rules
 <
@@ -266,6 +224,7 @@ fn read_all_rules
     }
 }
 
+
 /*  This is the function that runs when you type "ruler build" at the commandline.
     It opens the rulefile, parses it, and then either updates all targets in all rules
     or, if goal_target_opt is Some, only the targets that are ancstors of goal_target_opt
@@ -276,14 +235,16 @@ pub fn build<
     ExecType : Executor
         + Clone + Send + 'static,
     MetadataGetterType : MetadataGetter
-        + Clone + Send + 'static
+        + Clone + Send + 'static,
+    PrinterType : Printer,
 >(
     mut file_system : FileSystemType,
     executor : ExecType,
     metadata_getter: MetadataGetterType,
     directory : &str,
     rulefile_path: &str,
-    goal_target_opt: Option<String>
+    goal_target_opt: Option<String>,
+    printer: &mut PrinterType,
 )
 -> Result<(), BuildError>
 {
@@ -437,7 +398,7 @@ pub fn build<
                                                 ("  Outdated", Color::Red),
                                         };
 
-                                    print_single_banner_line(banner_text, banner_color, &target_info.path);
+                                    printer.print_single_banner_line(banner_text, banner_color, &target_info.path);
                                 }
                             },
 
@@ -445,27 +406,29 @@ pub fn build<
                             {
                                 for target_info in work_result.target_infos.iter()
                                 {
-                                    print_single_banner_line("  Building", Color::Magenta, &target_info.path);  
+                                    printer.print_single_banner_line("     Built", Color::Magenta, &target_info.path);  
                                 }
 
                                 if output.out != ""
                                 {
-                                    println!("{}", output.out);
+                                    printer.print(&output.out);
                                 }
 
                                 if output.err != ""
                                 {
-                                    eprintln!("ERROR:\n{}", output.err);
+                                    printer.error(&output.err);
                                 }
 
                                 if !output.success
                                 {
-                                    eprintln!("RESULT: {}", 
-                                        match output.code
-                                        {
-                                            Some(code) => format!("{}", code),
-                                            None => "None".to_string(),
-                                        }
+                                    printer.error(
+                                        &format!("RESULT: {}", 
+                                            match output.code
+                                            {
+                                                Some(code) => format!("{}", code),
+                                                None => "None".to_string(),
+                                            }
+                                        )
                                     );
                                 }
 
@@ -507,8 +470,8 @@ pub fn build<
     {
         match memory.to_file(&mut file_system, &memoryfile)
         {
-            Ok(_) => {},    
-            Err(_) => eprintln!("Error writing history"),
+            Ok(_) => {},
+            Err(_) => printer.error("Error writing history"),
         }
 
         Ok(())
@@ -672,8 +635,12 @@ mod test
         write_str_to_file,
         read_file_to_string
     };
-
-    use file_objects_rs::{FileSystem, FakeFileSystem};
+    use crate::printer::EmptyPrinter;
+    use file_objects_rs::
+    {
+        FileSystem,
+        FakeFileSystem,
+    };
 
     #[test]
     fn build_basic()
@@ -718,7 +685,8 @@ poem.txt
             metadata_getter,
             "test.directory",
             "test.rules",
-            Some("poem.txt".to_string()))
+            Some("poem.txt".to_string()),
+            &mut EmptyPrinter::new())
         {
             Ok(()) => {},
             Err(error) => panic!("Unexpected build error: {}", error),
@@ -780,7 +748,8 @@ poem.txt
             metadata_getter.clone(),
             "test.directory",
             "test.rules",
-            Some("poem.txt".to_string()))
+            Some("poem.txt".to_string()),
+            &mut EmptyPrinter::new())
         {
             Ok(()) => {},
             Err(error) => panic!("Unexpected build error: {}", error),
@@ -810,7 +779,8 @@ poem.txt
             metadata_getter.clone(),
             "test.directory",
             "test.rules",
-            Some("poem.txt".to_string()))
+            Some("poem.txt".to_string()),
+            &mut EmptyPrinter::new())
         {
             Ok(()) => panic!("Unexpected silence when contradiction should arise"),
             Err(error) =>
@@ -881,7 +851,8 @@ poem.txt
             metadata_getter.clone(),
             ".ruler",
             "test.rules",
-            Some("poem.txt".to_string()))
+            Some("poem.txt".to_string()),
+            &mut EmptyPrinter::new())
         {
             Ok(()) => {},
             Err(error) => panic!("Unexpected build error: {}", error),
@@ -912,7 +883,8 @@ poem.txt
             metadata_getter.clone(),
             ".ruler",
             "test.rules",
-            Some("poem.txt".to_string()))
+            Some("poem.txt".to_string()),
+            &mut EmptyPrinter::new())
         {
             Ok(()) => {},
             Err(error) => panic!("Unexpected build error: {}", error),
@@ -951,7 +923,8 @@ poem.txt
             metadata_getter.clone(),
             ".ruler",
             "test.rules",
-            Some("poem.txt".to_string()))
+            Some("poem.txt".to_string()),
+            &mut EmptyPrinter::new())
         {
             Ok(()) => {},
             Err(error) => panic!("Unexpected build error: {}", error),

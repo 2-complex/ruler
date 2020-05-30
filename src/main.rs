@@ -14,9 +14,11 @@ mod executor;
 mod packet;
 mod metadata;
 mod file;
+mod printer;
 
 use self::executor::OsExecutor;
 use self::metadata::OsMetadataGetter;
+use self::printer::StandardPrinter;
 
 fn main()
 {
@@ -142,13 +144,16 @@ The path to the build-target.")
             None => None,
         };
 
+        let mut printer = StandardPrinter::new();
+
         match build::build(
             OsFileSystem::new(),
             OsExecutor::new(),
             OsMetadataGetter::new(),
             directory,
             rulefile,
-            target)
+            target,
+            &mut printer)
         {
             Ok(()) => {},
             Err(error) => eprintln!("{}", error),
