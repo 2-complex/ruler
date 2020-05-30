@@ -114,6 +114,7 @@ pub enum WorkError
     SenderError,
     TicketAlignmentError(std::io::Error),
     FileNotFound(String),
+    TargetFileNotGenerated(String),
     FileNotAvailableToCache(String, std::io::Error),
     FileIoError(String, std::io::Error),
     CommandExecutedButErrored(String),
@@ -145,6 +146,9 @@ impl fmt::Display for WorkError
 
             WorkError::FileNotFound(path) =>
                 write!(formatter, "File not found: {}", path),
+
+            WorkError::TargetFileNotGenerated(path) =>
+                write!(formatter, "Target file missing after running build command: {}", path),
 
             WorkError::FileNotAvailableToCache(path, error) =>
                 write!(formatter, "File not available to be cached: {} : {}", path, error),
@@ -481,7 +485,7 @@ Result<Ticket, WorkError>
     Ok(factory.result())
 }
 
-/*  Takes a vector of resolutions, and returns true if any of them are NeedsRebuild*/
+/*  Takes a vector of resolutions, and returns true if any of them are NeedsRebuild */
 fn needs_rebuild(resolutions : &Vec<FileResolution>) -> bool
 {
     for resolution in resolutions
@@ -501,7 +505,7 @@ fn needs_rebuild(resolutions : &Vec<FileResolution>) -> bool
 
 /*  Handles the case when some target is irrecoverable from the cache, and the command
     needs to execute to rebuild the node.  Natrually, return a WorkResult with option
-    indicating that the command executed (which contains the commandline result)*/
+    indicating that the command executed (which contains the commandline result) */
 fn rebuild_node
 <
     FileSystemType : FileSystem,
@@ -542,11 +546,20 @@ Result<WorkResult, WorkError>
                     {
                         match ticket_opt
                         {
-                            Some(ticket) => post_command_target_tickets.push(ticket),
-                            None => return Err(WorkError::FileNotFound(target_info.path.clone())),
+                            Some(ticket) =>
+                            {
+                                post_command_target_tickets.push(ticket);
+                            }
+                            None =>
+                            {
+                                return Err(WorkError::TargetFileNotGenerated(target_info.path.clone()));
+                            }
                         }
                     },
-                    Err(error) => return Err(WorkError::FileIoError(target_info.path.clone(), error)),
+                    Err(error) =>
+                    {
+                        return Err(WorkError::FileIoError(target_info.path.clone(), error));
+                    }
                 }
             }
 
@@ -556,7 +569,10 @@ Result<WorkResult, WorkError>
                     post_command_target_tickets[sub_index].clone()))
                 {
                     Ok(_) => {},
-                    Err(_error) => return Err(WorkError::SenderError),
+                    Err(_error) =>
+                    {
+                        return Err(WorkError::SenderError);
+                    },
                 }
             }
 
@@ -627,6 +643,7 @@ Result<WorkResult, WorkError>
         Err(error) => return Err(error),
     };
 
+    /*  If there's a rule-history that means the node is rule, otherwise, it is a plain source file. */
     match rule_history_opt
     {
         None => handle_source_only_node(
@@ -1095,6 +1112,64 @@ mod test
         }
     }
 
+
+    #[test]
+    fn command_fails_to_generate_target()
+    {
+        let (sender_a, receiver_a) = mpsc::channel();
+        let (sender_b, receiver_b) = mpsc::channel();
+        let (sender_c, _receiver_c) = mpsc::channel();
+
+        let mut file_system = FakeFileSystem::new();
+
+        match write_str_to_file(&mut file_system, "verse1.txt", "Roses are red\n")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File write operation failed"),
+        }
+
+        match write_str_to_file(&mut file_system, "verse2.txt", "Violets are violet\n")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File write operation failed"),
+        }
+
+        match sender_a.send(Packet::from_ticket(TicketFactory::from_str("Roses are red\n").result()))
+        {
+            Ok(p) => assert_eq!(p, ()),
+            Err(e) => panic!("Unexpected error sending: {}", e),
+        }
+
+        match sender_b.send(Packet::from_ticket(TicketFactory::from_str("Violets are violet\n").result()))
+        {
+            Ok(p) => assert_eq!(p, ()),
+            Err(e) => panic!("Unexpected error sending: {}", e),
+        }
+
+        match handle_node(
+            to_info(vec!["poem.txt".to_string()]),
+            vec![
+                "mycat".to_string(),
+                "verse1.txt".to_string(),
+                "verse2.txt".to_string(),
+                "wrong.txt".to_string()
+            ],
+            Some(RuleHistory::new()),
+            file_system.clone(),
+            FakeMetadataGetter::new(),
+            vec![(0, sender_c)],
+            vec![receiver_a, receiver_b],
+            FakeExecutor::new(file_system.clone()),
+            LocalCache::new(".ruler-cache"))
+        {
+            Ok(_) => panic!("Unexpected command success"),
+            Err(WorkError::TargetFileNotGenerated(path)) =>
+            {
+                assert_eq!(path, "poem.txt");
+            },
+            Err(error) => panic!("Wrong kind of error when command errors: {}", error),
+        }
+    }
 
     #[test]
     fn poem_concatination()
