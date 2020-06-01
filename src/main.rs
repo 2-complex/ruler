@@ -80,11 +80,17 @@ or it can be specificed using --rules=<path>
 ")
             .arg(Arg::with_name("target")
                 .help("
-The path to the build-target.")
+Path to a specific build-target to build.  Ruler will only build this target, and its ancestors, as needed.")
                 .required(false)
                 .index(1)
             )
         )
+        .arg(Arg::with_name("rules")
+            .short("r")
+            .long("rules")
+            .value_name("rules")
+            .help("Path to a custom rules file (default: build.rules)")
+            .takes_value(true))
         .get_matches();
 
 
