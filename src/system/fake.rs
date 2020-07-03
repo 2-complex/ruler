@@ -54,9 +54,43 @@ impl Content
 }
 
 #[derive(Debug, Clone)]
+struct Metadata
+{
+}
+
+impl Metadata
+{
+    fn new() -> Self
+    {
+        Metadata
+        {
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct FileInfo
+{
+    metadata : Metadata,
+    content : Content
+}
+
+impl FileInfo
+{
+    fn from_content(content : Content) -> Self
+    {
+        FileInfo
+        {
+            metadata : Metadata::new(),
+            content : content
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 enum Node
 {
-    File(Content),
+    File(FileInfo),
     Dir(HashMap<String, Node>)
 }
 
@@ -251,7 +285,7 @@ impl Node
     pub fn create_file(&mut self, path: &str, content : Content) -> Result<Content, NodeError>
     {
         let (dir_components, name) = get_dir_path_and_name(path)?;
-        self.insert(dir_components, name, Node::File(content.clone()))?;
+        self.insert(dir_components, name, Node::File(FileInfo::from_content(content.clone())))?;
         Ok(content)
     }
 
@@ -346,7 +380,7 @@ impl Node
         let components = get_components(path);
         match self.get_node(&components)?
         {
-            Node::File(content) => Ok(content),
+            Node::File(info) => Ok(&info.content),
             Node::Dir(_) =>
             {
                 match components.last()
@@ -613,6 +647,7 @@ mod test
     use crate::system::fake::
     {
         Content,
+        FileInfo,
         Node,
         NodeError,
         get_components,
@@ -717,7 +752,7 @@ mod test
     #[test]
     fn file_is_file()
     {
-        let node = Node::File(Content::new(b"things".to_vec()));
+        let node = Node::File(FileInfo::from_content(Content::new(b"things".to_vec())));
         assert!(node.is_file(""));
         assert!(!node.is_dir(""));
     }
@@ -725,7 +760,7 @@ mod test
     #[test]
     fn new_empty_file_is_file()
     {
-        let node = Node::File(Content::new(b"".to_vec()));
+        let node = Node::File(FileInfo::from_content(Content::new(b"".to_vec())));
         assert!(node.is_file(""));
         assert!(!node.is_dir(""));
     }
@@ -741,7 +776,7 @@ mod test
     #[test]
     fn non_existent_child_is_not_file_or_dir()
     {
-        let node = Node::File(Content::new(b"stuff".to_vec()));
+        let node = Node::File(FileInfo::from_content(Content::new(b"stuff".to_vec())));
         assert!(!node.is_file("stuf-not-there"));
         assert!(!node.is_dir("stuf-not-there"));
     }
