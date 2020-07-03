@@ -72,6 +72,8 @@ pub enum SystemError
     RemoveDirFoundFile,
     RemoveNonExistentFile,
     RemoveNonExistentDir,
+    RenameFromNonExistent,
+    RenameToNonExistent,
     Weird,
 }
 
@@ -104,6 +106,12 @@ impl fmt::Display for SystemError
 
             SystemError::RemoveNonExistentDir
                 => write!(formatter, "Attempt to remove non-existent directory"),
+
+            SystemError::RenameFromNonExistent
+                => write!(formatter, "Attempt to rename a non-existent file or directory"),
+
+            SystemError::RenameToNonExistent
+                => write!(formatter, "Attempt to rename a file or directory with non-existent target directory"),
 
             SystemError::Weird
                 => write!(formatter, "Weird error, this happens when internal logic fails in a way the programmer didn't think was possible"),

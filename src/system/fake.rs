@@ -70,6 +70,8 @@ enum NodeError
     RemoveDirFoundFile,
     RemoveNonExistentFile,
     RemoveNonExistentDir,
+    RenameFromNonExistent,
+    RenameToNonExistent,
     Weird,
 }
 
@@ -103,6 +105,12 @@ impl fmt::Display for NodeError
 
             NodeError::RemoveNonExistentDir
                 => write!(formatter, "Attempt to remove non-existent directory"),
+
+            NodeError::RenameFromNonExistent
+                => write!(formatter, "Attempt to rename a non-existent file or directory"),
+
+            NodeError::RenameToNonExistent
+                => write!(formatter, "Attempt to rename a file or directory with non-existent target directory"),
 
             NodeError::Weird
                 => write!(formatter, "Weird error, this happens when internal logic fails in a way the programmer didn't think was possible"),
@@ -179,15 +187,13 @@ impl Node
         }
     }
 
-    pub fn get_node(&self, dir_components : &Vec<&str>) -> Result<&Node, NodeError>
+    pub fn get_node(&self, dir_components : &Vec<&str>)
+        -> Result<&Node, NodeError>
     {
         let mut node = self;
-        println!("Hey");
 
         for component in dir_components.iter()
         {
-            println!("Hey  c: {}", component);
-
             node = match node
             {
                 Node::File(_) => return Err(NodeError::FileInPlaceOfDirectory(component.to_string())),
@@ -227,22 +233,18 @@ impl Node
         return Ok(node)
     }
 
+    pub fn get_dir_map_mut(&mut self, dir_components : &Vec<&str>) -> Result<&mut HashMap<String, Node>, NodeError>
+    {
+        match self.get_node_mut(dir_components)?
+        {
+            Node::File(_) => Err(NodeError::Weird),
+            Node::Dir(name_to_node) => Ok(name_to_node),
+        }
+    }
+
     fn insert(&mut self, dir_components : Vec<&str>, name : &str, node : Node) -> Result<(), NodeError>
     {
-        match self.get_node_mut(&dir_components)?
-        {
-            Node::File(_) =>
-            {
-                match dir_components.last()
-                {
-                    Some(last) => return Err(NodeError::FileInPlaceOfDirectory(last.to_string())),
-                    None => return Err(NodeError::Weird),
-                }
-            }
-
-            Node::Dir(name_to_node) => name_to_node,
-        }.insert(name.to_string(), node);
-
+        self.get_dir_map_mut(&dir_components)?.insert(name.to_string(), node);
         Ok(())
     }
 
@@ -291,26 +293,51 @@ impl Node
     {
         let (dir_components, name) = get_dir_path_and_name(path)?;
 
-        match self.get_node_mut(&dir_components)?
+        let name_to_node = self.get_dir_map_mut(&dir_components)?;
+        match name_to_node.remove(name)
         {
-            Node::File(_) => match dir_components.last()
+            Some(node) => match node
             {
-                Some(last) => return Err(NodeError::FileInPlaceOfDirectory(last.to_string())),
-                None => return Err(NodeError::Weird),
-            },
-            Node::Dir(name_to_node) => match name_to_node.remove(name)
-            {
-                Some(node) => match node
+                Node::File(_) => 
                 {
-                    Node::File(_) => 
+                    name_to_node.insert(name.to_string(), node);
+                    Err(NodeError::RemoveDirFoundFile)
+                }
+                Node::Dir(_) => Ok(()),
+            },
+            None => Err(NodeError::RemoveNonExistentDir)
+        }
+    }
+
+    pub fn rename(&mut self, from: &str, to: &str) -> Result<(), NodeError>
+    {
+        let (from_dir_components, from_name) = get_dir_path_and_name(from)?;
+        let (to_dir_components, to_name) = get_dir_path_and_name(to)?;
+
+        let from_name_to_node = self.get_dir_map_mut(&from_dir_components)?;
+
+        match from_name_to_node.remove(from_name)
+        {
+            Some(moving_node) =>
+            {
+                drop(from_name_to_node);
+                match self.get_dir_map_mut(&to_dir_components)
+                {
+                    Ok(to_name_to_node) =>
                     {
-                        name_to_node.insert(name.to_string(), node);
-                        Err(NodeError::RemoveDirFoundFile)
+                        to_name_to_node.insert(to_name.to_string(), moving_node);
+                        Ok(())
                     }
-                    Node::Dir(_) => Ok(()),
-                },
-                None => Err(NodeError::RemoveNonExistentDir)
-            }
+
+                    Err(_) =>
+                    {
+                        let from_name_to_node = self.get_dir_map_mut(&from_dir_components)?;
+                        from_name_to_node.insert(from_name.to_string(), moving_node);
+                        Err(NodeError::RenameToNonExistent)
+                    }
+                }
+            },
+            None => Err(NodeError::RenameFromNonExistent),
         }
     }
 
@@ -463,6 +490,12 @@ fn convert_node_error_to_system_error(error : NodeError) -> SystemError
         NodeError::RemoveNonExistentDir
             => SystemError::RemoveNonExistentDir,
 
+        NodeError::RenameFromNonExistent
+            => SystemError::RenameFromNonExistent,
+
+        NodeError::RenameToNonExistent
+            => SystemError::RenameToNonExistent,
+
         NodeError::Weird
             => SystemError::Weird,
     }
@@ -540,9 +573,13 @@ impl System for FakeSystem
         }
     }
 
-    fn rename(&mut self, _from: &str, _to: &str) -> Result<(), SystemError>
+    fn rename(&mut self, from: &str, to: &str) -> Result<(), SystemError>
     {
-        Ok(())
+        match self.root.rename(from, to)
+        {
+            Ok(_) => Ok(()),
+            Err(error) => Err(convert_node_error_to_system_error(error)),
+        }
     }
 
     fn get_modified(&self, _path: &str) -> Result<SystemTime, SystemError>
@@ -779,6 +816,67 @@ mod test
         assert!(!node.is_file("some text"));
     }
 
+    #[test]
+    fn rename_file()
+    {
+        let mut node = Node::empty_dir();
+        match node.create_file("kitten.jpg", Content::new(b"jpg-content".to_vec()))
+        {
+            Ok(_) => {},
+            Err(error) => panic!("create_file in empty root failed with error: {}", error),
+        }
+
+        match node.create_dir("images")
+        {
+            Ok(_) => {},
+            Err(error) => panic!("create_dir in almost empty root failed with error: {}", error),
+        }
+
+        assert!(node.is_file("kitten.jpg"));
+        assert!(node.is_dir("images"));
+
+        match node.rename("kitten.jpg", "images/kitten.jpg")
+        {
+            Ok(_) => {},
+            Err(error) => panic!("rename failed with error: {}", error),
+        }
+
+        assert!(!node.is_file("kitten.jpg"));
+        assert!(node.is_dir("images"));
+        assert!(node.is_file("images/kitten.jpg"));
+    }
+
+    #[test]
+    fn rename_directory()
+    {
+        let mut node = Node::empty_dir();
+        match node.create_dir("images")
+        {
+            Ok(_) => {},
+            Err(error) => panic!("create_dir in empty root failed with error: {}", error),
+        }
+
+        match node.create_file("images/kitten.jpg", Content::new(b"jpg-content".to_vec()))
+        {
+            Ok(_) => {},
+            Err(error) => panic!("create_file failed with error: {}", error),
+        }
+
+        assert!(node.is_file("images/kitten.jpg"));
+        assert!(node.is_dir("images"));
+
+        match node.rename("images", "images2")
+        {
+            Ok(_) => {},
+            Err(error) => panic!("rename failed with error: {}", error),
+        }
+
+        assert!(node.is_dir("images2"));
+        assert!(!node.is_dir("images"));
+        assert!(node.is_file("images2/kitten.jpg"));
+        assert!(!node.is_file("images/kitten.jpg"));
+    }
+
     enum ReadWriteError
     {
         IOError(Error),
@@ -914,5 +1012,28 @@ mod test
                 }
             }
         }
+    }
+
+    #[test]
+    fn system_rename_file()
+    {
+        let mut system = FakeSystem::new();
+        match system.create_file("star.png")
+        {
+            Ok(_) => {},
+            Err(error) => panic!("create_file SystemError: {}", error),
+        }
+
+        assert!(system.is_file("star.png"));
+        assert!(!system.is_file("heart.png"));
+
+        match system.rename("star.png", "heart.png")
+        {
+            Ok(_) => {},
+            Err(error) => panic!("rename SystemError: {}", error),
+        }
+
+        assert!(!system.is_file("star.png"));
+        assert!(system.is_file("heart.png"));
     }
 }
