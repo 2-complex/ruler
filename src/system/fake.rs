@@ -522,9 +522,22 @@ impl System for FakeSystem
         self.root.is_dir(path)
     }
 
-    fn remove_file(&mut self, _path: &str) -> Result<(), SystemError>
+    fn remove_file(&mut self, path: &str) -> Result<(), SystemError>
     {
-        Ok(())
+        match self.root.remove_file(path)
+        {
+            Ok(_) => Ok(()),
+            Err(error) => Err(convert_node_error_to_system_error(error)),
+        }
+    }
+
+    fn remove_dir(&mut self, path: &str) -> Result<(), SystemError>
+    {
+        match self.root.remove_dir(path)
+        {
+            Ok(_) => Ok(()),
+            Err(error) => Err(convert_node_error_to_system_error(error)),
+        }
     }
 
     fn rename(&mut self, _from: &str, _to: &str) -> Result<(), SystemError>
@@ -830,7 +843,45 @@ mod test
     }
 
     #[test]
-    fn create_file_write_read_round_trip()
+    fn system_add_remove_file()
+    {
+        let mut system = FakeSystem::new();
+        match system.create_file("file.txt")
+        {
+            Ok(_) => {},
+            Err(error) => panic!("create_file in FakeSystem failed with error: {}", error),
+        }
+        assert!(system.is_file("file.txt"));
+        match system.remove_file("file.txt")
+        {
+            Ok(_) => {},
+            Err(error) => panic!("remove_file in FakeSystem failed with error: {}", error),
+        }
+        assert!(!system.is_file("file.txt"));
+        assert!(!system.is_dir("file.txt"));
+    }
+
+    #[test]
+    fn system_add_remove_dir()
+    {
+        let mut system = FakeSystem::new();
+        match system.create_dir("images")
+        {
+            Ok(_) => {},
+            Err(error) => panic!("create_dir in FakeSystem failed with error: {}", error),
+        }
+        assert!(system.is_dir("images"));
+        match system.remove_dir("images")
+        {
+            Ok(_) => {},
+            Err(error) => panic!("remove_file in FakeSystem failed with error: {}", error),
+        }
+        assert!(!system.is_file("images"));
+        assert!(!system.is_dir("images"));
+    }
+
+    #[test]
+    fn system_create_file_write_read_round_trip()
     {
         let mut system = FakeSystem::new();
         match write_str_to_file(&mut system, "fruit_file.txt", "cantaloupe")

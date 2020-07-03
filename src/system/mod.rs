@@ -122,6 +122,7 @@ pub trait System: Clone + Send + Sync
     fn is_dir(&self, path: &str) -> bool;
     fn is_file(&self, path: &str) -> bool;
     fn remove_file(&mut self, path: &str) -> Result<(), SystemError>;
+    fn remove_dir(&mut self, path: &str) -> Result<(), SystemError>;
     fn rename(&mut self, from: &str, to: &str) -> Result<(), SystemError>;
 
     fn get_modified(&self, path: &str) -> Result<SystemTime, SystemError>;
