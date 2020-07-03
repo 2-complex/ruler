@@ -68,6 +68,10 @@ pub enum SystemError
     DirectoryNotFound(String),
     DirectoryInPlaceOfFile(String),
     PathEmpty,
+    RemoveFileFoundDir,
+    RemoveDirFoundFile,
+    RemoveNonExistentFile,
+    RemoveNonExistentDir,
     Weird,
 }
 
@@ -77,20 +81,32 @@ impl fmt::Display for SystemError
     {
         match self
         {
-            SystemError::DirectoryNotFound(name) =>
-                write!(formatter, "Directory not found: {}", name),
+            SystemError::DirectoryNotFound(name)
+                => write!(formatter, "Directory not found: {}", name),
 
-            SystemError::FileInPlaceOfDirectory(component) =>
-                write!(formatter, "Expected directory, found file: {}", component),
+            SystemError::FileInPlaceOfDirectory(component)
+                => write!(formatter, "Expected directory, found file: {}", component),
 
-            SystemError::DirectoryInPlaceOfFile(component) =>
-                write!(formatter, "Expected file, found directory: {}", component),
+            SystemError::DirectoryInPlaceOfFile(component)
+                => write!(formatter, "Expected file, found directory: {}", component),
 
-            SystemError::PathEmpty =>
-                write!(formatter, "Invalid arguments: found empty path"),
+            SystemError::PathEmpty
+                => write!(formatter, "Invalid arguments: found empty path"),
 
-            SystemError::Weird =>
-                write!(formatter, "Weird error, this happens when internal logic fails in a way the programmer didn't think was possible"),
+            SystemError::RemoveFileFoundDir
+                => write!(formatter, "Attempt to remove file, found directory"),
+
+            SystemError::RemoveDirFoundFile
+                => write!(formatter, "Attempt to remove directory, found file"),
+
+            SystemError::RemoveNonExistentFile
+                => write!(formatter, "Attempt to remove non-existent file"),
+
+            SystemError::RemoveNonExistentDir
+                => write!(formatter, "Attempt to remove non-existent directory"),
+
+            SystemError::Weird
+                => write!(formatter, "Weird error, this happens when internal logic fails in a way the programmer didn't think was possible"),
         }
     }
 }

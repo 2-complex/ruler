@@ -24,6 +24,7 @@ use std::io::
     Write
 };
 use std::cmp::min;
+use std::fmt;
 
 
 #[derive(Debug, Clone)]
@@ -65,7 +66,48 @@ enum NodeError
     DirectoryInPlaceOfFile(String),
     DirectoryNotFound(String),
     PathEmpty,
+    RemoveFileFoundDir,
+    RemoveDirFoundFile,
+    RemoveNonExistentFile,
+    RemoveNonExistentDir,
     Weird,
+}
+
+
+impl fmt::Display for NodeError
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
+    {
+        match self
+        {
+            NodeError::DirectoryNotFound(name)
+                => write!(formatter, "Directory not found: {}", name),
+
+            NodeError::FileInPlaceOfDirectory(component)
+                => write!(formatter, "Expected directory, found file: {}", component),
+
+            NodeError::DirectoryInPlaceOfFile(component)
+                => write!(formatter, "Expected file, found directory: {}", component),
+
+            NodeError::PathEmpty
+                => write!(formatter, "Invalid arguments: found empty path"),
+
+            NodeError::RemoveFileFoundDir
+                => write!(formatter, "Attempt to remove file, found directory"),
+
+            NodeError::RemoveDirFoundFile
+                => write!(formatter, "Attempt to remove directory, found file"),
+
+            NodeError::RemoveNonExistentFile
+                => write!(formatter, "Attempt to remove non-existent file"),
+
+            NodeError::RemoveNonExistentDir
+                => write!(formatter, "Attempt to remove non-existent directory"),
+
+            NodeError::Weird
+                => write!(formatter, "Weird error, this happens when internal logic fails in a way the programmer didn't think was possible"),
+        }
+    }
 }
 
 fn get_components(dir_path: &str) -> Vec<&str>
@@ -218,6 +260,60 @@ impl Node
         Ok(())
     }
 
+    pub fn remove_file(&mut self, path: &str) -> Result<(), NodeError>
+    {
+        let (dir_components, name) = get_dir_path_and_name(path)?;
+
+        match self.get_node_mut(&dir_components)?
+        {
+            Node::File(_) => match dir_components.last()
+            {
+                Some(last) => return Err(NodeError::FileInPlaceOfDirectory(last.to_string())),
+                None => return Err(NodeError::Weird),
+            },
+            Node::Dir(name_to_node) => match name_to_node.remove(name)
+            {
+                Some(node) => match node
+                {
+                    Node::File(_) => Ok(()),
+                    Node::Dir(_) => 
+                    {
+                        name_to_node.insert(name.to_string(), node);
+                        Err(NodeError::RemoveFileFoundDir)
+                    }
+                },
+                None => Err(NodeError::RemoveNonExistentFile)
+            }
+        }
+    }
+
+    pub fn remove_dir(&mut self, path: &str) -> Result<(), NodeError>
+    {
+        let (dir_components, name) = get_dir_path_and_name(path)?;
+
+        match self.get_node_mut(&dir_components)?
+        {
+            Node::File(_) => match dir_components.last()
+            {
+                Some(last) => return Err(NodeError::FileInPlaceOfDirectory(last.to_string())),
+                None => return Err(NodeError::Weird),
+            },
+            Node::Dir(name_to_node) => match name_to_node.remove(name)
+            {
+                Some(node) => match node
+                {
+                    Node::File(_) => 
+                    {
+                        name_to_node.insert(name.to_string(), node);
+                        Err(NodeError::RemoveDirFoundFile)
+                    }
+                    Node::Dir(_) => Ok(()),
+                },
+                None => Err(NodeError::RemoveNonExistentDir)
+            }
+        }
+    }
+
     pub fn open_file(&self, path: &str) -> Result<&Content, NodeError>
     {
         let components = get_components(path);
@@ -236,7 +332,6 @@ impl Node
             }
         }
     }
-
 }
 
 #[derive(Debug, PartialEq)]
@@ -344,20 +439,32 @@ fn convert_node_error_to_system_error(error : NodeError) -> SystemError
 {
     match error
     {
-        NodeError::FileInPlaceOfDirectory(component) =>
-            SystemError::FileInPlaceOfDirectory(component),
+        NodeError::FileInPlaceOfDirectory(component)
+            => SystemError::FileInPlaceOfDirectory(component),
 
-        NodeError::DirectoryInPlaceOfFile(component) =>
-            SystemError::DirectoryInPlaceOfFile(component),
+        NodeError::DirectoryInPlaceOfFile(component)
+            => SystemError::DirectoryInPlaceOfFile(component),
 
-        NodeError::DirectoryNotFound(component) =>
-            SystemError::DirectoryNotFound(component),
+        NodeError::DirectoryNotFound(component)
+            => SystemError::DirectoryNotFound(component),
 
-        NodeError::PathEmpty =>
-            SystemError::PathEmpty,
+        NodeError::PathEmpty
+            => SystemError::PathEmpty,
 
-        NodeError::Weird =>
-            SystemError::Weird,
+        NodeError::RemoveFileFoundDir
+            => SystemError::RemoveFileFoundDir,
+
+        NodeError::RemoveDirFoundFile
+            => SystemError::RemoveDirFoundFile,
+
+        NodeError::RemoveNonExistentFile
+            => SystemError::RemoveNonExistentFile,
+
+        NodeError::RemoveNonExistentDir
+            => SystemError::RemoveNonExistentDir,
+
+        NodeError::Weird
+            => SystemError::Weird,
     }
 }
 
@@ -587,6 +694,76 @@ mod test
         let node = Node::File(Content::new(b"stuff".to_vec()));
         assert!(!node.is_file("stuf-not-there"));
         assert!(!node.is_dir("stuf-not-there"));
+    }
+
+    #[test]
+    fn add_remove_file()
+    {
+        let mut node = Node::empty_dir();
+        match node.create_file("file.txt", Content::new(b"some text".to_vec()))
+        {
+            Ok(_) => {},
+            Err(error) => panic!("create_file in empty root failed with error: {}", error),
+        }
+        assert!(node.is_file("file.txt"));
+        match node.remove_file("file.txt")
+        {
+            Ok(_) => {},
+            Err(error) => panic!("remove_file in empty root failed with error: {}", error),
+        }
+        assert!(!node.is_file("file.txt"));
+        assert!(!node.is_dir("file.txt"));
+    }
+
+    #[test]
+    fn add_remove_dir()
+    {
+        let mut node = Node::empty_dir();
+        match node.create_dir("images")
+        {
+            Ok(_) => {},
+            Err(error) => panic!("create_dir in empty root failed with error: {}", error),
+        }
+        assert!(node.is_dir("images"));
+        match node.remove_dir("images")
+        {
+            Ok(_) => {},
+            Err(error) => panic!("remove_dir we just created in empty root failed with error: {}", error),
+        }
+        assert!(!node.is_file("images"));
+        assert!(!node.is_dir("images"));
+    }
+
+    #[test]
+    fn remove_non_existent_file_errors()
+    {
+        let mut node = Node::empty_dir();
+        match node.remove_file("file-not-there.txt")
+        {
+            Ok(_) => panic!("Unexpected sucess removing non-existent file"),
+            Err(error) => match error
+            {
+                NodeError::RemoveNonExistentFile => {},
+                _ => panic!("Attempt to remove non-existent file resulted in wrong error.")
+            }
+        }
+        assert!(!node.is_file("some text"));
+    }
+
+    #[test]
+    fn remove_non_existent_dir_errors()
+    {
+        let mut node = Node::empty_dir();
+        match node.remove_dir("dir-not-there")
+        {
+            Ok(_) => panic!("Unexpected sucess removing non-existent file"),
+            Err(error) => match error
+            {
+                NodeError::RemoveNonExistentDir => {},
+                _ => panic!("Attempt to remove non-existent dir resulted in wrong error.")
+            }
+        }
+        assert!(!node.is_file("some text"));
     }
 
     enum ReadWriteError
