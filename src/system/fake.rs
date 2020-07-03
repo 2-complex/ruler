@@ -1,0 +1,690 @@
+use std::collections::HashMap;
+use std::sync::
+{
+    Arc,
+    Mutex
+};
+use std::ops::
+{
+    Deref,
+    DerefMut
+};
+use std::time::SystemTime;
+use crate::system::
+{
+    System,
+    SystemError,
+    CommandLineOutput
+};
+use std::io::
+{
+    Error,
+    ErrorKind,
+    Read,
+    Write
+};
+use std::cmp::min;
+
+
+#[derive(Debug, Clone)]
+pub struct Content(Arc<Mutex<Vec<u8>>>);
+
+impl Content
+{
+    fn new(content: Vec<u8>) -> Self
+    {
+        Content(Arc::new(Mutex::new(content)))
+    }
+
+    fn empty() -> Self
+    {
+        Content(Arc::new(Mutex::new(vec![])))
+    }
+
+    pub fn borrow(&self) -> impl Deref<Target=Vec<u8>> + '_
+    {
+        self.0.lock().unwrap()
+    }
+
+    pub fn borrow_mut(&self) -> impl DerefMut<Target=Vec<u8>> + '_
+    {
+        self.0.lock().unwrap()
+    }
+}
+
+#[derive(Debug, Clone)]
+enum Node
+{
+    File(Content),
+    Dir(HashMap<String, Node>)
+}
+
+enum NodeError
+{
+    FileInPlaceOfDirectory(String),
+    DirectoryInPlaceOfFile(String),
+    DirectoryNotFound(String),
+    PathEmpty,
+    Weird,
+}
+
+fn get_components(dir_path: &str) -> Vec<&str>
+{
+    if dir_path == ""
+    {
+        vec![]
+    }
+    else
+    {
+        dir_path.split('/').collect()
+    }
+}
+
+fn get_dir_path_and_name(dir_path: &str) -> Result<(Vec<&str>, &str), NodeError>
+{
+    if dir_path == ""
+    {
+        return Err(NodeError::PathEmpty);
+    }
+
+    let v : Vec<&str> = dir_path.split('/').collect();
+    if v.len() == 0
+    {
+        return Err(NodeError::PathEmpty);
+    }
+
+    return Ok((v[..v.len()-1].to_vec(), v[v.len()-1]))
+}
+
+impl Node
+{
+    pub fn empty_dir() -> Self
+    {
+        Node::Dir(HashMap::new())
+    }
+
+    pub fn is_file(&self, path : &str) -> bool
+    {
+        match self.get_node(&get_components(path))
+        {
+            Ok(node) =>
+            {
+                match node
+                {
+                    Node::Dir(_) => false,
+                    Node::File(_) => true,
+                }
+            },
+            Err(_) =>
+                false
+        }
+    }
+
+    pub fn is_dir(&self, path : &str) -> bool
+    {
+        match self.get_node(&get_components(path))
+        {
+            Ok(node) =>
+            {
+                match node
+                {
+                    Node::Dir(_) => true,
+                    Node::File(_) => false,
+                }
+            },
+            Err(_) =>
+                false
+        }
+    }
+
+    pub fn get_node(&self, dir_components : &Vec<&str>) -> Result<&Node, NodeError>
+    {
+        let mut node = self;
+        println!("Hey");
+
+        for component in dir_components.iter()
+        {
+            println!("Hey  c: {}", component);
+
+            node = match node
+            {
+                Node::File(_) => return Err(NodeError::FileInPlaceOfDirectory(component.to_string())),
+                Node::Dir(name_to_node) =>
+                {
+                    match name_to_node.get(&component.to_string())
+                    {
+                        Some(n) => n,
+                        None => return Err(NodeError::DirectoryNotFound(component.to_string())),
+                    }
+                }
+            }
+        }
+
+        return Ok(node)
+    }
+
+    pub fn get_node_mut(&mut self, dir_components : &Vec<&str>) -> Result<&mut Node, NodeError>
+    {
+        let mut node = self;
+        for component in dir_components.iter()
+        {
+            node = match node
+            {
+                Node::File(_) => return Err(NodeError::FileInPlaceOfDirectory(component.to_string())),
+                Node::Dir(name_to_node) =>
+                {
+                    match name_to_node.get_mut(&component.to_string())
+                    {
+                        Some(n) => n,
+                        None => return Err(NodeError::DirectoryNotFound(component.to_string())),
+                    }
+                }
+            }
+        }
+
+        return Ok(node)
+    }
+
+    fn insert(&mut self, dir_components : Vec<&str>, name : &str, node : Node) -> Result<(), NodeError>
+    {
+        match self.get_node_mut(&dir_components)?
+        {
+            Node::File(_) =>
+            {
+                match dir_components.last()
+                {
+                    Some(last) => return Err(NodeError::FileInPlaceOfDirectory(last.to_string())),
+                    None => return Err(NodeError::Weird),
+                }
+            }
+
+            Node::Dir(name_to_node) => name_to_node,
+        }.insert(name.to_string(), node);
+
+        Ok(())
+    }
+
+    pub fn create_file(&mut self, path: &str, content : Content) -> Result<Content, NodeError>
+    {
+        let (dir_components, name) = get_dir_path_and_name(path)?;
+        self.insert(dir_components, name, Node::File(content.clone()))?;
+        Ok(content)
+    }
+
+    pub fn create_dir(&mut self, path: &str) -> Result<(), NodeError>
+    {
+        let (dir_components, name) = get_dir_path_and_name(path)?;
+        self.insert(dir_components, name, Node::Dir(HashMap::new()))?;
+        Ok(())
+    }
+
+    pub fn open_file(&self, path: &str) -> Result<&Content, NodeError>
+    {
+        let components = get_components(path);
+        match self.get_node(&components)?
+        {
+            Node::File(content) => Ok(content),
+            Node::Dir(_) =>
+            {
+                match components.last()
+                {
+                    Some(last) =>
+                        return Err(NodeError::DirectoryInPlaceOfFile(last.to_string())),
+                    None =>
+                        return Err(NodeError::PathEmpty)
+                }
+            }
+        }
+    }
+
+}
+
+#[derive(Debug, PartialEq)]
+enum AccessMode
+{
+    Read,
+    Write,
+}
+
+#[derive(Debug)]
+pub struct FakeOpenFile
+{
+    content : Content,
+    pos : usize,
+    access_mode : AccessMode,
+}
+
+impl FakeOpenFile
+{
+    fn new(content: &Content, access_mode: AccessMode) -> Self
+    {
+        FakeOpenFile
+        {
+            content: content.clone(),
+            pos: 0,
+            access_mode,
+        }
+    }
+
+    fn verify_access(&self, access_mode: AccessMode) -> std::io::Result<()>
+    {
+        if access_mode != self.access_mode
+        {
+            Err(Error::new(ErrorKind::Other, "Attempt to read/write the wrong way"))
+        }
+        else
+        {
+            Ok(())
+        }
+    }
+}
+
+impl Read for FakeOpenFile
+{
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize>
+    {
+        self.verify_access(AccessMode::Read)?;
+        let content = self.content.borrow();
+        let pos = self.pos;
+
+        // If the underlying file has shrunk, the offset could
+        // point to beyond eof.
+        let len =
+        if pos < content.len()
+        {
+            min(content.len() - pos, buf.len())
+        }
+        else
+        {
+            0
+        };
+
+        if len > 0
+        {
+            buf[..len].copy_from_slice(&content[pos..pos+len]);
+            self.pos += len;
+        }
+        Ok(len)
+    }
+}
+
+impl Write for FakeOpenFile
+{
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize>
+    {
+        self.verify_access(AccessMode::Write)?;
+        let mut content = self.content.borrow_mut();
+        let pos = self.pos;
+        // if pos points beyond eof, resize content to pos and pad with zeros
+        if pos > content.len()
+        {
+            content.resize(pos, 0);
+        }
+
+        let copy_len = min(buf.len(), content.len() - pos);
+        content[pos..pos+copy_len].copy_from_slice(&buf[..copy_len]);
+        content.extend_from_slice(&buf[copy_len..]);
+        self.pos += buf.len();
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()>
+    {
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct FakeSystem
+{
+    root: Node,
+}
+
+fn convert_node_error_to_system_error(error : NodeError) -> SystemError
+{
+    match error
+    {
+        NodeError::FileInPlaceOfDirectory(component) =>
+            SystemError::FileInPlaceOfDirectory(component),
+
+        NodeError::DirectoryInPlaceOfFile(component) =>
+            SystemError::DirectoryInPlaceOfFile(component),
+
+        NodeError::DirectoryNotFound(component) =>
+            SystemError::DirectoryNotFound(component),
+
+        NodeError::PathEmpty =>
+            SystemError::PathEmpty,
+
+        NodeError::Weird =>
+            SystemError::Weird,
+    }
+}
+
+impl FakeSystem
+{
+    fn new() -> Self
+    {
+        FakeSystem
+        {
+            root : Node::empty_dir()
+        }
+    }
+}
+
+impl System for FakeSystem
+{
+    type File = FakeOpenFile;
+
+    fn open(&self, path: &str) -> Result<Self::File, SystemError>
+    {
+        match self.root.open_file(path)
+        {
+            Ok(content) =>
+                Ok(FakeOpenFile::new(content, AccessMode::Read)),
+
+            Err(error) => Err(convert_node_error_to_system_error(error)),
+        }
+    }
+
+    fn create_file(&mut self, path: &str) -> Result<Self::File, SystemError>
+    {
+        match self.root.create_file(path, Content::empty())
+        {
+            Ok(content) => Ok(FakeOpenFile::new(&content, AccessMode::Write)),
+            Err(error) => Err(convert_node_error_to_system_error(error)),
+        }
+    }
+
+    fn create_dir(&mut self, path: &str) -> Result<(), SystemError>
+    {
+        match self.root.create_dir(path)
+        {
+            Ok(_) => Ok(()),
+            Err(error) => Err(convert_node_error_to_system_error(error)),
+        }
+    }
+
+    fn is_file(&self, path: &str) -> bool
+    {
+        self.root.is_file(path)
+    }
+
+    fn is_dir(&self, path: &str) -> bool
+    {
+        self.root.is_dir(path)
+    }
+
+    fn remove_file(&mut self, _path: &str) -> Result<(), SystemError>
+    {
+        Ok(())
+    }
+
+    fn rename(&mut self, _from: &str, _to: &str) -> Result<(), SystemError>
+    {
+        Ok(())
+    }
+
+    fn get_modified(&self, _path: &str) -> Result<SystemTime, SystemError>
+    {
+        Ok(SystemTime::UNIX_EPOCH)
+    }
+
+    fn execute_command(&mut self, _command_list: Vec<String>) -> Result<CommandLineOutput, SystemError>
+    {
+        Ok(CommandLineOutput::new())
+    }
+}
+
+#[cfg(test)]
+mod test
+{
+    use std::io::
+    {
+        Error,
+        Read,
+        Write
+    };
+
+    use crate::system::
+    {
+        System,
+        SystemError,
+        // CommandLineOutput
+    };
+
+    use crate::system::fake::
+    {
+        Content,
+        Node,
+        NodeError,
+        get_components,
+        get_dir_path_and_name,
+        FakeSystem
+    };
+
+    #[test]
+    fn content_borrows_with_star()
+    {
+        let content = Content::new(b"content1".to_vec());
+        assert_eq!(*content.borrow(), b"content1".to_vec());
+    }
+
+    #[test]
+    fn content_borrows_mut_and_change()
+    {
+        let file_content = Content::new(b"content1".to_vec());
+        file_content.borrow_mut()[7] = b'2';
+        assert_eq!(*file_content.borrow(), b"content2".to_vec());
+    }
+
+    #[test]
+    fn content_clone_points_to_same_data()
+    {
+        let file_content = Content::new(b"content1".to_vec());
+        let file_content_clone = file_content.clone();
+        file_content.borrow_mut()[7] = b'2';
+        assert_eq!(*file_content_clone.borrow(), b"content2".to_vec());
+    }
+
+    fn empty_string_vec() -> Vec<&'static str>
+    {
+        Vec::new()
+    }
+
+    #[test]
+    fn get_components_general()
+    {
+        assert_eq!(get_components(""), empty_string_vec());
+        assert_eq!(get_components("apples"), vec!["apples"]);
+        assert_eq!(get_components("apples/bananas"), vec!["apples", "bananas"]);
+    }
+
+    #[test]
+    fn get_dir_path_and_name_three()
+    {
+        match get_dir_path_and_name("fruit/apples/arkansas red")
+        {
+            Ok((components, name)) =>
+            {
+                assert_eq!(components, vec!["fruit", "apples"]);
+                assert_eq!(name, "arkansas red");
+            },
+            Err(_) => panic!("Error splitting ordinary path"),
+        }
+    }
+
+    #[test]
+    fn get_dir_path_and_name_two()
+    {
+        match get_dir_path_and_name("apples/arkansas red")
+        {
+            Ok((components, name)) =>
+            {
+                assert_eq!(components, vec!["apples"]);
+                assert_eq!(name, "arkansas red");
+            },
+            Err(_) => panic!("Error splitting ordinary path"),
+        }
+    }
+
+    #[test]
+    fn get_dir_path_and_name_one()
+    {
+        match get_dir_path_and_name("apples")
+        {
+            Ok((components, name)) =>
+            {
+                assert_eq!(components, empty_string_vec());
+                assert_eq!(name, "apples");
+            },
+            Err(_) => panic!("Error splitting ordinary path"),
+        }
+    }
+
+    #[test]
+    fn get_dir_path_and_name_zero()
+    {
+        match get_dir_path_and_name("")
+        {
+            Ok((_components, _name)) => panic!("Unexpected success getting dir and path-name from empty path"),
+            Err(error) =>
+                match error
+                {
+                    NodeError::PathEmpty => {},
+                    _ => panic!("Unexpected error type.  Expected PathEmtpy"),
+                },
+        }
+    }
+
+    #[test]
+    fn file_is_file()
+    {
+        let node = Node::File(Content::new(b"things".to_vec()));
+        assert!(node.is_file(""));
+        assert!(!node.is_dir(""));
+    }
+
+    #[test]
+    fn new_empty_file_is_file()
+    {
+        let node = Node::File(Content::new(b"".to_vec()));
+        assert!(node.is_file(""));
+        assert!(!node.is_dir(""));
+    }
+
+    #[test]
+    fn dir_is_dir()
+    {
+        let node = Node::empty_dir();
+        assert!(!node.is_file(""));
+        assert!(node.is_dir(""));
+    }
+
+    #[test]
+    fn non_existent_child_is_not_file_or_dir()
+    {
+        let node = Node::File(Content::new(b"stuff".to_vec()));
+        assert!(!node.is_file("stuf-not-there"));
+        assert!(!node.is_dir("stuf-not-there"));
+    }
+
+    enum ReadWriteError
+    {
+        IOError(Error),
+        SystemError(SystemError)
+    }
+
+    /*  Takes a FileSystem, a path as a &str and content, also a &str writes the content to the file.
+        If system fails, forwards the system error.  If file-io fails, forwards the std::io::Error. */
+    fn write_str_to_file
+    <
+        SystemType : System,
+    >
+    (
+        system : &mut SystemType,
+        file_path : &str,
+        content : &str
+    )
+    -> Result<(), ReadWriteError>
+    {
+        match system.create_file(file_path)
+        {
+            Ok(mut file) =>
+            {
+                match file.write_all(content.as_bytes())
+                {
+                    Ok(_) => Ok(()),
+                    Err(error) => Err(ReadWriteError::IOError(error)),
+                }
+            }
+            Err(error) => Err(ReadWriteError::SystemError(error))
+        }
+    }
+
+    /*  Reads binary data from a file in a FileSystem into a Vec<u8>.
+        If system fails, forwards the system error.  If file-io fails, forwards the std::io::Error. */
+    fn read_file
+    <
+        F : System,
+    >
+    (
+        system : &F,
+        path : &str
+    )
+    -> Result<Vec<u8>, ReadWriteError>
+    {
+        match system.open(path)
+        {
+            Ok(mut file) =>
+            {
+                let mut content = Vec::new();
+                match file.read_to_end(&mut content)
+                {
+                    Ok(_size) =>
+                    {
+                        return Ok(content);
+                    }
+                    Err(error) => Err(ReadWriteError::IOError(error)),
+                }
+            }
+            Err(error) => Err(ReadWriteError::SystemError(error)),
+        }
+    }
+
+    #[test]
+    fn create_file_write_read_round_trip()
+    {
+        let mut system = FakeSystem::new();
+        match write_str_to_file(&mut system, "fruit_file.txt", "cantaloupe")
+        {
+            Ok(_) => {},
+            Err(error) =>
+            {
+                match error
+                {
+                    ReadWriteError::SystemError(error) =>
+                        panic!("SystemError in write: {}", error),
+
+                    ReadWriteError::IOError(error) =>
+                        panic!("IOError in write: {}", error),
+                }
+            }
+        }
+        match read_file(&system, "fruit_file.txt")
+        {
+            Ok(content) => assert_eq!(content, b"cantaloupe"),
+            Err(error) =>
+            {
+                match error
+                {
+                    ReadWriteError::SystemError(error) =>
+                        panic!("SystemError in read: {}", error),
+
+                    ReadWriteError::IOError(error) =>
+                        panic!("IOError in read: {}", error),
+                }
+            }
+        }
+    }
+}

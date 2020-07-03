@@ -6,9 +6,12 @@ use crate::ticket::
     Ticket,
     TicketFactory
 };
+use crate::system::
+{
+    CommandLineOutput
+};
 use crate::executor::
 {
-    CommandLineOutput,
     Executor
 };
 use crate::metadata::MetadataGetter;

@@ -15,6 +15,7 @@ mod packet;
 mod metadata;
 mod file;
 mod printer;
+mod fake;
 
 use self::executor::OsExecutor;
 use self::metadata::OsMetadataGetter;
