@@ -26,6 +26,7 @@ use std::io::
 use std::cmp::min;
 use std::fmt;
 use std::time::Duration;
+use std::str::from_utf8;
 
 
 #[derive(Debug, Clone)]
@@ -574,6 +575,84 @@ fn convert_node_error_to_system_error(error : NodeError) -> SystemError
     }
 }
 
+/*  Takes a System, a path as a &str and content, and content as a &str.  Writes content to the file.
+    If system fails, forwards the system error.  If file-io fails, forwards the std::io::Error. */
+fn write_str_to_file
+<
+    SystemType : System,
+>
+(
+    system : &mut SystemType,
+    file_path : &str,
+    content : &str
+)
+-> Result<(), ReadWriteError>
+{
+    match system.create_file(file_path)
+    {
+        Ok(mut file) =>
+        {
+            match file.write_all(content.as_bytes())
+            {
+                Ok(_) => Ok(()),
+                Err(error) => Err(ReadWriteError::IOError(error)),
+            }
+        }
+        Err(error) => Err(ReadWriteError::SystemError(error))
+    }
+}
+
+enum ReadWriteError
+{
+    IOError(Error),
+    SystemError(SystemError)
+}
+
+impl fmt::Display for ReadWriteError
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
+    {
+        match self
+        {
+            ReadWriteError::IOError(error)
+                => write!(formatter, "{}", error),
+
+            ReadWriteError::SystemError(error)
+                => write!(formatter, "{}", error),
+        }
+    }
+}
+
+/*  Reads binary data from a file in a FileSystem into a Vec<u8>.
+    If system fails, forwards the system error.  If file-io fails, forwards the std::io::Error. */
+fn read_file
+<
+    F : System,
+>
+(
+    system : &F,
+    path : &str
+)
+-> Result<Vec<u8>, ReadWriteError>
+{
+    match system.open(path)
+    {
+        Ok(mut file) =>
+        {
+            let mut content = Vec::new();
+            match file.read_to_end(&mut content)
+            {
+                Ok(_size) =>
+                {
+                    return Ok(content);
+                }
+                Err(error) => Err(ReadWriteError::IOError(error)),
+            }
+        }
+        Err(error) => Err(ReadWriteError::SystemError(error)),
+    }
+}
+
 impl FakeSystem
 {
     fn new() -> Self
@@ -665,27 +744,139 @@ impl System for FakeSystem
         }
     }
 
-    fn execute_command(&mut self, _command_list: Vec<String>) -> Result<CommandLineOutput, SystemError>
+    fn execute_command(&mut self, command_list: Vec<String>) -> CommandLineOutput
     {
-        Ok(CommandLineOutput::new())
+        let n = command_list.len();
+        let mut output = String::new();
+
+        if n > 0
+        {
+            match command_list[0].as_str()
+            {
+                "error" =>
+                {
+                    CommandLineOutput::error("Failed".to_string())
+                },
+
+                "mycat" =>
+                {
+                    for file in command_list[1..(n-1)].iter()
+                    {
+                        match read_file(self, file)
+                        {
+                            Ok(content) =>
+                            {
+                                match from_utf8(&content)
+                                {
+                                    Ok(content_string) =>
+                                    {
+                                        output.push_str(content_string);
+                                    }
+                                    Err(_) => return CommandLineOutput::error(format!("File contained non utf8 bytes: {}", file)),
+                                }
+                            }
+                            Err(_) =>
+                            {
+                                return CommandLineOutput::error(format!("File failed to open: {}", file));
+                            }
+                        }
+                    }
+
+                    match write_str_to_file(self, &command_list[n-1], &output)
+                    {
+                        Ok(_) => CommandLineOutput::new(),
+                        Err(why) =>
+                        {
+                            CommandLineOutput::error(format!("Failed to cat into file: {} : {}", command_list[n-1], why))
+                        }
+                    }
+                },
+
+                /*  Takes source files followed by two targets, concats the sources and puts the result in both the
+                    targets.  For instance:
+
+                    mycat2 in1.txt in2.txt out1.txt out2.txt
+
+                    concatinates in1.txt in2.txt  puts a copy in out1.txt and out2.txt.*/
+                "mycat2" =>
+                {
+                    for file in command_list[1..(n-2)].iter()
+                    {
+                        match read_file(self, file)
+                        {
+                            Ok(content) =>
+                            {
+                                match from_utf8(&content)
+                                {
+                                    Ok(content_string) =>
+                                    {
+                                        output.push_str(content_string);
+                                    }
+                                    Err(_) => return CommandLineOutput::error(
+                                        format!("mycat2: file contained non utf8 bytes: {}", file)),
+                                }
+                            }
+                            Err(_) =>
+                            {
+                                return CommandLineOutput::error(
+                                    format!("mycat2: file failed to open: {}", file));
+                            }
+                        }
+                    }
+
+                    match write_str_to_file(self, &command_list[n-2], &output)
+                    {
+                        Ok(_) => {},
+                        Err(why) =>
+                        {
+                            return CommandLineOutput::error(
+                                format!("mycat2: failed to cat into file: {}: {}", command_list[n-2], why));
+                        }
+                    }
+
+                    match write_str_to_file(self, &command_list[n-1], &output)
+                    {
+                        Ok(_) => CommandLineOutput::new(),
+                        Err(why) =>
+                        {
+                            CommandLineOutput::error(
+                                format!("mycat2: failed to cat into file: {}: {}", command_list[n-1], why))
+                        }
+                    }
+                },
+
+                "rm" =>
+                {
+                    for file in command_list[1..n].iter()
+                    {
+                        match self.remove_file(file)
+                        {
+                            Ok(()) => {}
+                            Err(_) =>
+                            {
+                                return CommandLineOutput::error(format!("File failed to delete: {}", file));
+                            }
+                        }
+                    }
+
+                    CommandLineOutput::new()
+                },
+                _=> CommandLineOutput::error(format!("Non command given: {}", command_list[0]))
+            }
+        }
+        else
+        {
+            CommandLineOutput::error(format!("Wrong number of arguments"))
+        }
     }
 }
 
 #[cfg(test)]
 mod test
 {
-    use std::io::
-    {
-        Error,
-        Read,
-        Write
-    };
-
     use crate::system::
     {
-        System,
-        SystemError,
-        // CommandLineOutput
+        System
     };
 
     use crate::system::fake::
@@ -696,7 +887,10 @@ mod test
         NodeError,
         get_components,
         get_dir_path_and_name,
-        FakeSystem
+        FakeSystem,
+        write_str_to_file,
+        read_file,
+        ReadWriteError,
     };
 
     #[test]
@@ -954,69 +1148,6 @@ mod test
         assert!(!node.is_dir("images"));
         assert!(node.is_file("images2/kitten.jpg"));
         assert!(!node.is_file("images/kitten.jpg"));
-    }
-
-    enum ReadWriteError
-    {
-        IOError(Error),
-        SystemError(SystemError)
-    }
-
-    /*  Takes a FileSystem, a path as a &str and content, also a &str writes the content to the file.
-        If system fails, forwards the system error.  If file-io fails, forwards the std::io::Error. */
-    fn write_str_to_file
-    <
-        SystemType : System,
-    >
-    (
-        system : &mut SystemType,
-        file_path : &str,
-        content : &str
-    )
-    -> Result<(), ReadWriteError>
-    {
-        match system.create_file(file_path)
-        {
-            Ok(mut file) =>
-            {
-                match file.write_all(content.as_bytes())
-                {
-                    Ok(_) => Ok(()),
-                    Err(error) => Err(ReadWriteError::IOError(error)),
-                }
-            }
-            Err(error) => Err(ReadWriteError::SystemError(error))
-        }
-    }
-
-    /*  Reads binary data from a file in a FileSystem into a Vec<u8>.
-        If system fails, forwards the system error.  If file-io fails, forwards the std::io::Error. */
-    fn read_file
-    <
-        F : System,
-    >
-    (
-        system : &F,
-        path : &str
-    )
-    -> Result<Vec<u8>, ReadWriteError>
-    {
-        match system.open(path)
-        {
-            Ok(mut file) =>
-            {
-                let mut content = Vec::new();
-                match file.read_to_end(&mut content)
-                {
-                    Ok(_size) =>
-                    {
-                        return Ok(content);
-                    }
-                    Err(error) => Err(ReadWriteError::IOError(error)),
-                }
-            }
-            Err(error) => Err(ReadWriteError::SystemError(error)),
-        }
     }
 
     #[test]
