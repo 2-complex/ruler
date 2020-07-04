@@ -845,21 +845,15 @@ impl System for FakeSystem
                     match write_str_to_file(self, &command_list[n-2], &output)
                     {
                         Ok(_) => {},
-                        Err(why) =>
-                        {
-                            return CommandLineOutput::error(
-                                format!("mycat2: failed to cat into file: {}: {}", command_list[n-2], why));
-                        }
+                        Err(why) => return CommandLineOutput::error(
+                            format!("mycat2: failed to cat into file: {}: {}", command_list[n-2], why))
                     }
 
                     match write_str_to_file(self, &command_list[n-1], &output)
                     {
                         Ok(_) => CommandLineOutput::new(),
-                        Err(why) =>
-                        {
-                            CommandLineOutput::error(
-                                format!("mycat2: failed to cat into file: {}: {}", command_list[n-1], why))
-                        }
+                        Err(why) => return CommandLineOutput::error(
+                            format!("mycat2: failed to cat into file: {}: {}", command_list[n-1], why))
                     }
                 },
 
@@ -1438,7 +1432,7 @@ mod test
 
         let output = system.execute_command(
             vec![
-                "mycat".to_string(),
+                "mycat2".to_string(),
                 "line1.txt".to_string(),
                 "line2.txt".to_string(),
                 "poem.txt".to_string(),
@@ -1455,6 +1449,33 @@ mod test
             Ok(content) => assert_eq!(content, b"Ants\nLove to dance\n"),
             Err(error) => panic!("{}", error),
         }
+
+        assert_eq!(output.out, "".to_string());
+        assert_eq!(output.err, "".to_string());
+        assert_eq!(output.code, Some(0));
+        assert_eq!(output.success, true);
+    }
+
+
+    #[test]
+    fn use_commandline_to_remove()
+    {
+        let mut system = FakeSystem::new();
+        match system.create_file("terrible-file.txt")
+        {
+            Ok(_) => {},
+            Err(error) => panic!("create_file SystemError: {}", error),
+        }
+
+        assert!(system.is_file("terrible-file.txt"));
+
+        let output = system.execute_command(
+            vec![
+                "rm".to_string(),
+                "terrible-file.txt".to_string()
+            ]);
+
+        assert!(!system.is_file("terrible-file.txt"));
 
         assert_eq!(output.out, "".to_string());
         assert_eq!(output.err, "".to_string());
