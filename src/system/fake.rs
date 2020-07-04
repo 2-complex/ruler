@@ -1304,4 +1304,106 @@ mod test
             Err(error) => panic!("get_modified SystemError: {}", error),
         }
     }
+
+    #[test]
+    fn writing_updates_modified_timestamp()
+    {
+        let mut system = FakeSystem::new();
+
+        system.time_passes(5);
+
+        match system.create_file("cars.txt")
+        {
+            Ok(_) => {},
+            Err(error) => panic!("create_file SystemError: {}", error),
+        }
+
+        system.time_passes(6);
+
+        match write_str_to_file(&mut system, "cars.txt", "cantaloupe")
+        {
+            Ok(_) => {},
+            Err(error) =>
+            {
+                match error
+                {
+                    ReadWriteError::SystemError(error) =>
+                        panic!("SystemError in write: {}", error),
+
+                    ReadWriteError::IOError(error) =>
+                        panic!("IOError in write: {}", error),
+                }
+            }
+        }
+
+        match system.get_modified("cars.txt")
+        {
+            Ok(system_time) => match get_timestamp(system_time)
+            {
+                Ok(timestamp) => assert_eq!(timestamp, 11),
+                Err(error) => panic!("get_modified SystemTimeError: {}", error),
+            },
+            Err(error) => panic!("get_modified SystemError: {}", error),
+        }
+    }
+
+
+    #[test]
+    fn executing_error_gives_error_output()
+    {
+        let mut system = FakeSystem::new();
+        let output = system.execute_command(vec!["error".to_string()]);
+
+        assert_eq!(output.out, "".to_string());
+        assert_eq!(output.err, "Failed".to_string());
+        assert_eq!(output.code, Some(1));
+        assert_eq!(output.success, false);
+    }
+
+    #[test]
+    fn executing_mycat_concatinates()
+    {
+        let mut system = FakeSystem::new();
+        match system.create_file("line1.txt")
+        {
+            Ok(_) => {},
+            Err(error) => panic!("create_file SystemError: {}", error),
+        }
+
+        match write_str_to_file(&mut system, "line1.txt", "Ants\n")
+        {
+            Ok(_) => {},
+            Err(error) => panic!("Error writing line1.txt: {}", error),
+        }
+
+        match system.create_file("line2.txt")
+        {
+            Ok(_) => {},
+            Err(error) => panic!("create_file SystemError: {}", error),
+        }
+
+        match write_str_to_file(&mut system, "line2.txt", "Love to dance\n")
+        {
+            Ok(_) => {},
+            Err(error) => panic!("Error writing line2.txt: {}", error),
+        }
+
+        let output = system.execute_command(
+            vec![
+                "mycat".to_string(),
+                "line1.txt".to_string(),
+                "line2.txt".to_string(),
+                "poem.txt".to_string()]);
+
+        match read_file(&system, "poem.txt")
+        {
+            Ok(content) => assert_eq!(content, b"Ants\nLove to dance\n"),
+            Err(error) => panic!("{}", error),
+        }
+
+        assert_eq!(output.out, "".to_string());
+        assert_eq!(output.err, "".to_string());
+        assert_eq!(output.code, Some(0));
+        assert_eq!(output.success, true);
+    }
 }
