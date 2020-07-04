@@ -1406,4 +1406,59 @@ mod test
         assert_eq!(output.code, Some(0));
         assert_eq!(output.success, true);
     }
+
+
+    #[test]
+    fn executing_mycat2_concatinates_and_dupes()
+    {
+        let mut system = FakeSystem::new();
+        match system.create_file("line1.txt")
+        {
+            Ok(_) => {},
+            Err(error) => panic!("create_file SystemError: {}", error),
+        }
+
+        match write_str_to_file(&mut system, "line1.txt", "Ants\n")
+        {
+            Ok(_) => {},
+            Err(error) => panic!("Error writing line1.txt: {}", error),
+        }
+
+        match system.create_file("line2.txt")
+        {
+            Ok(_) => {},
+            Err(error) => panic!("create_file SystemError: {}", error),
+        }
+
+        match write_str_to_file(&mut system, "line2.txt", "Love to dance\n")
+        {
+            Ok(_) => {},
+            Err(error) => panic!("Error writing line2.txt: {}", error),
+        }
+
+        let output = system.execute_command(
+            vec![
+                "mycat".to_string(),
+                "line1.txt".to_string(),
+                "line2.txt".to_string(),
+                "poem.txt".to_string(),
+                "poem-backup.txt".to_string()]);
+
+        match read_file(&system, "poem.txt")
+        {
+            Ok(content) => assert_eq!(content, b"Ants\nLove to dance\n"),
+            Err(error) => panic!("{}", error),
+        }
+
+        match read_file(&system, "poem-backup.txt")
+        {
+            Ok(content) => assert_eq!(content, b"Ants\nLove to dance\n"),
+            Err(error) => panic!("{}", error),
+        }
+
+        assert_eq!(output.out, "".to_string());
+        assert_eq!(output.err, "".to_string());
+        assert_eq!(output.code, Some(0));
+        assert_eq!(output.success, true);
+    }
 }
