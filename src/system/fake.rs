@@ -9,7 +9,11 @@ use std::ops::
     Deref,
     DerefMut
 };
-use std::time::SystemTime;
+use std::time::
+{
+    SystemTime,
+    SystemTimeError
+};
 use crate::system::
 {
     System,
@@ -575,6 +579,36 @@ fn convert_node_error_to_system_error(error : NodeError) -> SystemError
     }
 }
 
+enum ReadWriteError
+{
+    IOError(Error),
+    SystemError(SystemError)
+}
+
+impl fmt::Display for ReadWriteError
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
+    {
+        match self
+        {
+            ReadWriteError::IOError(error)
+                => write!(formatter, "{}", error),
+
+            ReadWriteError::SystemError(error)
+                => write!(formatter, "{}", error),
+        }
+    }
+}
+
+fn get_timestamp(system_time : SystemTime) -> Result<u64, SystemTimeError>
+{
+    match system_time.duration_since(SystemTime::UNIX_EPOCH)
+    {
+        Ok(duration) => Ok(1_000_000u64 * duration.as_secs() + u64::from(duration.subsec_micros())),
+        Err(e) => Err(e),
+    }
+}
+
 /*  Takes a System, a path as a &str and content, and content as a &str.  Writes content to the file.
     If system fails, forwards the system error.  If file-io fails, forwards the std::io::Error. */
 fn write_str_to_file
@@ -599,27 +633,6 @@ fn write_str_to_file
             }
         }
         Err(error) => Err(ReadWriteError::SystemError(error))
-    }
-}
-
-enum ReadWriteError
-{
-    IOError(Error),
-    SystemError(SystemError)
-}
-
-impl fmt::Display for ReadWriteError
-{
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
-    {
-        match self
-        {
-            ReadWriteError::IOError(error)
-                => write!(formatter, "{}", error),
-
-            ReadWriteError::SystemError(error)
-                => write!(formatter, "{}", error),
-        }
     }
 }
 
@@ -662,6 +675,11 @@ impl FakeSystem
             root : Node::empty_dir(),
             current_timestamp : 0,
         }
+    }
+
+    fn time_passes(&mut self, increment : u64)
+    {
+        self.current_timestamp += increment;
     }
 }
 
@@ -891,6 +909,7 @@ mod test
         write_str_to_file,
         read_file,
         ReadWriteError,
+        get_timestamp
     };
 
     #[test]
@@ -1245,5 +1264,44 @@ mod test
 
         assert!(!system.is_file("star.png"));
         assert!(system.is_file("heart.png"));
+    }
+
+    #[test]
+    fn modified_timestamps()
+    {
+        let mut system = FakeSystem::new();
+        system.time_passes(17);
+        match system.create_file("star.png")
+        {
+            Ok(_) => {},
+            Err(error) => panic!("create_file SystemError: {}", error),
+        }
+
+        system.time_passes(17);
+        match system.create_file("heart.png")
+        {
+            Ok(_) => {},
+            Err(error) => panic!("create_file SystemError: {}", error),
+        }
+
+        match system.get_modified("star.png")
+        {
+            Ok(system_time) => match get_timestamp(system_time)
+            {
+                Ok(timestamp) => assert_eq!(timestamp, 17),
+                Err(error) => panic!("get_modified SystemTimeError: {}", error),
+            },
+            Err(error) => panic!("get_modified SystemError: {}", error),
+        }
+
+        match system.get_modified("heart.png")
+        {
+            Ok(system_time) => match get_timestamp(system_time)
+            {
+                Ok(timestamp) => assert_eq!(timestamp, 34),
+                Err(error) => panic!("get_modified SystemTimeError: {}", error),
+            },
+            Err(error) => panic!("get_modified SystemError: {}", error),
+        }
     }
 }

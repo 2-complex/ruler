@@ -5,7 +5,6 @@ use std::fmt;
 use std::time::SystemTime;
 
 mod fake;
-mod permissions;
 
 pub struct CommandLineOutput
 {
