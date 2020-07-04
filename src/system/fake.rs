@@ -1,3 +1,9 @@
+use crate::system::
+{
+    System,
+    SystemError,
+    CommandLineOutput
+};
 use std::collections::HashMap;
 use std::sync::
 {
@@ -13,12 +19,6 @@ use std::time::
 {
     SystemTime,
     SystemTimeError
-};
-use crate::system::
-{
-    System,
-    SystemError,
-    CommandLineOutput
 };
 use std::io::
 {
@@ -547,8 +547,8 @@ fn convert_node_error_to_system_error(error : NodeError) -> SystemError
         NodeError::DirectoryInPlaceOfFile(component)
             => SystemError::DirectoryInPlaceOfFile(component),
 
-        NodeError::DirectoryNotFound(component)
-            => SystemError::DirectoryNotFound(component),
+        NodeError::DirectoryNotFound(_component)
+            => SystemError::NotFound,
 
         NodeError::PathEmpty
             => SystemError::PathEmpty,
@@ -762,7 +762,7 @@ impl System for FakeSystem
         }
     }
 
-    fn execute_command(&mut self, command_list: Vec<String>) -> CommandLineOutput
+    fn execute_command(&mut self, command_list: Vec<String>) -> Result<CommandLineOutput, SystemError>
     {
         let n = command_list.len();
         let mut output = String::new();
@@ -773,7 +773,7 @@ impl System for FakeSystem
             {
                 "error" =>
                 {
-                    CommandLineOutput::error("Failed".to_string())
+                    Ok(CommandLineOutput::error("Failed".to_string()))
                 },
 
                 "mycat" =>
@@ -790,22 +790,22 @@ impl System for FakeSystem
                                     {
                                         output.push_str(content_string);
                                     }
-                                    Err(_) => return CommandLineOutput::error(format!("File contained non utf8 bytes: {}", file)),
+                                    Err(_) => return Ok(CommandLineOutput::error(format!("File contained non utf8 bytes: {}", file))),
                                 }
                             }
                             Err(_) =>
                             {
-                                return CommandLineOutput::error(format!("File failed to open: {}", file));
+                                return Ok(CommandLineOutput::error(format!("File failed to open: {}", file)));
                             }
                         }
                     }
 
                     match write_str_to_file(self, &command_list[n-1], &output)
                     {
-                        Ok(_) => CommandLineOutput::new(),
+                        Ok(_) => Ok(CommandLineOutput::new()),
                         Err(why) =>
                         {
-                            CommandLineOutput::error(format!("Failed to cat into file: {} : {}", command_list[n-1], why))
+                            Ok(CommandLineOutput::error(format!("Failed to cat into file: {} : {}", command_list[n-1], why)))
                         }
                     }
                 },
@@ -830,14 +830,14 @@ impl System for FakeSystem
                                     {
                                         output.push_str(content_string);
                                     }
-                                    Err(_) => return CommandLineOutput::error(
-                                        format!("mycat2: file contained non utf8 bytes: {}", file)),
+                                    Err(_) => return Ok(CommandLineOutput::error(
+                                        format!("mycat2: file contained non utf8 bytes: {}", file))),
                                 }
                             }
                             Err(_) =>
                             {
-                                return CommandLineOutput::error(
-                                    format!("mycat2: file failed to open: {}", file));
+                                return Ok(CommandLineOutput::error(
+                                    format!("mycat2: file failed to open: {}", file)));
                             }
                         }
                     }
@@ -845,15 +845,15 @@ impl System for FakeSystem
                     match write_str_to_file(self, &command_list[n-2], &output)
                     {
                         Ok(_) => {},
-                        Err(why) => return CommandLineOutput::error(
-                            format!("mycat2: failed to cat into file: {}: {}", command_list[n-2], why))
+                        Err(why) => return Ok(CommandLineOutput::error(
+                            format!("mycat2: failed to cat into file: {}: {}", command_list[n-2], why)))
                     }
 
                     match write_str_to_file(self, &command_list[n-1], &output)
                     {
-                        Ok(_) => CommandLineOutput::new(),
-                        Err(why) => return CommandLineOutput::error(
-                            format!("mycat2: failed to cat into file: {}: {}", command_list[n-1], why))
+                        Ok(_) => Ok(CommandLineOutput::new()),
+                        Err(why) => return Ok(CommandLineOutput::error(
+                            format!("mycat2: failed to cat into file: {}: {}", command_list[n-1], why)))
                     }
                 },
 
@@ -866,19 +866,19 @@ impl System for FakeSystem
                             Ok(()) => {}
                             Err(_) =>
                             {
-                                return CommandLineOutput::error(format!("File failed to delete: {}", file));
+                                return Ok(CommandLineOutput::error(format!("File failed to delete: {}", file)));
                             }
                         }
                     }
 
-                    CommandLineOutput::new()
+                    Ok(CommandLineOutput::new())
                 },
-                _=> CommandLineOutput::error(format!("Non command given: {}", command_list[0]))
+                _=> Ok(CommandLineOutput::error(format!("Invalid command given: {}", command_list[0])))
             }
         }
         else
         {
-            CommandLineOutput::error(format!("Wrong number of arguments"))
+            Ok(CommandLineOutput::error(format!("Wrong number of arguments")))
         }
     }
 }
@@ -1346,12 +1346,17 @@ mod test
     fn executing_error_gives_error_output()
     {
         let mut system = FakeSystem::new();
-        let output = system.execute_command(vec!["error".to_string()]);
-
-        assert_eq!(output.out, "".to_string());
-        assert_eq!(output.err, "Failed".to_string());
-        assert_eq!(output.code, Some(1));
-        assert_eq!(output.success, false);
+        match system.execute_command(vec!["error".to_string()])
+        {
+            Ok(output) =>
+            {
+                assert_eq!(output.out, "".to_string());
+                assert_eq!(output.err, "Failed".to_string());
+                assert_eq!(output.code, Some(1));
+                assert_eq!(output.success, false);
+            },
+            Err(error) => panic!("Excpected successful command invocation got error: {}", error),
+        }
     }
 
     #[test]
@@ -1382,23 +1387,28 @@ mod test
             Err(error) => panic!("Error writing line2.txt: {}", error),
         }
 
-        let output = system.execute_command(
+        match system.execute_command(
             vec![
                 "mycat".to_string(),
                 "line1.txt".to_string(),
                 "line2.txt".to_string(),
-                "poem.txt".to_string()]);
+                "poem.txt".to_string()])
+        {
+            Ok(output) =>
+            {
+                assert_eq!(output.out, "".to_string());
+                assert_eq!(output.err, "".to_string());
+                assert_eq!(output.code, Some(0));
+                assert_eq!(output.success, true);
+            },
+            Err(error) => panic!("Excpected successful command invocation got error: {}", error),
+        }
 
         match read_file(&system, "poem.txt")
         {
             Ok(content) => assert_eq!(content, b"Ants\nLove to dance\n"),
             Err(error) => panic!("{}", error),
         }
-
-        assert_eq!(output.out, "".to_string());
-        assert_eq!(output.err, "".to_string());
-        assert_eq!(output.code, Some(0));
-        assert_eq!(output.success, true);
     }
 
 
@@ -1430,13 +1440,23 @@ mod test
             Err(error) => panic!("Error writing line2.txt: {}", error),
         }
 
-        let output = system.execute_command(
+        match system.execute_command(
             vec![
                 "mycat2".to_string(),
                 "line1.txt".to_string(),
                 "line2.txt".to_string(),
                 "poem.txt".to_string(),
-                "poem-backup.txt".to_string()]);
+                "poem-backup.txt".to_string()])
+        {
+            Ok(output) =>
+            {
+                assert_eq!(output.out, "".to_string());
+                assert_eq!(output.err, "".to_string());
+                assert_eq!(output.code, Some(0));
+                assert_eq!(output.success, true);
+            },
+            Err(error) => panic!("Excpected successful command invocation got error: {}", error),
+        }
 
         match read_file(&system, "poem.txt")
         {
@@ -1449,11 +1469,6 @@ mod test
             Ok(content) => assert_eq!(content, b"Ants\nLove to dance\n"),
             Err(error) => panic!("{}", error),
         }
-
-        assert_eq!(output.out, "".to_string());
-        assert_eq!(output.err, "".to_string());
-        assert_eq!(output.code, Some(0));
-        assert_eq!(output.success, true);
     }
 
 
@@ -1469,17 +1484,23 @@ mod test
 
         assert!(system.is_file("terrible-file.txt"));
 
-        let output = system.execute_command(
+        match system.execute_command(
             vec![
                 "rm".to_string(),
                 "terrible-file.txt".to_string()
-            ]);
+            ])
+        {
+            Ok(output) =>
+            {
+                assert_eq!(output.out, "".to_string());
+                assert_eq!(output.err, "".to_string());
+                assert_eq!(output.code, Some(0));
+                assert_eq!(output.success, true);
+            },
+            Err(error) => panic!("Expected smooth commandline invocation, got error: {}", error),
+        }
 
         assert!(!system.is_file("terrible-file.txt"));
 
-        assert_eq!(output.out, "".to_string());
-        assert_eq!(output.err, "".to_string());
-        assert_eq!(output.code, Some(0));
-        assert_eq!(output.success, true);
     }
 }

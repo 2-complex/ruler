@@ -5,6 +5,7 @@ use std::fmt;
 use std::time::SystemTime;
 
 mod fake;
+mod real;
 
 pub struct CommandLineOutput
 {
@@ -63,8 +64,8 @@ impl CommandLineOutput
 
 pub enum SystemError
 {
+    NotFound,
     FileInPlaceOfDirectory(String),
-    DirectoryNotFound(String),
     DirectoryInPlaceOfFile(String),
     PathEmpty,
     RemoveFileFoundDir,
@@ -73,6 +74,9 @@ pub enum SystemError
     RemoveNonExistentDir,
     RenameFromNonExistent,
     RenameToNonExistent,
+    MetadataNotFound,
+    ModifiedNotFound,
+    CommandExecutationFailed,
     NotImplemented,
     Weird,
 }
@@ -83,8 +87,8 @@ impl fmt::Display for SystemError
     {
         match self
         {
-            SystemError::DirectoryNotFound(name)
-                => write!(formatter, "Directory not found: {}", name),
+            SystemError::NotFound
+                => write!(formatter, "No such file or directory"),
 
             SystemError::FileInPlaceOfDirectory(component)
                 => write!(formatter, "Expected directory, found file: {}", component),
@@ -113,6 +117,15 @@ impl fmt::Display for SystemError
             SystemError::RenameToNonExistent
                 => write!(formatter, "Attempt to rename a file or directory with non-existent target directory"),
 
+            SystemError::ModifiedNotFound
+                => write!(formatter, "Attempt to access modified time for file failed"),
+
+            SystemError::MetadataNotFound
+                => write!(formatter, "Attempt to access metadate failed"),
+
+            SystemError::CommandExecutationFailed
+                => write!(formatter, "Underlying OS failed to execute command"),
+
             SystemError::NotImplemented
                 => write!(formatter, "Attempt to perform an operation not currently implemented by fake system"),
 
@@ -137,7 +150,6 @@ pub trait System: Clone + Send + Sync
     fn rename(&mut self, from: &str, to: &str) -> Result<(), SystemError>;
 
     fn get_modified(&self, path: &str) -> Result<SystemTime, SystemError>;
-    fn execute_command(&mut self, command_list: Vec<String>) -> CommandLineOutput;
+    fn execute_command(&mut self, command_list: Vec<String>) -> Result<CommandLineOutput, SystemError>;
 }
-
 
