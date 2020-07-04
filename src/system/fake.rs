@@ -25,6 +25,7 @@ use std::io::
 };
 use std::cmp::min;
 use std::fmt;
+use std::time::Duration;
 
 
 #[derive(Debug, Clone)]
@@ -56,14 +57,23 @@ impl Content
 #[derive(Debug, Clone)]
 struct Metadata
 {
+    modified : SystemTime
+}
+
+fn timestamp_to_system_time(timestamp: u64) -> SystemTime
+{
+    SystemTime::UNIX_EPOCH
+        + Duration::from_secs(timestamp / 1_000_000u64)
+        + Duration::from_micros(timestamp % 1_000_000u64)
 }
 
 impl Metadata
 {
-    fn new() -> Self
+    fn new(timestamp: u64) -> Self
     {
         Metadata
         {
+            modified : timestamp_to_system_time(timestamp)
         }
     }
 }
@@ -77,11 +87,20 @@ struct FileInfo
 
 impl FileInfo
 {
+    fn new(metadata : Metadata, content : Content) -> Self
+    {
+        FileInfo
+        {
+            metadata : metadata,
+            content : content
+        }
+    }
+
     fn from_content(content : Content) -> Self
     {
         FileInfo
         {
-            metadata : Metadata::new(),
+            metadata : Metadata::new(0),
             content : content
         }
     }
@@ -106,6 +125,7 @@ enum NodeError
     RemoveNonExistentDir,
     RenameFromNonExistent,
     RenameToNonExistent,
+    GetModifiedOnDirectory,
     Weird,
 }
 
@@ -145,6 +165,9 @@ impl fmt::Display for NodeError
 
             NodeError::RenameToNonExistent
                 => write!(formatter, "Attempt to rename a file or directory with non-existent target directory"),
+
+            NodeError::GetModifiedOnDirectory
+                => write!(formatter, "Attempt to get modified time for a directory (that is not implemented)"),
 
             NodeError::Weird
                 => write!(formatter, "Weird error, this happens when internal logic fails in a way the programmer didn't think was possible"),
@@ -282,10 +305,12 @@ impl Node
         Ok(())
     }
 
-    pub fn create_file(&mut self, path: &str, content : Content) -> Result<Content, NodeError>
+    pub fn create_file(&mut self, path: &str, content : Content, timestamp : u64) -> Result<Content, NodeError>
     {
         let (dir_components, name) = get_dir_path_and_name(path)?;
-        self.insert(dir_components, name, Node::File(FileInfo::from_content(content.clone())))?;
+        self.insert(dir_components, name, Node::File(FileInfo::new(
+            Metadata::new(timestamp),
+            content.clone())))?;
         Ok(content)
     }
 
@@ -393,6 +418,16 @@ impl Node
             }
         }
     }
+
+    pub fn get_modified(&self, path: &str) -> Result<SystemTime, NodeError>
+    {
+        let components = get_components(path);
+        match self.get_node(&components)?
+        {
+            Node::File(info) => Ok(info.metadata.modified.clone()),
+            Node::Dir(_) => Err(NodeError::GetModifiedOnDirectory),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -494,6 +529,7 @@ impl Write for FakeOpenFile
 pub struct FakeSystem
 {
     root: Node,
+    current_timestamp: u64,
 }
 
 fn convert_node_error_to_system_error(error : NodeError) -> SystemError
@@ -530,6 +566,9 @@ fn convert_node_error_to_system_error(error : NodeError) -> SystemError
         NodeError::RenameToNonExistent
             => SystemError::RenameToNonExistent,
 
+        NodeError::GetModifiedOnDirectory
+            => SystemError::NotImplemented,
+
         NodeError::Weird
             => SystemError::Weird,
     }
@@ -541,7 +580,8 @@ impl FakeSystem
     {
         FakeSystem
         {
-            root : Node::empty_dir()
+            root : Node::empty_dir(),
+            current_timestamp : 0,
         }
     }
 }
@@ -563,7 +603,7 @@ impl System for FakeSystem
 
     fn create_file(&mut self, path: &str) -> Result<Self::File, SystemError>
     {
-        match self.root.create_file(path, Content::empty())
+        match self.root.create_file(path, Content::empty(), self.current_timestamp)
         {
             Ok(content) => Ok(FakeOpenFile::new(&content, AccessMode::Write)),
             Err(error) => Err(convert_node_error_to_system_error(error)),
@@ -616,9 +656,13 @@ impl System for FakeSystem
         }
     }
 
-    fn get_modified(&self, _path: &str) -> Result<SystemTime, SystemError>
+    fn get_modified(&self, path: &str) -> Result<SystemTime, SystemError>
     {
-        Ok(SystemTime::UNIX_EPOCH)
+        match self.root.get_modified(path)
+        {
+            Ok(system_time) => Ok(system_time),
+            Err(error) => Err(convert_node_error_to_system_error(error)),
+        }
     }
 
     fn execute_command(&mut self, _command_list: Vec<String>) -> Result<CommandLineOutput, SystemError>
@@ -785,7 +829,7 @@ mod test
     fn add_remove_file()
     {
         let mut node = Node::empty_dir();
-        match node.create_file("file.txt", Content::new(b"some text".to_vec()))
+        match node.create_file("file.txt", Content::new(b"some text".to_vec()), 0)
         {
             Ok(_) => {},
             Err(error) => panic!("create_file in empty root failed with error: {}", error),
@@ -855,7 +899,7 @@ mod test
     fn rename_file()
     {
         let mut node = Node::empty_dir();
-        match node.create_file("kitten.jpg", Content::new(b"jpg-content".to_vec()))
+        match node.create_file("kitten.jpg", Content::new(b"jpg-content".to_vec()), 0)
         {
             Ok(_) => {},
             Err(error) => panic!("create_file in empty root failed with error: {}", error),
@@ -891,7 +935,7 @@ mod test
             Err(error) => panic!("create_dir in empty root failed with error: {}", error),
         }
 
-        match node.create_file("images/kitten.jpg", Content::new(b"jpg-content".to_vec()))
+        match node.create_file("images/kitten.jpg", Content::new(b"jpg-content".to_vec()), 0)
         {
             Ok(_) => {},
             Err(error) => panic!("create_file failed with error: {}", error),
