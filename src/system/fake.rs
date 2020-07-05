@@ -2,14 +2,12 @@ use crate::system::
 {
     System,
     SystemError,
-    CommandLineOutput,
-    ReadWriteError
+    CommandLineOutput
 };
 use crate::system::util::
 {
     timestamp_to_system_time,
     read_file,
-    write_file,
     write_str_to_file
 };
 use std::collections::HashMap;
@@ -32,7 +30,6 @@ use std::io::
 };
 use std::cmp::min;
 use std::fmt;
-use std::time::Duration;
 use std::time::SystemTime;
 use std::str::from_utf8;
 

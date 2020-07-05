@@ -7,7 +7,6 @@ use crate::system::
 use std::io::
 {
     self,
-    ErrorKind,
     Read,
     Write
 };

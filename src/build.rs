@@ -99,9 +99,6 @@ impl fmt::Display for BuildError
             BuildError::RuleFileNotUTF8 =>
                 write!(formatter, "Rule file not valid UTF8."),
 
-            BuildError::RuleFileFailedToOpen(path, error) =>
-                write!(formatter, "Rule file did not open: {}\n{}", path, error),
-
             BuildError::RuleFileFailedToParse(error) =>
                 write!(formatter, "{}", error),
 

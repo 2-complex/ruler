@@ -571,7 +571,7 @@ Result<WorkResult, WorkError>
                 }
             )
         },
-        Err(error) =>
+        Err(_error) =>
         {
             return Err(WorkError::CommandFailedToExecute)
         },
