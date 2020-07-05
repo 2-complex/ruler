@@ -230,7 +230,7 @@ mod test
     #[test]
     fn ticket_factory_file()
     {
-        let mut file_system = FakeSystem::new();
+        let mut file_system = FakeSystem::new(10);
         match write_str_to_file(&mut file_system, "time0.txt", "Time wounds all heels.\n")
         {
             Ok(_) => {},
@@ -253,7 +253,7 @@ mod test
     #[test]
     fn ticket_factory_hashes()
     {
-        let mut file_system = FakeSystem::new();
+        let mut file_system = FakeSystem::new(10);
         match write_str_to_file(&mut file_system, "time1.txt", "Time wounds all heels.\n")
         {
             Ok(_) => {},
@@ -278,7 +278,7 @@ mod test
     #[test]
     fn ticket_factory_hashes_bigger_file()
     {
-        let mut file_system = FakeSystem::new();
+        let mut file_system = FakeSystem::new(10);
 
         println!("{} {}\n", LOREM_IPSUM.len(), LOREM_IPSUM);
 

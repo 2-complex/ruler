@@ -647,7 +647,7 @@ verse2.txt
 poem.txt
 :
 ";
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(10);
 
         match write_str_to_file(&mut system, "verse1.txt", "Roses are red.\n")
         {
@@ -699,7 +699,7 @@ verse2.txt
 poem.txt
 :
 ";
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(10);
 
         match system.create_dir(".ruler-cache")
         {
@@ -802,7 +802,7 @@ verse2.txt
 poem.txt
 :
 ";
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(10);
 
         match write_str_to_file(&mut system, "verse1.txt", "Roses are red.\n")
         {

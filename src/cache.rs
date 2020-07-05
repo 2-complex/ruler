@@ -119,7 +119,7 @@ mod test
     #[test]
     fn back_up_and_restore()
     {
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(10);
 
         match system.create_dir(".ruler-cache")
         {
@@ -165,7 +165,7 @@ mod test
     #[test]
     fn back_up_nonexistent_file()
     {
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(10);
 
         match system.create_dir(".ruler-cache")
         {
@@ -187,7 +187,7 @@ mod test
     #[test]
     fn restore_nonexistent_file()
     {
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(10);
 
         match system.create_dir(".ruler-cache")
         {
@@ -227,7 +227,7 @@ mod test
     #[test]
     fn restore_file_from_nonexistent_cache()
     {
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(10);
 
         match system.create_dir(".wrong-cache")
         {
@@ -259,7 +259,7 @@ mod test
     #[test]
     fn back_up_twice_and_restore()
     {
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(10);
 
         match system.create_dir(".ruler-cache")
         {

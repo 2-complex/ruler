@@ -477,7 +477,7 @@ fn needs_rebuild(resolutions : &Vec<FileResolution>) -> bool
 /*  Handles the case when some target is irrecoverable from the cache, and the command
     needs to execute to rebuild the node.  Natrually, return a WorkResult with option
     indicating that the command executed (which contains the commandline result) */
-fn rebuild_node<SystemType : System,>
+fn rebuild_node<SystemType : System>
 (
     system : &mut SystemType,
     mut rule_history : RuleHistory,
@@ -773,7 +773,7 @@ mod test
     #[test]
     fn work_get_tickets_from_filesystem()
     {
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(10);
 
         match write_str_to_file(&mut system, "quine.sh", "cat $0")
         {
@@ -806,7 +806,7 @@ mod test
     fn work_get_tickets_from_history()
     {
         let mut rule_history = RuleHistory::new();
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(10);
 
         let source_content = "int main(){printf(\"my game\"); return 0;}";
         let target_content = "machine code for my game";
@@ -883,7 +883,7 @@ mod test
     #[test]
     fn do_empty_command()
     {
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(10);
         match write_str_to_file(&mut system, "A", "A-content")
         {
             Ok(_) => {},
@@ -919,7 +919,7 @@ mod test
         let (sender_b, receiver_b) = mpsc::channel();
         let (sender_c, receiver_c) = mpsc::channel();
 
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(10);
 
         match system.create_dir(".ruler-cache")
         {
@@ -999,7 +999,7 @@ mod test
         let (sender_b, receiver_b) = mpsc::channel();
         let (sender_c, receiver_c) = mpsc::channel();
 
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(10);
 
         match write_str_to_file(&mut system, "verse1.txt", "Roses are red\n")
         {
@@ -1057,7 +1057,7 @@ mod test
         let (sender_b, receiver_b) = mpsc::channel();
         let (sender_c, _receiver_c) = mpsc::channel();
 
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(10);
 
         match write_str_to_file(&mut system, "verse1.txt", "Roses are red\n")
         {
@@ -1113,7 +1113,7 @@ mod test
         let (sender_b, receiver_b) = mpsc::channel();
         let (sender_c, receiver_c) = mpsc::channel();
 
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(10);
 
         match write_str_to_file(&mut system, "verse1.txt", "Roses are red\n")
         {
@@ -1214,7 +1214,7 @@ mod test
             Err(_) => panic!("Rule history failed to insert"),
         }
 
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(10);
 
         match write_str_to_file(&mut system, "verse1.txt", "Roses are red\n")
         {
@@ -1326,7 +1326,7 @@ mod test
             Err(_) => panic!("Rule history failed to insert"),
         }
 
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(10);
 
         match system.create_dir(".ruler-cache")
         {
@@ -1400,7 +1400,7 @@ mod test
     #[test]
     fn file_not_there()
     {
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(10);
 
         match write_str_to_file(&mut system, "some-other-file.txt", "Arbitrary content\n")
         {
@@ -1436,7 +1436,7 @@ mod test
     #[test]
     fn target_removed_by_command()
     {
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(10);
 
         match write_str_to_file(&mut system, "verse1.txt", "Arbitrary content\n")
         {
@@ -1497,7 +1497,7 @@ mod test
     #[test]
     fn one_dependence_only()
     {
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(10);
 
         match write_str_to_file(&mut system, "verse1.txt", "I wish I were a windowsill")
         {
@@ -1560,9 +1560,8 @@ mod test
 
                         match read_file_to_string(&mut system, "stanza1.txt")
                         {
-
                             Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
-                            Err(_) => panic!("Failed to read stanza1.txt"),
+                            Err(error) => panic!("Failed to read stanza1.txt.  Error: {}", error),
                         }
                     },
                     Err(_) => panic!("Thread inside failed"),
@@ -1590,7 +1589,7 @@ mod test
     #[test]
     fn one_dependence_intermediate_already_present()
     {
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(10);
 
         match system.create_dir(".ruler-cache")
         {
@@ -1694,7 +1693,7 @@ mod test
     #[test]
     fn two_targets_both_not_there()
     {
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(10);
 
         match write_str_to_file(&mut system, "verse1.txt", "I wish I were a windowsill")
         {
@@ -1767,7 +1766,7 @@ mod test
     #[test]
     fn two_targets_one_already_present()
     {
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(10);
 
         match system.create_dir(".ruler-cache")
         {
@@ -1857,7 +1856,7 @@ mod test
     #[test]
     fn one_target_already_correct_only()
     {
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(10);
         let mut rule_history = RuleHistory::new();
 
         match write_str_to_file(&mut system, "verse1.txt", "I wish I were a windowsill")
@@ -1940,7 +1939,7 @@ mod test
     #[test]
     fn one_target_not_there_error_in_command()
     {
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(10);
         let mut rule_history2 = RuleHistory::new();
 
         match write_str_to_file(&mut system, "verse1.txt", "I wish I were a windowsill")
@@ -2020,7 +2019,7 @@ mod test
     #[test]
     fn one_dependence_with_error()
     {
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(10);
 
         match write_str_to_file(&mut system,  "some-other-file.txt", "Arbitrary content\n")
         {
@@ -2093,7 +2092,7 @@ mod test
     #[test]
     fn one_target_already_correct_according_to_timestamp()
     {
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(10);
         let mut rule_history2 = RuleHistory::new();
 
         match write_str_to_file(&mut system,  "verse1.txt", "I wish I were a windowsill")
@@ -2187,7 +2186,7 @@ mod test
     #[test]
     fn one_target_correct_hash_incorrect_timestamp()
     {
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(10);
 
         match system.create_dir(".ruler-cache")
         {

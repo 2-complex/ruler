@@ -239,8 +239,7 @@ impl Node
                     Node::File(_) => false,
                 }
             },
-            Err(_) =>
-                false
+            Err(_) => false
         }
     }
 
@@ -308,9 +307,13 @@ impl Node
     pub fn create_file(&mut self, path: &str, content : Content, timestamp : u64) -> Result<Content, NodeError>
     {
         let (dir_components, name) = get_dir_path_and_name(path)?;
+
+        println!("Creating file: {:?} {}", dir_components, name);
+
         self.insert(dir_components, name, Node::File(FileInfo::new(
             Metadata::new(timestamp),
             content.clone())))?;
+
         Ok(content)
     }
 
@@ -403,6 +406,8 @@ impl Node
     pub fn open_file(&self, path: &str) -> Result<&Content, NodeError>
     {
         let components = get_components(path);
+
+        println!("Opening file: {:?}", components);
         match self.get_node(&components)?
         {
             Node::File(info) => Ok(&info.content),
@@ -576,12 +581,15 @@ fn convert_node_error_to_system_error(error : NodeError) -> SystemError
 
 impl FakeSystem
 {
-    pub fn new() -> Self
+    pub fn new(start : u64) -> Self
     {
         FakeSystem
         {
             root : Node::empty_dir(),
-            current_timestamp : 0,
+
+            /*  When too many timestamps are 0 by default it triggers the
+                timestamp optimization at the wrong time */
+            current_timestamp : start,
         }
     }
 
@@ -1078,7 +1086,7 @@ mod test
     #[test]
     fn system_add_remove_file()
     {
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(10);
         match system.create_file("file.txt")
         {
             Ok(_) => {},
@@ -1097,7 +1105,7 @@ mod test
     #[test]
     fn system_add_remove_dir()
     {
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(10);
         match system.create_dir("images")
         {
             Ok(_) => {},
@@ -1116,7 +1124,7 @@ mod test
     #[test]
     fn system_create_file_write_read_round_trip()
     {
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(10);
         match write_str_to_file(&mut system, "fruit_file.txt", "cantaloupe")
         {
             Ok(_) => {},
@@ -1150,9 +1158,48 @@ mod test
     }
 
     #[test]
+    fn system_create_file_write_read_round_trip_read_twice()
+    {
+        let mut system = FakeSystem::new(10);
+        match write_str_to_file(&mut system, "fruit_file.txt", "cantaloupe")
+        {
+            Ok(_) => {},
+            Err(error) =>
+            {
+                match error
+                {
+                    ReadWriteError::SystemError(error) =>
+                        panic!("SystemError in write: {}", error),
+
+                    ReadWriteError::IOError(error) =>
+                        panic!("IOError in write: {}", error),
+                }
+            }
+        }
+        for _ in 0..2
+        {
+            match read_file(&system, "fruit_file.txt")
+            {
+                Ok(content) => assert_eq!(content, b"cantaloupe"),
+                Err(error) =>
+                {
+                    match error
+                    {
+                        ReadWriteError::SystemError(error) =>
+                            panic!("SystemError in read: {}", error),
+
+                        ReadWriteError::IOError(error) =>
+                            panic!("IOError in read: {}", error),
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn system_rename_file()
     {
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(10);
         match system.create_file("star.png")
         {
             Ok(_) => {},
@@ -1175,8 +1222,7 @@ mod test
     #[test]
     fn modified_timestamps()
     {
-        let mut system = FakeSystem::new();
-        system.time_passes(17);
+        let mut system = FakeSystem::new(17);
         match system.create_file("star.png")
         {
             Ok(_) => {},
@@ -1214,7 +1260,7 @@ mod test
     #[test]
     fn writing_updates_modified_timestamp()
     {
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(0);
 
         system.time_passes(5);
 
@@ -1257,7 +1303,7 @@ mod test
     #[test]
     fn executing_error_gives_error_output()
     {
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(10);
         match system.execute_command(vec!["error".to_string()])
         {
             Ok(output) =>
@@ -1274,7 +1320,7 @@ mod test
     #[test]
     fn executing_mycat_concatinates()
     {
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(10);
         match system.create_file("line1.txt")
         {
             Ok(_) => {},
@@ -1327,7 +1373,7 @@ mod test
     #[test]
     fn executing_mycat2_concatinates_and_dupes()
     {
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(10);
         match system.create_file("line1.txt")
         {
             Ok(_) => {},
@@ -1387,7 +1433,7 @@ mod test
     #[test]
     fn use_commandline_to_remove()
     {
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(10);
         match system.create_file("terrible-file.txt")
         {
             Ok(_) => {},

@@ -426,7 +426,7 @@ mod test
 
         mem.insert_target_history("src/meta.c".to_string(), target_history);
 
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(10);
 
         let encoded: Vec<u8> = bincode::serialize(&mem).unwrap();
         match write_file(&mut system, "memory.file", &encoded)
@@ -469,7 +469,7 @@ mod test
 
         memory.insert_target_history("src/meta.c".to_string(), target_history);
 
-        let mut system = FakeSystem::new();
+        let mut system = FakeSystem::new(10);
 
         match memory.to_file(&mut system, "memory.file")
         {
