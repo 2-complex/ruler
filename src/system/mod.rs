@@ -4,9 +4,13 @@ use std::io;
 use std::fmt;
 use std::time::SystemTime;
 
+#[cfg(test)]
 pub mod fake;
-pub mod real;
+
+#[cfg(test)]
 pub mod util;
+
+pub mod real;
 
 pub struct CommandLineOutput
 {
@@ -84,6 +88,11 @@ impl CommandLineOutput
     }
 }
 
+/*  A lot of these are only contructed by the fake filesystem.
+    In the future, maybe hone the list of errors down to something that real/fake
+    system can agree on completely, but in the mean time, disabling the warning.
+*/
+#[allow(dead_code)]
 pub enum SystemError
 {
     NotFound,

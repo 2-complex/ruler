@@ -1,12 +1,12 @@
+use crate::system::SystemError;
+use std::io;
 use crate::system::
 {
     System,
-    SystemError,
     ReadWriteError,
 };
 use std::io::
 {
-    self,
     Read,
     Write
 };
@@ -16,13 +16,8 @@ use std::time::
     SystemTime,
     SystemTimeError
 };
-
-#[cfg(test)]
 use std::str::from_utf8;
-
-#[cfg(test)]
 use std::fmt;
-
 
 pub fn timestamp_to_system_time(timestamp: u64) -> SystemTime
 {
@@ -39,34 +34,6 @@ pub fn get_timestamp(system_time : SystemTime) -> Result<u64, SystemTimeError>
         Err(e) => Err(e),
     }
 }
-
-/*  Takes a System, a path a a str and a vector of binary data.  Supplants the file at the given path in the
-    filesystem with the binary content.  If file-opening fails, this function echoes the std::io error. */
-pub fn write_file
-<
-    SystemType : System,
->
-(
-    system : &mut SystemType,
-    file_path : &str,
-    content : &[u8]
-)
--> Result<(), ReadWriteError>
-{
-    match system.create_file(file_path)
-    {
-        Ok(mut file) =>
-        {
-            match file.write_all(&content)
-            {
-                Ok(_) => return Ok(()),
-                Err(error) => return Err(ReadWriteError::IOError(error)),
-            }
-        }
-        Err(error) => return Err(ReadWriteError::SystemError(error)),
-    }
-}
-
 
 /*  Takes a System, a path as a &str and content, and content as a &str.  Writes content to the file.
     If system fails, forwards the system error.  If file-io fails, forwards the std::io::Error. */
@@ -125,7 +92,6 @@ pub fn read_file
     }
 }
 
-#[cfg(test)]
 pub enum ReadFileToStringError
 {
     IOError(String, io::Error),
@@ -134,7 +100,6 @@ pub enum ReadFileToStringError
 }
 
 /*  Display a ReadFileToStringError by printing a reasonable error message. */
-#[cfg(test)]
 impl fmt::Display for ReadFileToStringError
 {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
@@ -156,7 +121,6 @@ impl fmt::Display for ReadFileToStringError
 /*  Takes a System and a path as a str, opens the path in the filesystem, reads in the conent assuming that the
     content is a utf8-encoded string and returns the result as a String.  Two types of error can occur, an error
     opening the file, or an error reading utf8.  Therefore, this function has its own error type. */
-#[cfg(test)]
 pub fn read_file_to_string
 <
     SystemType : System,

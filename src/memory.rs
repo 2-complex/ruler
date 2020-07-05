@@ -1,11 +1,44 @@
 use crate::ticket::{TicketFactory, Ticket};
-use crate::system::util::write_file;
-use crate::system::System;
-
+use crate::system::
+{
+    System,
+    ReadWriteError,
+};
 use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 use std::fmt;
-use std::io::Read;
+use std::io::
+{
+    Read,
+    Write,
+};
+
+/*  Takes a System, a path a a str and a vector of binary data.  Supplants the file at the given path in the
+    filesystem with the binary content.  If file-opening fails, this function echoes the std::io error. */
+pub fn write_file
+<
+    SystemType : System,
+>
+(
+    system : &mut SystemType,
+    file_path : &str,
+    content : &[u8]
+)
+-> Result<(), ReadWriteError>
+{
+    match system.create_file(file_path)
+    {
+        Ok(mut file) =>
+        {
+            match file.write_all(&content)
+            {
+                Ok(_) => return Ok(()),
+                Err(error) => return Err(ReadWriteError::IOError(error)),
+            }
+        }
+        Err(error) => return Err(ReadWriteError::SystemError(error)),
+    }
+}
 
 /*  Recall that a Rule is three things: sources, targets and command.  For each particular rule, a RuleHistory stores
     the Tickets of target files witnessed by the program when the command built with a given rule-ticket.
@@ -366,13 +399,15 @@ impl fmt::Display for Memory
 mod test
 {
     use crate::system::fake::FakeSystem;
-    use crate::memory::{RuleHistory, Memory, TargetHistory};
-    use crate::ticket::{TicketFactory};
-    use crate::system::util::
+    use crate::memory::
     {
+        RuleHistory,
+        Memory,
+        TargetHistory,
         write_file,
-        read_file
     };
+    use crate::ticket::{TicketFactory};
+    use crate::system::util::read_file;
 
     /*  Create a Memory, fill it with rule-histories and target-histories, then serialize it to binary, and deserialize
         to create a new Memory. Check that the contents of the new Memory are the same as the old one. */

@@ -406,10 +406,7 @@ impl Node
 
         match self.get_node(&components)?
         {
-            Node::File(info) =>
-            {
-                Ok(&info.content)
-            },
+            Node::File(info) => Ok(&info.content),
             Node::Dir(_) =>
             {
                 match components.last()
