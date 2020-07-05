@@ -1,6 +1,6 @@
 <h2>Ruler</h2>
 
-Ruler is a tool for managing a dependence graph of files.  It applies in any scenario where a commandline executable takes files as input (sources) and generates files as output (targets).  A large-scale C/C++ based project with lots of intermediate build results presents such a situation, however, Ruler is detatched from the idea that this its only use-case.  Many problems can be solved by dependence management.
+Ruler is a tool for managing a dependence graph of files.  It applies in any scenario where a commandline executable takes files as input (sources) and generates files as output (targets).  A large-scale C/C++ project with lots of intermediate build results presents such a situation, however, Ruler is unattached to the idea that this is its only use-case.  Many problems can be solved by dependence management.
 
 Dependencies are encoded in a <code>.rules</code> file.  A <code>.rules</code> file contains newline-separated blocks called <b>rules</b>.  Each <b>rule</b> consists of three sections: <b>targets</b>, <b>sources</b> and <b>command</b>.  Targets and sources are newline-separated lists of file paths.  Command is a command-line invocation that presumably takes the sources as input and updates the targets.  Each section ends with a single ":" alone on a line.  For example, a `.rules` might contain this single rule:
 
@@ -18,7 +18,7 @@ build/game
 :
 ```
 
-This declares that the executable `build/game` depends on three source files, and builds by this `c++`command-line invocation:
+This declares that the executable `build/game` depends on three source files, and builds by this line:
 
 ```sh
 c++ game.cpp --std=c++17 -o build/game
@@ -90,13 +90,13 @@ build/physics.o
 :
 ```
 
-That `.rules` file contains intermediate targets.  with that `.rules` file, and we type:
+That `.rules` file contains intermediate targets.  With that `.rules` file, if we type:
 
 ```sh
 ruler build
 ```
 
-Ruler will execute the commands to build the intermeidate targets: <code>build/math.o</code> and <code>build/physics.o</code> before finally building <code>build/game</code>.  What's more, Ruler will only execute the command to build a target that is out-of-date, so if <code>build/math.o</code> and <code>build/physics.o</code> have already been built, Ruler will not bother building them again.
+Ruler execute the commands to build the intermeidate targets: <code>build/math.o</code> and <code>build/physics.o</code> before finally building <code>build/game</code>.  What's more, Ruler will only execute the command to build a target that is out-of-date, so if <code>build/math.o</code> and <code>build/physics.o</code> have already been built, Ruler will not bother building them again.
 
 Another ruler command is this:
 
@@ -105,4 +105,6 @@ ruler clean
 ```
 
 That removes all files listed as targets in the <code>.rules</code> file.  Actually, that is only partly true.  Rather than remove the files, it relocates them to a cache.  If a build is invoked and Ruler determines that some files already reside in the cache, Ruler recovers them, rather than rebuilding.
+
+The cache also gets populated when intermediate build results are replaced.  So, if you edit a source file, `ruler build`, then undo the edit and `ruler build` again, Ruler appeals to the cache and recovers the target instead of rebuilding it.
 
