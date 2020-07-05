@@ -1,8 +1,7 @@
 extern crate clap;
-extern crate file_objects_rs;
 
 use clap::{Arg, App, SubCommand};
-use file_objects_rs::OsFileSystem;
+use crate::system::real::RealSystem;
 
 mod cache;
 mod build;
@@ -10,15 +9,10 @@ mod rule;
 mod ticket;
 mod work;
 mod memory;
-mod executor;
 mod packet;
-mod metadata;
-mod file;
 mod printer;
 mod system;
 
-use self::executor::OsExecutor;
-use self::metadata::OsMetadataGetter;
 use self::printer::StandardPrinter;
 
 fn main()
@@ -119,9 +113,7 @@ Path to a specific build-target to build.  Ruler will only build this target, an
         };
 
         match build::clean(
-            OsFileSystem::new(),
-            OsMetadataGetter::new(),
-            directory, rulefile, target)
+            RealSystem::new(), directory, rulefile, target)
         {
             Ok(()) => {},
             Err(error) => eprintln!("{}", error),
@@ -154,9 +146,7 @@ Path to a specific build-target to build.  Ruler will only build this target, an
         let mut printer = StandardPrinter::new();
 
         match build::build(
-            OsFileSystem::new(),
-            OsExecutor::new(),
-            OsMetadataGetter::new(),
+            RealSystem::new(),
             directory,
             rulefile,
             target,

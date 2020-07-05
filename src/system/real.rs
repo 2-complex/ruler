@@ -7,11 +7,7 @@ use crate::system::
 use std::collections::VecDeque;
 use std::process::Command;
 use std::fs;
-use std::io::
-{
-    prelude::*,
-    ErrorKind
-};
+use std::io::ErrorKind;
 use std::path::Path;
 use std::time::SystemTime;
 
@@ -19,6 +15,14 @@ use std::time::SystemTime;
 #[derive(Debug, Clone)]
 pub struct RealSystem
 {
+}
+
+impl RealSystem
+{
+    pub fn new() -> Self
+    {
+        RealSystem{}
+    }
 }
 
 fn convert_io_error_to_system_error(error : std::io::Error) -> SystemError

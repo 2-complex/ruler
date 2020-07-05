@@ -1,5 +1,3 @@
-extern crate file_objects_rs;
-
 use crate::packet::Packet;
 use crate::ticket::
 {
@@ -8,13 +6,11 @@ use crate::ticket::
 };
 use crate::system::
 {
-    CommandLineOutput
+    CommandLineOutput,
+    ReadWriteError,
+    System,
+    SystemError,
 };
-use crate::executor::
-{
-    Executor
-};
-use crate::metadata::MetadataGetter;
 use crate::memory::
 {
     RuleHistory,
@@ -23,7 +19,6 @@ use crate::memory::
 };
 use crate::cache::{LocalCache, RestoreResult};
 
-use file_objects_rs::FileSystem;
 use std::sync::mpsc::{Sender, Receiver, RecvError};
 use std::fmt;
 use std::time::{SystemTime, SystemTimeError};
@@ -37,19 +32,14 @@ fn get_timestamp(system_time : SystemTime) -> Result<u64, SystemTimeError>
     }
 }
 
-pub fn get_file_ticket
-<
-    FileSystemType: FileSystem,
-    MetadataGetterType: MetadataGetter
->
+pub fn get_file_ticket<SystemType: System>
 (
-    file_system : &FileSystemType,
-    metadata_getter : &MetadataGetterType,
+    system : &SystemType,
     target_info : &TargetFileInfo
 )
--> Result<Option<Ticket>, std::io::Error>
+-> Result<Option<Ticket>, ReadWriteError>
 {
-    match metadata_getter.get_modified(&target_info.path)
+    match system.get_modified(&target_info.path)
     {
         Ok(system_time) =>
         {
@@ -68,12 +58,12 @@ pub fn get_file_ticket
         Err(_) => {},
     }
 
-    if file_system.is_file(&target_info.path) || file_system.is_dir(&target_info.path)
+    if system.is_file(&target_info.path) || system.is_dir(&target_info.path)
     {
-        match TicketFactory::from_file(file_system, &target_info.path)
+        match TicketFactory::from_file(system, &target_info.path)
         {
             Ok(mut factory) => Ok(Some(factory.result())),
-            Err(err) => Err(err),
+            Err(error) => Err(error),
         }
     }
     else
@@ -115,16 +105,16 @@ pub enum WorkError
     ReceivedErrorFromSource(String),
     ReceiverError(RecvError),
     SenderError,
-    TicketAlignmentError(std::io::Error),
+    TicketAlignmentError(ReadWriteError),
     FileNotFound(String),
     TargetFileNotGenerated(String),
-    FileNotAvailableToCache(String, std::io::Error),
-    FileIoError(String, std::io::Error),
+    FileNotAvailableToCache(String, ReadWriteError),
+    FileIoError(String, ReadWriteError),
     CommandExecutedButErrored(String),
-    CommandFailedToExecute(String),
+    CommandFailedToExecute,
     Contradiction(Vec<String>),
     CacheDirectoryMissing,
-    CacheMalfunction(std::io::Error),
+    CacheMalfunction(SystemError),
     CommandWithNoRuleHistory,
     Weird,
 }
@@ -162,8 +152,8 @@ impl fmt::Display for WorkError
             WorkError::CommandExecutedButErrored(message) =>
                 write!(formatter, "Command executed but errored: {}", message),
 
-            WorkError::CommandFailedToExecute(error) =>
-                write!(formatter, "Failed to execute command with message: {}", error),
+            WorkError::CommandFailedToExecute =>
+                write!(formatter, "Failed to execute command.  Not just the command returned a non-zero code, it did not even run."),
 
             WorkError::Contradiction(contradicting_target_paths) =>
             {
@@ -196,14 +186,9 @@ impl fmt::Display for WorkError
     ticket, and if it matches, return AlreadyCorrect.  If it doesn't match, back up the current
     file, and then attempt to restore the remembered file from cache, if the cache doesn't have it
     attempt to download.  If no recovery or download works, shrug and return NeedsRebuild */
-fn resolve_single_target
-<
-    FileSystemType : FileSystem,
-    MetadataGetterType : MetadataGetter,
->
+fn resolve_single_target<SystemType : System>
 (
-    file_system : &FileSystemType,
-    metadata_getter : &MetadataGetterType,
+    system : &mut SystemType,
     cache : &LocalCache,
     remembered_ticket : &Ticket,
     target_info : &TargetFileInfo
@@ -211,7 +196,7 @@ fn resolve_single_target
 ->
 Result<FileResolution, WorkError>
 {
-    match get_file_ticket(file_system, metadata_getter, target_info)
+    match get_file_ticket(system, target_info)
     {
         Ok(Some(current_target_ticket)) =>
         {
@@ -221,7 +206,7 @@ Result<FileResolution, WorkError>
             }
 
             match cache.back_up_file_with_ticket(
-                file_system,
+                system,
                 &current_target_ticket,
                 &target_info.path)
             {
@@ -234,7 +219,7 @@ Result<FileResolution, WorkError>
             }
 
             match cache.restore_file(
-                file_system,
+                system,
                 &remembered_ticket,
                 &target_info.path)
             {
@@ -248,7 +233,7 @@ Result<FileResolution, WorkError>
                 RestoreResult::CacheDirectoryMissing =>
                     Err(WorkError::CacheDirectoryMissing),
 
-                RestoreResult::FileSystemError(error) =>
+                RestoreResult::SystemError(error) =>
                     Err(WorkError::CacheMalfunction(error)),
             }
         },
@@ -257,7 +242,7 @@ Result<FileResolution, WorkError>
         Ok(None) =>
         {
             match cache.restore_file(
-                file_system,
+                system,
                 &remembered_ticket,
                 &target_info.path)
             {
@@ -271,7 +256,7 @@ Result<FileResolution, WorkError>
                 RestoreResult::CacheDirectoryMissing =>
                     Err(WorkError::CacheDirectoryMissing),
 
-                RestoreResult::FileSystemError(error) =>
+                RestoreResult::SystemError(error) =>
                     Err(WorkError::CacheMalfunction(error)),
             }
         },
@@ -289,14 +274,9 @@ Result<FileResolution, WorkError>
     If there are no remembered tickets, then this function goes through each target, backs up the current version
     if it's there, and returns a vector full of NeedsRebuild
 */
-fn resolve_with_cache
-<
-    FileSystemType : FileSystem,
-    MetadataGetterType : MetadataGetter
->
+fn resolve_with_cache<SystemType : System>
 (
-    file_system : &FileSystemType,
-    metadata_getter : &MetadataGetterType,
+    system : &mut SystemType,
     cache : &LocalCache,
     rule_history : &RuleHistory,
     sources_ticket : &Ticket,
@@ -321,8 +301,7 @@ Result<Vec<FileResolution>, WorkError>
                 };
 
                 match resolve_single_target(
-                    file_system,
-                    metadata_getter,
+                    system,
                     cache,
                     remembered_ticket,
                     target_info)
@@ -337,12 +316,12 @@ Result<Vec<FileResolution>, WorkError>
         {
             for target_info in target_infos.iter()
             {
-                match get_file_ticket(file_system, metadata_getter, target_info)
+                match get_file_ticket(system, target_info)
                 {
                     Ok(Some(current_target_ticket)) =>
                     {
                         match cache.back_up_file_with_ticket(
-                            file_system,
+                            system,
                             &current_target_ticket,
                             &target_info.path)
                         {
@@ -373,14 +352,9 @@ Result<Vec<FileResolution>, WorkError>
 }
 
 
-fn get_current_target_tickets
-<
-    FileSystemType: FileSystem,
-    MetadataGetterType: MetadataGetter
->
+fn get_current_target_tickets<SystemType: System>
 (
-    file_system : &FileSystemType,
-    metadata_getter : &MetadataGetterType,
+    system : &SystemType,
     target_infos : &Vec<TargetFileInfo>,
 )
 -> Result<Vec<Ticket>, WorkError>
@@ -388,7 +362,7 @@ fn get_current_target_tickets
     let mut target_tickets = Vec::new();
     for target_info in target_infos.iter()
     {
-        match get_file_ticket(file_system, metadata_getter, target_info)
+        match get_file_ticket(system, target_info)
         {
             Ok(ticket_opt) =>
             {
@@ -407,16 +381,11 @@ fn get_current_target_tickets
 
 /*  A rule_history of None means that the node in question doesn't represent a rule.
     So, error if there is a command specified, and at the end return SourceOnly. */
-fn handle_source_only_node
-<
-    FileSystemType: FileSystem,
-    MetadataGetterType: MetadataGetter
->
+fn handle_source_only_node<SystemType: System>
 (
     target_infos : Vec<TargetFileInfo>,
     command : Vec<String>,
-    file_system : FileSystemType,
-    metadata_getter : MetadataGetterType,
+    system : SystemType,
     senders : Vec<(usize, Sender<Packet>)>
 )
 ->
@@ -428,8 +397,7 @@ Result<WorkResult, WorkError>
     }
 
     let current_target_tickets = match get_current_target_tickets(
-        &file_system,
-        &metadata_getter,
+        &system,
         &target_infos)
     {
         Ok(target_tickets) => target_tickets,
@@ -509,16 +477,9 @@ fn needs_rebuild(resolutions : &Vec<FileResolution>) -> bool
 /*  Handles the case when some target is irrecoverable from the cache, and the command
     needs to execute to rebuild the node.  Natrually, return a WorkResult with option
     indicating that the command executed (which contains the commandline result) */
-fn rebuild_node
-<
-    FileSystemType : FileSystem,
-    ExecType : Executor,
-    MetadataGetterType : MetadataGetter
->
+fn rebuild_node<SystemType : System,>
 (
-    file_system : &FileSystemType,
-    metadata_getter : &MetadataGetterType,
-    executor : &mut ExecType,
+    system : &mut SystemType,
     mut rule_history : RuleHistory,
     sources_ticket : Ticket,
     command : Vec<String>,
@@ -528,7 +489,7 @@ fn rebuild_node
 ->
 Result<WorkResult, WorkError>
 {
-    match executor.execute_command(command)
+    match system.execute_command(command)
     {
         Ok(command_result) =>
         {
@@ -541,8 +502,7 @@ Result<WorkResult, WorkError>
             for target_info in target_infos.iter()
             {
                 match get_file_ticket(
-                    file_system,
-                    metadata_getter,
+                    system,
                     &target_info)
                 {
                     Ok(ticket_opt) =>
@@ -613,28 +573,21 @@ Result<WorkResult, WorkError>
         },
         Err(error) =>
         {
-            return Err(WorkError::CommandFailedToExecute(error))
+            return Err(WorkError::CommandFailedToExecute)
         },
     }
 }
 
 /*  This is a central, public function for handling a node in the depednece graph.
     It is meant to be called by a dedicated thread, and as such, it eats all its arguments.*/
-pub fn handle_node
-<
-    FileSystemType: FileSystem,
-    ExecType: Executor,
-    MetadataGetterType: MetadataGetter
->
+pub fn handle_node<SystemType: System>
 (
     target_infos : Vec<TargetFileInfo>,
     command : Vec<String>,
     rule_history_opt : Option<RuleHistory>,
-    file_system : FileSystemType,
-    metadata_getter : MetadataGetterType,
+    mut system : SystemType,
     senders : Vec<(usize, Sender<Packet>)>,
     receivers : Vec<Receiver<Packet>>,
-    mut executor : ExecType,
     cache : LocalCache
 )
 ->
@@ -652,15 +605,13 @@ Result<WorkResult, WorkError>
         None => handle_source_only_node(
             target_infos,
             command,
-            file_system,
-            metadata_getter,
+            system,
             senders),
 
         Some(rule_history) =>
         {
             match resolve_with_cache(
-                &file_system,
-                &metadata_getter,
+                &mut system,
                 &cache,
                 &rule_history,
                 &sources_ticket,
@@ -671,9 +622,7 @@ Result<WorkResult, WorkError>
                     if needs_rebuild(&resolutions)
                     {
                         rebuild_node(
-                            &file_system,
-                            &metadata_getter,
-                            &mut executor,
+                            &mut system,
                             rule_history,
                             sources_ticket,
                             command,
@@ -684,8 +633,7 @@ Result<WorkResult, WorkError>
                     else
                     {
                         let target_tickets = match get_current_target_tickets(
-                            &file_system,
-                            &metadata_getter,
+                            &system,
                             &target_infos)
                         {
                             Ok(target_tickets) => target_tickets,
@@ -720,28 +668,25 @@ Result<WorkResult, WorkError>
 }
 
 
-pub fn clean_targets<
-    FileSystemType: FileSystem,
-    MetadataGetterType: MetadataGetter>
+pub fn clean_targets<SystemType: System>
 (
     target_infos : Vec<TargetFileInfo>,
-    file_system : &FileSystemType,
-    metadata_getter : &MetadataGetterType,
+    system : &mut SystemType,
     cache : &LocalCache
 )
 -> Result<(), WorkError>
 {
     for target_info in target_infos
     {
-        if file_system.is_file(&target_info.path)
+        if system.is_file(&target_info.path)
         {
-            match get_file_ticket(file_system, metadata_getter, &target_info)
+            match get_file_ticket(system, &target_info)
             {
                 Ok(Some(current_target_ticket)) =>
                 {
                     {
                         match cache.back_up_file_with_ticket(
-                            file_system,
+                            system,
                             &current_target_ticket,
                             &target_info.path)
                         {
@@ -755,7 +700,7 @@ pub fn clean_targets<
                 Ok(None)=>
                 {
                     match cache.back_up_file(
-                        file_system,
+                        system,
                         &target_info.path)
                     {
                         Ok(_) => {},
@@ -788,20 +733,17 @@ mod test
     };
     use crate::ticket::TicketFactory;
     use crate::memory::{RuleHistory, TargetHistory};
-    use crate::executor::FakeExecutor;
     use crate::packet::Packet;
-    use crate::metadata::{MetadataGetter, FakeMetadataGetter};
     use crate::cache::LocalCache;
-    use crate::file::
+    use crate::system::util::
     {
         write_str_to_file,
         read_file_to_string,
     };
-
-    use file_objects_rs::
+    use crate::system::
     {
-        FileSystem,
-        FakeFileSystem
+        System,
+        fake::FakeSystem,
     };
 
     use std::sync::mpsc::{self, Sender, Receiver};
@@ -831,17 +773,16 @@ mod test
     #[test]
     fn work_get_tickets_from_filesystem()
     {
-        let mut file_system = FakeFileSystem::new();
+        let mut system = FakeSystem::new();
 
-        match write_str_to_file(&mut file_system,  "quine.sh", "cat $0")
+        match write_str_to_file(&mut system, "quine.sh", "cat $0")
         {
             Ok(_) => {},
             Err(why) => panic!("Failed to make fake file: {}", why),
         }
 
         match get_file_ticket(
-            &file_system,
-            &FakeMetadataGetter::new(),
+            &system,
             &TargetFileInfo
             {
                 path : "quine.sh".to_string(),
@@ -865,7 +806,7 @@ mod test
     fn work_get_tickets_from_history()
     {
         let mut rule_history = RuleHistory::new();
-        let mut file_system = FakeFileSystem::new();
+        let mut system = FakeSystem::new();
 
         let source_content = "int main(){printf(\"my game\"); return 0;}";
         let target_content = "machine code for my game";
@@ -884,7 +825,7 @@ mod test
         }
 
         // Meanwhile, in the filesystem put some rubbish in game.cpp
-        match write_str_to_file(&mut file_system, "game.cpp", source_content)
+        match write_str_to_file(&mut system, "game.cpp", source_content)
         {
             Ok(_) => {},
             Err(why) => panic!("Failed to make fake file: {}", why),
@@ -892,8 +833,7 @@ mod test
 
         // Then get the ticket for the current source file:
         match get_file_ticket(
-            &file_system,
-            &FakeMetadataGetter::new(),
+            &system,
             &TargetFileInfo
             {
                 path : "game.cpp".to_string(),
@@ -943,8 +883,8 @@ mod test
     #[test]
     fn do_empty_command()
     {
-        let mut file_system = FakeFileSystem::new();
-        match write_str_to_file(&mut file_system, "A", "A-content")
+        let mut system = FakeSystem::new();
+        match write_str_to_file(&mut system, "A", "A-content")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
@@ -954,11 +894,9 @@ mod test
             to_info(vec!["A".to_string()]),
             vec![],
             None,
-            file_system.clone(),
-            FakeMetadataGetter::new(),
+            system.clone(),
             Vec::new(),
             Vec::new(),
-            FakeExecutor::new(file_system.clone()),
             LocalCache::new(".ruler-cache"))
         {
             Ok(result) =>
@@ -981,21 +919,21 @@ mod test
         let (sender_b, receiver_b) = mpsc::channel();
         let (sender_c, receiver_c) = mpsc::channel();
 
-        let mut file_system = FakeFileSystem::new();
+        let mut system = FakeSystem::new();
 
-        match file_system.create_dir(".ruler-cache")
+        match system.create_dir(".ruler-cache")
         {
             Ok(_) => {},
             Err(_) => panic!("Failed to make cache directory"),
         }
 
-        match write_str_to_file(&mut file_system, "A-source.txt", "")
+        match write_str_to_file(&mut system, "A-source.txt", "")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
         }
 
-        match write_str_to_file(&mut file_system, "A.txt", "")
+        match write_str_to_file(&mut system, "A.txt", "")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
@@ -1017,11 +955,9 @@ mod test
             to_info(vec!["A.txt".to_string()]),
             vec!["mycat".to_string(), "A-source.txt".to_string(), "A.txt".to_string()],
             Some(RuleHistory::new()),
-            file_system.clone(),
-            FakeMetadataGetter::new(),
+            system.clone(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
-            FakeExecutor::new(file_system.clone()),
             LocalCache::new(".ruler-cache"))
         {
             Ok(result) =>
@@ -1063,15 +999,15 @@ mod test
         let (sender_b, receiver_b) = mpsc::channel();
         let (sender_c, receiver_c) = mpsc::channel();
 
-        let mut file_system = FakeFileSystem::new();
+        let mut system = FakeSystem::new();
 
-        match write_str_to_file(&mut file_system, "verse1.txt", "Roses are red\n")
+        match write_str_to_file(&mut system, "verse1.txt", "Roses are red\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
         }
 
-        match write_str_to_file(&mut file_system, "verse2.txt", "Violets are violet\n")
+        match write_str_to_file(&mut system, "verse2.txt", "Violets are violet\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
@@ -1093,11 +1029,9 @@ mod test
             to_info(vec!["poem.txt".to_string()]),
             vec!["error".to_string()],
             Some(RuleHistory::new()),
-            file_system.clone(),
-            FakeMetadataGetter::new(),
+            system.clone(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
-            FakeExecutor::new(file_system.clone()),
             LocalCache::new(".ruler-cache"))
         {
             Ok(_) => panic!("Unexpected command success"),
@@ -1123,15 +1057,15 @@ mod test
         let (sender_b, receiver_b) = mpsc::channel();
         let (sender_c, _receiver_c) = mpsc::channel();
 
-        let mut file_system = FakeFileSystem::new();
+        let mut system = FakeSystem::new();
 
-        match write_str_to_file(&mut file_system, "verse1.txt", "Roses are red\n")
+        match write_str_to_file(&mut system, "verse1.txt", "Roses are red\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
         }
 
-        match write_str_to_file(&mut file_system, "verse2.txt", "Violets are violet\n")
+        match write_str_to_file(&mut system, "verse2.txt", "Violets are violet\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
@@ -1158,11 +1092,9 @@ mod test
                 "wrong.txt".to_string()
             ],
             Some(RuleHistory::new()),
-            file_system.clone(),
-            FakeMetadataGetter::new(),
+            system.clone(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
-            FakeExecutor::new(file_system.clone()),
             LocalCache::new(".ruler-cache"))
         {
             Ok(_) => panic!("Unexpected command success"),
@@ -1181,15 +1113,15 @@ mod test
         let (sender_b, receiver_b) = mpsc::channel();
         let (sender_c, receiver_c) = mpsc::channel();
 
-        let mut file_system = FakeFileSystem::new();
+        let mut system = FakeSystem::new();
 
-        match write_str_to_file(&mut file_system, "verse1.txt", "Roses are red\n")
+        match write_str_to_file(&mut system, "verse1.txt", "Roses are red\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
         }
 
-        match write_str_to_file(&mut file_system, "verse2.txt", "Violets are violet\n")
+        match write_str_to_file(&mut system, "verse2.txt", "Violets are violet\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
@@ -1216,11 +1148,9 @@ mod test
                 "poem.txt".to_string()
             ],
             Some(RuleHistory::new()),
-            file_system.clone(),
-            FakeMetadataGetter::new(),
+            system.clone(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
-            FakeExecutor::new(file_system.clone()),
             LocalCache::new(".ruler-cache"))
         {
             Ok(result) =>
@@ -1284,21 +1214,21 @@ mod test
             Err(_) => panic!("Rule history failed to insert"),
         }
 
-        let mut file_system = FakeFileSystem::new();
+        let mut system = FakeSystem::new();
 
-        match write_str_to_file(&mut file_system, "verse1.txt", "Roses are red\n")
+        match write_str_to_file(&mut system, "verse1.txt", "Roses are red\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
         }
 
-        match write_str_to_file(&mut file_system, "verse2.txt", "Violets are violet\n")
+        match write_str_to_file(&mut system, "verse2.txt", "Violets are violet\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
         }
 
-        match write_str_to_file(&mut file_system, "poem.txt", "Roses are red\nViolets are violet\n")
+        match write_str_to_file(&mut system, "poem.txt", "Roses are red\nViolets are violet\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
@@ -1324,11 +1254,9 @@ mod test
                 "this command should not run".to_string(),
                 "the end".to_string()],
             Some(rule_history),
-            file_system.clone(),
-            FakeMetadataGetter::new(),
+            system.clone(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
-            FakeExecutor::new(file_system.clone()),
             LocalCache::new(".ruler-cache"))
         {
             Ok(result) =>
@@ -1398,27 +1326,27 @@ mod test
             Err(_) => panic!("Rule history failed to insert"),
         }
 
-        let mut file_system = FakeFileSystem::new();
+        let mut system = FakeSystem::new();
 
-        match file_system.create_dir(".ruler-cache")
+        match system.create_dir(".ruler-cache")
         {
             Ok(_) => {},
             Err(_) => panic!("Failed to create directory"),
         }
 
-        match write_str_to_file(&mut file_system, "verse1.txt", "Roses are red\n")
+        match write_str_to_file(&mut system, "verse1.txt", "Roses are red\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
         }
 
-        match write_str_to_file(&mut file_system, "verse2.txt", "Violets are violet\n")
+        match write_str_to_file(&mut system, "verse2.txt", "Violets are violet\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
         }
 
-        match write_str_to_file(&mut file_system, "poem.txt", "Arbitrary content")
+        match write_str_to_file(&mut system, "poem.txt", "Arbitrary content")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
@@ -1445,11 +1373,9 @@ mod test
                 "poem.txt".to_string()
             ],
             Some(rule_history),
-            file_system.clone(),
-            FakeMetadataGetter::new(),
+            system.clone(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
-            FakeExecutor::new(file_system.clone()),
             LocalCache::new(".ruler-cache"))
         {
             Ok(_result) =>
@@ -1474,9 +1400,9 @@ mod test
     #[test]
     fn file_not_there()
     {
-        let mut file_system = FakeFileSystem::new();
+        let mut system = FakeSystem::new();
 
-        match write_str_to_file(&mut file_system, "some-other-file.txt", "Arbitrary content\n")
+        match write_str_to_file(&mut system, "some-other-file.txt", "Arbitrary content\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
@@ -1486,11 +1412,9 @@ mod test
             to_info(vec!["verse1.txt".to_string()]),
             vec![],
             None,
-            file_system.clone(),
-            FakeMetadataGetter::new(),
+            system.clone(),
             vec![],
             vec![],
-            FakeExecutor::new(file_system.clone()),
             LocalCache::new(".ruler-cache"))
         {
             Ok(_) =>
@@ -1512,9 +1436,9 @@ mod test
     #[test]
     fn target_removed_by_command()
     {
-        let mut file_system = FakeFileSystem::new();
+        let mut system = FakeSystem::new();
 
-        match write_str_to_file(&mut file_system, "verse1.txt", "Arbitrary content\n")
+        match write_str_to_file(&mut system, "verse1.txt", "Arbitrary content\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
@@ -1524,11 +1448,9 @@ mod test
             to_info(vec!["verse1.txt".to_string()]),
             vec!["rm".to_string(), "verse1.txt".to_string()],
             Some(RuleHistory::new()),
-            file_system.clone(),
-            FakeMetadataGetter::new(),
+            system.clone(),
             vec![],
             vec![],
-            FakeExecutor::new(file_system.clone()),
             LocalCache::new(".rule-cache"))
         {
             Ok(_) =>
@@ -1546,19 +1468,16 @@ mod test
         }
     }
 
-    fn spawn_command<
-        FileSystemType: FileSystem + Send + 'static,
-        MetadataGetterType: MetadataGetter + Send + 'static
-        > (
-            target_infos : Vec<TargetFileInfo>,
-            command : Vec<String>,
-            rule_history_opt : Option<RuleHistory>,
-            file_system : FileSystemType,
-            metadata_getter : MetadataGetterType,
-            senders : Vec<(usize, Sender<Packet>)>,
-            receivers : Vec<Receiver<Packet>>,
-            executor: FakeExecutor
-        ) -> JoinHandle<Result<WorkResult, WorkError>>
+    fn spawn_command<SystemType: System + Send + 'static>
+    (
+        target_infos : Vec<TargetFileInfo>,
+        command : Vec<String>,
+        rule_history_opt : Option<RuleHistory>,
+        system : SystemType,
+        senders : Vec<(usize, Sender<Packet>)>,
+        receivers : Vec<Receiver<Packet>>,
+    )
+    -> JoinHandle<Result<WorkResult, WorkError>>
     {
         thread::spawn(
             move || -> Result<WorkResult, WorkError>
@@ -1567,11 +1486,9 @@ mod test
                     target_infos,
                     command,
                     rule_history_opt,
-                    file_system,
-                    metadata_getter,
+                    system,
                     senders,
                     receivers,
-                    executor,
                     LocalCache::new(".ruler-cache"))
             }
         )
@@ -1580,9 +1497,9 @@ mod test
     #[test]
     fn one_dependence_only()
     {
-        let mut file_system = FakeFileSystem::new();
+        let mut system = FakeSystem::new();
 
-        match write_str_to_file(&mut file_system, "verse1.txt", "I wish I were a windowsill")
+        match write_str_to_file(&mut system, "verse1.txt", "I wish I were a windowsill")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
@@ -1598,11 +1515,9 @@ mod test
                 "stanza1.txt".to_string()
             ],
             Some(RuleHistory::new()),
-            file_system.clone(),
-            FakeMetadataGetter::new(),
+            system.clone(),
             vec![(0, sender)],
             vec![],
-            FakeExecutor::new(file_system.clone())
         );
 
         let handle2 = spawn_command(
@@ -1613,11 +1528,9 @@ mod test
                 "poem.txt".to_string()
             ],
             Some(RuleHistory::new()),
-            file_system.clone(),
-            FakeMetadataGetter::new(),
+            system.clone(),
             vec![],
             vec![receiver],
-            FakeExecutor::new(file_system.clone())
         );
 
         match handle1.join()
@@ -1645,7 +1558,7 @@ mod test
                             _ => panic!("Thread was supposed to execute command, did something else, got wrong work-option."),
                         }
 
-                        match read_file_to_string(&mut file_system, "stanza1.txt")
+                        match read_file_to_string(&mut system, "stanza1.txt")
                         {
 
                             Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
@@ -1664,7 +1577,7 @@ mod test
         {
             Ok(_) =>
             {
-                match read_file_to_string(&mut file_system, "poem.txt")
+                match read_file_to_string(&mut system, "poem.txt")
                 {
                     Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
                     Err(_) => panic!("Failed to read poem"),
@@ -1677,21 +1590,21 @@ mod test
     #[test]
     fn one_dependence_intermediate_already_present()
     {
-        let mut file_system = FakeFileSystem::new();
+        let mut system = FakeSystem::new();
 
-        match file_system.create_dir(".ruler-cache")
+        match system.create_dir(".ruler-cache")
         {
             Ok(_) => {},
             Err(_) => panic!("Failed to create directory"),
         }
 
-        match write_str_to_file(&mut file_system, "verse1.txt", "I wish I were a windowsill")
+        match write_str_to_file(&mut system, "verse1.txt", "I wish I were a windowsill")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
         }
 
-        match write_str_to_file(&mut file_system, "stanza1.txt", "Some content")
+        match write_str_to_file(&mut system, "stanza1.txt", "Some content")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
@@ -1707,11 +1620,9 @@ mod test
                 "stanza1.txt".to_string()
             ],
             Some(RuleHistory::new()),
-            file_system.clone(),
-            FakeMetadataGetter::new(),
+            system.clone(),
             vec![(0, sender)],
             vec![],
-            FakeExecutor::new(file_system.clone())
         );
 
         let handle2 = spawn_command(
@@ -1722,11 +1633,9 @@ mod test
                 "poem.txt".to_string()
             ],
             Some(RuleHistory::new()),
-            file_system.clone(),
-            FakeMetadataGetter::new(),
+            system.clone(),
             vec![],
             vec![receiver],
-            FakeExecutor::new(file_system.clone())
         );
 
         match handle1.join()
@@ -1754,7 +1663,7 @@ mod test
                             _ => panic!("Thread was supposed to execute command, did something else, got wrong work-option."),
                         }
 
-                        match read_file_to_string(&mut file_system, "stanza1.txt")
+                        match read_file_to_string(&mut system, "stanza1.txt")
                         {
                             Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
                             Err(_) => panic!("Failed to read stanza1.txt"),
@@ -1772,7 +1681,7 @@ mod test
         {
             Ok(_) =>
             {
-                match read_file_to_string(&mut file_system, "poem.txt")
+                match read_file_to_string(&mut system, "poem.txt")
                 {
                     Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
                     Err(_) => panic!("Failed to read poem"),
@@ -1785,9 +1694,9 @@ mod test
     #[test]
     fn two_targets_both_not_there()
     {
-        let mut file_system = FakeFileSystem::new();
+        let mut system = FakeSystem::new();
 
-        match write_str_to_file(&mut file_system, "verse1.txt", "I wish I were a windowsill")
+        match write_str_to_file(&mut system, "verse1.txt", "I wish I were a windowsill")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
@@ -1804,11 +1713,9 @@ mod test
                 "stanza2.txt".to_string(),
             ],
             Some(RuleHistory::new()),
-            file_system.clone(),
-            FakeMetadataGetter::new(),
+            system.clone(),
             vec![(0, sender)],
             vec![],
-            FakeExecutor::new(file_system.clone())
         );
 
         match handle1.join()
@@ -1836,13 +1743,13 @@ mod test
                             _ => panic!("Thread was supposed to execute command, did something else, got wrong work-option."),
                         }
 
-                        match read_file_to_string(&mut file_system, "stanza1.txt")
+                        match read_file_to_string(&mut system, "stanza1.txt")
                         {
                             Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
                             Err(_) => panic!("Failed to read stanza1"),
                         }
 
-                        match read_file_to_string(&mut file_system, "stanza2.txt")
+                        match read_file_to_string(&mut system, "stanza2.txt")
                         {
                             Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
                             Err(_) => panic!("Failed to read stanza2"),
@@ -1860,21 +1767,21 @@ mod test
     #[test]
     fn two_targets_one_already_present()
     {
-        let mut file_system = FakeFileSystem::new();
+        let mut system = FakeSystem::new();
 
-        match file_system.create_dir(".ruler-cache")
+        match system.create_dir(".ruler-cache")
         {
             Ok(_) => {},
             Err(_) => panic!("Failed to create directory"),
         }
 
-        match write_str_to_file(&mut file_system, "verse1.txt", "I wish I were a windowsill")
+        match write_str_to_file(&mut system, "verse1.txt", "I wish I were a windowsill")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
         }
 
-        match write_str_to_file(&mut file_system, "stanza1.txt", "Some content")
+        match write_str_to_file(&mut system, "stanza1.txt", "Some content")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
@@ -1895,11 +1802,9 @@ mod test
                 "stanza2.txt".to_string(),
             ],
             Some(RuleHistory::new()),
-            file_system.clone(),
-            FakeMetadataGetter::new(),
+            system.clone(),
             vec![(0, sender)],
             vec![],
-            FakeExecutor::new(file_system.clone())
         );
 
         match handle1.join()
@@ -1928,13 +1833,13 @@ mod test
                             _ => panic!("Thread was supposed to execute command, did something else, got wrong work-option."),
                         }
 
-                        match read_file_to_string(&mut file_system, "stanza1.txt")
+                        match read_file_to_string(&mut system, "stanza1.txt")
                         {
                             Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
                             Err(_) => panic!("Failed to read stanza1"),
                         }
 
-                        match read_file_to_string(&mut file_system, "stanza2.txt")
+                        match read_file_to_string(&mut system, "stanza2.txt")
                         {
                             Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
                             Err(_) => panic!("Failed to read stanza2"),
@@ -1952,18 +1857,16 @@ mod test
     #[test]
     fn one_target_already_correct_only()
     {
-        let mut file_system = FakeFileSystem::new();
-        let metadata_getter1 = FakeMetadataGetter::new();
-        let metadata_getter2 = FakeMetadataGetter::new();
+        let mut system = FakeSystem::new();
         let mut rule_history = RuleHistory::new();
 
-        match write_str_to_file(&mut file_system, "verse1.txt", "I wish I were a windowsill")
+        match write_str_to_file(&mut system, "verse1.txt", "I wish I were a windowsill")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
         }
 
-        match write_str_to_file(&mut file_system, "poem.txt", "I wish I were a windowsill")
+        match write_str_to_file(&mut system, "poem.txt", "I wish I were a windowsill")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
@@ -1988,11 +1891,9 @@ mod test
             to_info(vec!["verse1.txt".to_string()]),
             vec![],
             None,
-            file_system.clone(),
-            metadata_getter1,
+            system.clone(),
             vec![(0, sender)],
             vec![],
-            FakeExecutor::new(file_system.clone())
         );
 
         let handle2 = spawn_command(
@@ -2003,18 +1904,16 @@ mod test
                 "already be correct".to_string()
             ],
             Some(rule_history),
-            file_system.clone(),
-            metadata_getter2,
+            system.clone(),
             vec![],
             vec![receiver],
-            FakeExecutor::new(file_system.clone())
         );
 
         match handle1.join()
         {
             Ok(_) =>
             {
-                match read_file_to_string(&mut file_system, "verse1.txt")
+                match read_file_to_string(&mut system, "verse1.txt")
                 {
                     Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
                     Err(_) => panic!("Failed to read verse1"),
@@ -2027,7 +1926,7 @@ mod test
         {
             Ok(_) =>
             {
-                match read_file_to_string(&mut file_system, "poem.txt")
+                match read_file_to_string(&mut system, "poem.txt")
                 {
                     Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
                     Err(_) => panic!("Failed to read poem"),
@@ -2041,12 +1940,10 @@ mod test
     #[test]
     fn one_target_not_there_error_in_command()
     {
-        let mut file_system = FakeFileSystem::new();
-        let metadata_getter1 = FakeMetadataGetter::new();
-        let metadata_getter2 = FakeMetadataGetter::new();
+        let mut system = FakeSystem::new();
         let mut rule_history2 = RuleHistory::new();
 
-        match write_str_to_file(&mut file_system, "verse1.txt", "I wish I were a windowsill")
+        match write_str_to_file(&mut system, "verse1.txt", "I wish I were a windowsill")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
@@ -2071,11 +1968,9 @@ mod test
             to_info(vec!["verse1.txt".to_string()]),
             vec![],
             None,
-            file_system.clone(),
-            metadata_getter1,
+            system.clone(),
             vec![(0, sender)],
             vec![],
-            FakeExecutor::new(file_system.clone())
         );
 
         let handle2 = spawn_command(
@@ -2086,18 +1981,16 @@ mod test
                 "error".to_string(),
             ],
             Some(rule_history2),
-            file_system.clone(),
-            metadata_getter2,
+            system.clone(),
             vec![],
             vec![receiver],
-            FakeExecutor::new(file_system.clone())
         );
 
         match handle1.join()
         {
             Ok(_) =>
             {
-                match read_file_to_string(&mut file_system, "verse1.txt")
+                match read_file_to_string(&mut system, "verse1.txt")
                 {
                     Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
                     Err(_) => panic!("Failed to read verse1"),
@@ -2115,7 +2008,7 @@ mod test
                     Ok(_) => panic!("Second thread failed to error"),
                     Err(_) =>
                     {
-                        assert!(!file_system.is_file("poem.txt") && !file_system.is_dir("poem.txt"));
+                        assert!(!system.is_file("poem.txt") && !system.is_dir("poem.txt"));
                     },
                 }
             }
@@ -2127,15 +2020,15 @@ mod test
     #[test]
     fn one_dependence_with_error()
     {
-        let mut file_system = FakeFileSystem::new();
+        let mut system = FakeSystem::new();
 
-        match write_str_to_file(&mut file_system,  "some-other-file.txt", "Arbitrary content\n")
+        match write_str_to_file(&mut system,  "some-other-file.txt", "Arbitrary content\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
         }
 
-        match write_str_to_file(&mut file_system,  "stanza1.txt", "Arbitrary content\n")
+        match write_str_to_file(&mut system,  "stanza1.txt", "Arbitrary content\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
@@ -2151,11 +2044,9 @@ mod test
                 "stanza1.txt".to_string()
             ],
             None,
-            file_system.clone(),
-            FakeMetadataGetter::new(),
+            system.clone(),
             vec![(0, sender)],
             vec![],
-            FakeExecutor::new(file_system.clone())
         );
 
         let handle2 = spawn_command(
@@ -2166,11 +2057,9 @@ mod test
                 "poem.txt".to_string()
             ],
             None,
-            file_system.clone(),
-            FakeMetadataGetter::new(),
+            system.clone(),
             vec![],
             vec![receiver],
-            FakeExecutor::new(file_system.clone())
         );
 
         match handle1.join()
@@ -2204,24 +2093,22 @@ mod test
     #[test]
     fn one_target_already_correct_according_to_timestamp()
     {
-        let mut file_system = FakeFileSystem::new();
-        let metadata_getter1 = FakeMetadataGetter::new();
-        let mut metadata_getter2 = FakeMetadataGetter::new();
+        let mut system = FakeSystem::new();
         let mut rule_history2 = RuleHistory::new();
 
-        match write_str_to_file(&mut file_system,  "verse1.txt", "I wish I were a windowsill")
+        match write_str_to_file(&mut system,  "verse1.txt", "I wish I were a windowsill")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
         }
 
-        match write_str_to_file(&mut file_system,  "poem.txt", "Content actually wrong")
+        match write_str_to_file(&mut system,  "poem.txt", "Content actually wrong")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
         }
 
-        metadata_getter2.insert_timestamp("poem.txt", 17);
+        system.time_passes(17);
 
         let mut factory = TicketFactory::new();
         factory.input_ticket(
@@ -2242,11 +2129,9 @@ mod test
             to_info(vec!["verse1.txt".to_string()]),
             vec![],
             None,
-            file_system.clone(),
-            metadata_getter1,
+            system.clone(),
             vec![(0, sender)],
             vec![],
-            FakeExecutor::new(file_system.clone())
         );
 
         let handle2 = spawn_command(
@@ -2266,18 +2151,16 @@ mod test
                 "already be correct".to_string()
             ],
             Some(rule_history2),
-            file_system.clone(),
-            metadata_getter2,
+            system.clone(),
             vec![],
             vec![receiver],
-            FakeExecutor::new(file_system.clone())
         );
 
         match handle1.join()
         {
             Ok(_) =>
             {
-                match read_file_to_string(&mut file_system, "verse1.txt")
+                match read_file_to_string(&mut system, "verse1.txt")
                 {
                     Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
                     Err(_) => panic!("Failed to read verse1"),
@@ -2290,7 +2173,7 @@ mod test
         {
             Ok(_) =>
             {
-                match read_file_to_string(&mut file_system, "poem.txt")
+                match read_file_to_string(&mut system, "poem.txt")
                 {
                     Ok(text) => assert_eq!(text, "Content actually wrong"),
                     Err(_) => panic!("Failed to read poem"),
@@ -2304,31 +2187,29 @@ mod test
     #[test]
     fn one_target_correct_hash_incorrect_timestamp()
     {
-        let mut file_system = FakeFileSystem::new();
+        let mut system = FakeSystem::new();
 
-        match file_system.create_dir(".ruler-cache")
+        match system.create_dir(".ruler-cache")
         {
             Ok(_) => {},
             Err(_) => panic!("Failed to create directory"),
         }
 
-        let metadata_getter1 = FakeMetadataGetter::new();
-        let mut metadata_getter2 = FakeMetadataGetter::new();
         let mut rule_history2 = RuleHistory::new();
 
-        match write_str_to_file(&mut file_system,  "verse1.txt", "I wish I were a windowsill")
+        match write_str_to_file(&mut system,  "verse1.txt", "I wish I were a windowsill")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
         }
 
-        match write_str_to_file(&mut file_system,  "poem.txt", "Content wrong at first")
+        match write_str_to_file(&mut system,  "poem.txt", "Content wrong at first")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
         }
 
-        metadata_getter2.insert_timestamp("poem.txt", 18);
+        system.time_passes(18);
 
         let mut factory = TicketFactory::new();
         factory.input_ticket(
@@ -2349,11 +2230,9 @@ mod test
             to_info(vec!["verse1.txt".to_string()]),
             vec![],
             None,
-            file_system.clone(),
-            metadata_getter1,
+            system.clone(),
             vec![(0, sender)],
             vec![],
-            FakeExecutor::new(file_system.clone())
         );
 
         let handle2 = spawn_command(
@@ -2373,18 +2252,16 @@ mod test
                 "poem.txt".to_string()
             ],
             Some(rule_history2),
-            file_system.clone(),
-            metadata_getter2,
+            system.clone(),
             vec![],
             vec![receiver],
-            FakeExecutor::new(file_system.clone())
         );
 
         match handle1.join()
         {
             Ok(_) =>
             {
-                match read_file_to_string(&mut file_system, "verse1.txt")
+                match read_file_to_string(&mut system, "verse1.txt")
                 {
                     Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
                     Err(_) => panic!("Failed to read verse1"),
@@ -2397,7 +2274,7 @@ mod test
         {
             Ok(_) =>
             {
-                match read_file_to_string(&mut file_system, "poem.txt")
+                match read_file_to_string(&mut system, "poem.txt")
                 {
                     Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
                     Err(_) => panic!("Failed to read verse1"),

@@ -16,7 +16,6 @@ base64 = "0.10.1"
 multimap = "0.5.0"
 bincode = "1.1.4"
 serde = { version = "1.0", features = ["derive"] }
-file-objects-rs = { git = "https://github.com/TheSven73/file-objects-rs.git", branch = "master" }
 lipsum = "0.6.0"
 
 termcolor = "1"

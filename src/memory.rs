@@ -1,8 +1,6 @@
-extern crate file_objects_rs;
-
 use crate::ticket::{TicketFactory, Ticket};
-use crate::file::write_file;
-use file_objects_rs::FileSystem;
+use crate::system::util::write_file;
+use crate::system::System;
 
 use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
@@ -207,17 +205,14 @@ impl fmt::Display for MemoryError
 }
 
 /*  Opens file at a path and deserializaes contents to create a Memory object. */
-fn read_all_memory_from_file
-<
-    FileSystemType : FileSystem,
->
+fn read_all_memory_from_file<SystemType : System>
 (
-    file_system : &mut FileSystemType,
+    system : &mut SystemType,
     memoryfile_path : &str
 )
 -> Result<Memory, MemoryError>
 {
-    match file_system.open(memoryfile_path)
+    match system.open(memoryfile_path)
     {
         Ok(mut file) =>
         {
@@ -243,21 +238,21 @@ impl Memory
 {
     /*  Create a new Memory object from a file in a filesystem, create it if it doesn't exist, and If file fails to
         open or is corrupt, generate an appropriate MemoryError. */
-    pub fn from_file<FSType: FileSystem>(
-        file_system: &mut FSType,
+    pub fn from_file<SystemType: System>(
+        system: &mut SystemType,
         path_as_str : &str)
         -> Result<Memory, MemoryError>
     {
-        if file_system.is_file(path_as_str)
+        if system.is_file(path_as_str)
         {
-            return read_all_memory_from_file(file_system, path_as_str);
+            return read_all_memory_from_file(system, path_as_str);
         }
         else
         {
             let memory = Memory::new();
             match bincode::serialize(&memory)
             {
-                Ok(bytes) => match write_file(file_system, path_as_str, &bytes)
+                Ok(bytes) => match write_file(system, path_as_str, &bytes)
                 {
                     Err(_) => Err(MemoryError::CannotRecordHistoryFile(path_as_str.to_string())),
                     Ok(()) => Ok(memory),
@@ -268,13 +263,13 @@ impl Memory
     }
 
     /*  Write a memory object to a file in a filesystem. */
-    pub fn to_file<FSType: FileSystem>(
+    pub fn to_file<SystemType: System>(
         &self,
-        file_system: &mut FSType,
+        system: &mut SystemType,
         path_as_str : &str
     ) -> Result<(), MemoryError>
     {
-        match write_file(file_system, path_as_str, &bincode::serialize(&self).unwrap())
+        match write_file(system, path_as_str, &bincode::serialize(&self).unwrap())
         {
             Err(_) => Err(MemoryError::CannotRecordHistoryFile(path_as_str.to_string())),
             Ok(_) => Ok(()),
@@ -370,10 +365,10 @@ impl fmt::Display for Memory
 #[cfg(test)]
 mod test
 {
-    use file_objects_rs::FakeFileSystem;
+    use crate::system::fake::FakeSystem;
     use crate::memory::{RuleHistory, Memory, TargetHistory};
     use crate::ticket::{TicketFactory};
-    use crate::file::
+    use crate::system::util::
     {
         write_file,
         read_file
@@ -431,14 +426,14 @@ mod test
 
         mem.insert_target_history("src/meta.c".to_string(), target_history);
 
-        let mut file_system = FakeFileSystem::new();
+        let mut system = FakeSystem::new();
 
         let encoded: Vec<u8> = bincode::serialize(&mem).unwrap();
-        match write_file(&mut file_system, "memory.file", &encoded)
+        match write_file(&mut system, "memory.file", &encoded)
         {
             Ok(()) =>
             {
-                match read_file(&mut file_system, "memory.file")
+                match read_file(&mut system, "memory.file")
                 {
                     Ok(content) =>
                     {
@@ -474,15 +469,15 @@ mod test
 
         memory.insert_target_history("src/meta.c".to_string(), target_history);
 
-        let mut file_system = FakeFileSystem::new();
+        let mut system = FakeSystem::new();
 
-        match memory.to_file(&mut file_system, "memory.file")
+        match memory.to_file(&mut system, "memory.file")
         {
             Ok(()) => {},
             Err(_) => panic!("Memory failed to write into file"),
         }
 
-        match Memory::from_file(&mut file_system, "memory.file")
+        match Memory::from_file(&mut system, "memory.file")
         {
             Ok(mut new_memory) =>
             {

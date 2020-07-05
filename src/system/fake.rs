@@ -2,7 +2,15 @@ use crate::system::
 {
     System,
     SystemError,
-    CommandLineOutput
+    CommandLineOutput,
+    ReadWriteError
+};
+use crate::system::util::
+{
+    timestamp_to_system_time,
+    read_file,
+    write_file,
+    write_str_to_file
 };
 use std::collections::HashMap;
 use std::sync::
@@ -15,11 +23,6 @@ use std::ops::
     Deref,
     DerefMut
 };
-use std::time::
-{
-    SystemTime,
-    SystemTimeError
-};
 use std::io::
 {
     Error,
@@ -30,7 +33,9 @@ use std::io::
 use std::cmp::min;
 use std::fmt;
 use std::time::Duration;
+use std::time::SystemTime;
 use std::str::from_utf8;
+
 
 
 #[derive(Debug, Clone)]
@@ -63,13 +68,6 @@ impl Content
 struct Metadata
 {
     modified : SystemTime
-}
-
-fn timestamp_to_system_time(timestamp: u64) -> SystemTime
-{
-    SystemTime::UNIX_EPOCH
-        + Duration::from_secs(timestamp / 1_000_000u64)
-        + Duration::from_micros(timestamp % 1_000_000u64)
 }
 
 impl Metadata
@@ -579,96 +577,9 @@ fn convert_node_error_to_system_error(error : NodeError) -> SystemError
     }
 }
 
-enum ReadWriteError
-{
-    IOError(Error),
-    SystemError(SystemError)
-}
-
-impl fmt::Display for ReadWriteError
-{
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
-    {
-        match self
-        {
-            ReadWriteError::IOError(error)
-                => write!(formatter, "{}", error),
-
-            ReadWriteError::SystemError(error)
-                => write!(formatter, "{}", error),
-        }
-    }
-}
-
-fn get_timestamp(system_time : SystemTime) -> Result<u64, SystemTimeError>
-{
-    match system_time.duration_since(SystemTime::UNIX_EPOCH)
-    {
-        Ok(duration) => Ok(1_000_000u64 * duration.as_secs() + u64::from(duration.subsec_micros())),
-        Err(e) => Err(e),
-    }
-}
-
-/*  Takes a System, a path as a &str and content, and content as a &str.  Writes content to the file.
-    If system fails, forwards the system error.  If file-io fails, forwards the std::io::Error. */
-fn write_str_to_file
-<
-    SystemType : System,
->
-(
-    system : &mut SystemType,
-    file_path : &str,
-    content : &str
-)
--> Result<(), ReadWriteError>
-{
-    match system.create_file(file_path)
-    {
-        Ok(mut file) =>
-        {
-            match file.write_all(content.as_bytes())
-            {
-                Ok(_) => Ok(()),
-                Err(error) => Err(ReadWriteError::IOError(error)),
-            }
-        }
-        Err(error) => Err(ReadWriteError::SystemError(error))
-    }
-}
-
-/*  Reads binary data from a file in a FileSystem into a Vec<u8>.
-    If system fails, forwards the system error.  If file-io fails, forwards the std::io::Error. */
-fn read_file
-<
-    F : System,
->
-(
-    system : &F,
-    path : &str
-)
--> Result<Vec<u8>, ReadWriteError>
-{
-    match system.open(path)
-    {
-        Ok(mut file) =>
-        {
-            let mut content = Vec::new();
-            match file.read_to_end(&mut content)
-            {
-                Ok(_size) =>
-                {
-                    return Ok(content);
-                }
-                Err(error) => Err(ReadWriteError::IOError(error)),
-            }
-        }
-        Err(error) => Err(ReadWriteError::SystemError(error)),
-    }
-}
-
 impl FakeSystem
 {
-    fn new() -> Self
+    pub fn new() -> Self
     {
         FakeSystem
         {
@@ -677,7 +588,7 @@ impl FakeSystem
         }
     }
 
-    fn time_passes(&mut self, increment : u64)
+    pub fn time_passes(&mut self, increment : u64)
     {
         self.current_timestamp += increment;
     }
@@ -888,7 +799,8 @@ mod test
 {
     use crate::system::
     {
-        System
+        System,
+        ReadWriteError,
     };
 
     use crate::system::fake::
@@ -900,10 +812,13 @@ mod test
         get_components,
         get_dir_path_and_name,
         FakeSystem,
+    };
+
+    use crate::system::util::
+    {
         write_str_to_file,
         read_file,
-        ReadWriteError,
-        get_timestamp
+        get_timestamp,
     };
 
     #[test]

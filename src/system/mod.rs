@@ -4,8 +4,9 @@ use std::io;
 use std::fmt;
 use std::time::SystemTime;
 
-mod fake;
-mod real;
+pub mod fake;
+pub mod real;
+pub mod util;
 
 pub struct CommandLineOutput
 {
@@ -13,6 +14,27 @@ pub struct CommandLineOutput
     pub err : String,
     pub code : Option<i32>,
     pub success : bool,
+}
+
+pub enum ReadWriteError
+{
+    IOError(io::Error),
+    SystemError(SystemError)
+}
+
+impl fmt::Display for ReadWriteError
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
+    {
+        match self
+        {
+            ReadWriteError::IOError(error)
+                => write!(formatter, "{}", error),
+
+            ReadWriteError::SystemError(error)
+                => write!(formatter, "{}", error),
+        }
+    }
 }
 
 impl CommandLineOutput

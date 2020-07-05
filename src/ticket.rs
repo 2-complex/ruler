@@ -6,7 +6,11 @@ use base64::encode_config;
 use crypto::digest::Digest;
 use std::hash::{Hash, Hasher};
 use serde::{Serialize, Deserialize};
-use file_objects_rs::FileSystem;
+use crate::system::
+{
+    System,
+    ReadWriteError
+};
 use std::fmt;
 use std::io::Read;
 
@@ -61,11 +65,14 @@ impl TicketFactory
         }
     }
 
-    /*  Construct a TicketFactory, initialized with the contents of a file from a FileSystem. */
-    pub fn from_file<FSType: FileSystem>(
+    /*  Construct a TicketFactory, initialized with the contents of a file from a System. */
+    pub fn from_file<FSType: System>
+    (
         file_system: &FSType,
-        path : &str)
-        -> Result<TicketFactory, std::io::Error>
+        path : &str
+    )
+    ->
+    Result<TicketFactory, ReadWriteError>
     {
         match file_system.open(path)
         {
@@ -85,11 +92,11 @@ impl TicketFactory
                         {
                             dig.input(&buffer[..size]);
                         },
-                        Err(why) => return Err(why),
+                        Err(error) => return Err(ReadWriteError::IOError(error)),
                     }
                 }
             },
-            Err(why) => return Err(why),
+            Err(error) => return Err(ReadWriteError::SystemError(error)),
         }
     }
 }
@@ -167,13 +174,13 @@ impl Hash for Ticket
 mod test
 {
     use crate::ticket::{Ticket, TicketFactory};
-    use crate::file::
+    use crate::system::util::
     {
         write_str_to_file
     };
-    use file_objects_rs::
+    use crate::system::fake::
     {
-        FakeFileSystem
+        FakeSystem
     };
     use lipsum::{LOREM_IPSUM};
 
@@ -223,7 +230,7 @@ mod test
     #[test]
     fn ticket_factory_file()
     {
-        let mut file_system = FakeFileSystem::new();
+        let mut file_system = FakeSystem::new();
         match write_str_to_file(&mut file_system, "time0.txt", "Time wounds all heels.\n")
         {
             Ok(_) => {},
@@ -246,7 +253,7 @@ mod test
     #[test]
     fn ticket_factory_hashes()
     {
-        let mut file_system = FakeFileSystem::new();
+        let mut file_system = FakeSystem::new();
         match write_str_to_file(&mut file_system, "time1.txt", "Time wounds all heels.\n")
         {
             Ok(_) => {},
@@ -271,7 +278,7 @@ mod test
     #[test]
     fn ticket_factory_hashes_bigger_file()
     {
-        let mut file_system = FakeFileSystem::new();
+        let mut file_system = FakeSystem::new();
 
         println!("{} {}\n", LOREM_IPSUM.len(), LOREM_IPSUM);
 

@@ -1,7 +1,5 @@
-extern crate file_objects_rs;
 extern crate multimap;
 
-use file_objects_rs::FileSystem;
 use multimap::MultiMap;
 
 use std::thread;
@@ -11,8 +9,8 @@ use std::str::from_utf8;
 use std::fmt;
 use std::io::
 {
-    Error,
-    Read
+    self,
+    Read,
 };
 
 use crate::rule::
@@ -36,8 +34,6 @@ use crate::work::
     clean_targets,
 };
 
-use crate::metadata::MetadataGetter;
-use crate::executor::Executor;
 use crate::memory::{Memory, MemoryError};
 use crate::cache::LocalCache;
 use crate::printer::Printer;
@@ -45,6 +41,12 @@ use crate::printer::Printer;
 use termcolor::
 {
     Color,
+};
+
+use crate::system::
+{
+    System,
+    SystemError
 };
 
 /*  For the purpose of */
@@ -75,7 +77,8 @@ pub enum BuildError
 {
     MemoryFileFailedToRead(MemoryError),
     RuleFileNotUTF8,
-    RuleFileFailedToOpen(String, Error),
+    RuleFileFailedToRead(String, io::Error),
+    RuleFileFailedToOpen(String, SystemError),
     WorkErrors(Vec<WorkError>),
     RuleFileFailedToParse(ParseError),
     TopologicalSortFailed(TopologicalSortError),
@@ -105,6 +108,12 @@ impl fmt::Display for BuildError
             BuildError::TopologicalSortFailed(error) =>
                 write!(formatter, "Dependence search failed: {}", error),
 
+            BuildError::RuleFileFailedToRead(path, error) =>
+                write!(formatter, "Build file {} failed to read with error: {}", path, error),
+
+            BuildError::RuleFileFailedToOpen(path, error) =>
+                write!(formatter, "Build file {} failed to open with error: {}", path, error),
+
             BuildError::WorkErrors(work_errors) =>
             {
                 let mut error_text = String::new();
@@ -126,8 +135,8 @@ impl fmt::Display for BuildError
 
 pub enum InitDirectoryError
 {
-    FailedToCreateDirectory(Error),
-    FailedToCreateCacheDirectory(Error),
+    FailedToCreateDirectory(SystemError),
+    FailedToCreateCacheDirectory(SystemError),
     FailedToReadMemoryFile(MemoryError),
 }
 
@@ -149,18 +158,17 @@ impl fmt::Display for InitDirectoryError
     }
 }
 
-pub fn init_directory<
-    FileSystemType : FileSystem
-        + Clone + Send + 'static
->(
-    file_system : &mut FileSystemType,
+pub fn init_directory<SystemType : System + Clone + Send + 'static>
+(
+    system : &mut SystemType,
     directory : &str
 )
--> Result<(Memory, LocalCache, String), InitDirectoryError>
+->
+Result<(Memory, LocalCache, String), InitDirectoryError>
 {
-    if ! file_system.is_dir(directory)
+    if ! system.is_dir(directory)
     {
-        match file_system.create_dir(directory)
+        match system.create_dir(directory)
         {
             Ok(_) => {},
             Err(error) => return Err(InitDirectoryError::FailedToCreateDirectory(error)),
@@ -169,9 +177,9 @@ pub fn init_directory<
 
     let cache_path = format!("{}/cache", directory);
 
-    if ! file_system.is_dir(&cache_path)
+    if ! system.is_dir(&cache_path)
     {
-        match file_system.create_dir(&cache_path)
+        match system.create_dir(&cache_path)
         {
             Ok(_) => {},
             Err(error) => return Err(InitDirectoryError::FailedToCreateCacheDirectory(error)),
@@ -181,7 +189,7 @@ pub fn init_directory<
     let memoryfile = format!("{}/memory", directory);
 
     Ok((
-        match Memory::from_file(file_system, &memoryfile)
+        match Memory::from_file(system, &memoryfile)
         {
             Ok(memory) => memory,
             Err(error) => return Err(InitDirectoryError::FailedToReadMemoryFile(error)),
@@ -192,17 +200,14 @@ pub fn init_directory<
 }
 
 
-fn read_all_rules
-<
-    FileSystemType : FileSystem,
->
+fn read_all_rules<SystemType : System>
 (
-    file_system : &FileSystemType,
+    system : &SystemType,
     rulefile_path : &str
 )
 -> Result<String, BuildError>
 {
-    match file_system.open(rulefile_path)
+    match system.open(rulefile_path)
     {
         Ok(mut file) =>
         {
@@ -217,10 +222,14 @@ fn read_all_rules
                         Err(_) => return Err(BuildError::RuleFileNotUTF8),
                     }
                 },
-                Err(error) => return Err(BuildError::RuleFileFailedToOpen(rulefile_path.to_string(), error)),
+                Err(error) => return Err(
+                    BuildError::RuleFileFailedToRead(
+                        rulefile_path.to_string(), error)),
             }
         },
-        Err(error) => return Err(BuildError::RuleFileFailedToOpen(rulefile_path.to_string(), error)),
+        Err(error) => return Err(
+            BuildError::RuleFileFailedToOpen(
+                rulefile_path.to_string(), error)),
     }
 }
 
@@ -230,17 +239,10 @@ fn read_all_rules
     or, if goal_target_opt is Some, only the targets that are ancstors of goal_target_opt
     in the dependence graph. */
 pub fn build<
-    FileSystemType : FileSystem
-        + Clone + Send + 'static,
-    ExecType : Executor
-        + Clone + Send + 'static,
-    MetadataGetterType : MetadataGetter
-        + Clone + Send + 'static,
+    SystemType : System + Clone + Send + 'static,
     PrinterType : Printer,
 >(
-    mut file_system : FileSystemType,
-    executor : ExecType,
-    metadata_getter: MetadataGetterType,
+    mut system : SystemType,
     directory : &str,
     rulefile_path: &str,
     goal_target_opt: Option<String>,
@@ -249,7 +251,7 @@ pub fn build<
 -> Result<(), BuildError>
 {
     let (mut memory, cache, memoryfile) =
-    match init_directory(&mut file_system, directory)
+    match init_directory(&mut system, directory)
     {
         Ok((memory, cache, memoryfile)) => (memory, cache, memoryfile),
         Err(error) =>
@@ -263,7 +265,7 @@ pub fn build<
         }
     };
 
-    let rule_text = read_all_rules(&file_system, rulefile_path)?;
+    let rule_text = read_all_rules(&system, rulefile_path)?;
 
     let rules =
     match parse(rule_text)
@@ -323,7 +325,6 @@ pub fn build<
             );
         }
 
-        let executor_clone = executor.clone();
         let local_cache_clone = cache.clone();
 
         let command = node.command;
@@ -332,8 +333,7 @@ pub fn build<
             Some(ticket) => Some(memory.take_rule_history(&ticket)),
             None => None,
         };
-        let file_system_clone = file_system.clone();
-        let metadata_getter_clone = metadata_getter.clone();
+        let system_clone = system.clone();
 
         handles.push(
             (
@@ -345,11 +345,9 @@ pub fn build<
                             target_infos,
                             command,
                             rule_history,
-                            file_system_clone,
-                            metadata_getter_clone,
+                            system_clone,
                             sender_vec,
                             receiver_vec,
-                            executor_clone,
                             local_cache_clone)
                     }
                 )
@@ -468,7 +466,7 @@ pub fn build<
 
     if work_errors.len() == 0
     {
-        match memory.to_file(&mut file_system, &memoryfile)
+        match memory.to_file(&mut system, &memoryfile)
         {
             Ok(_) => {},
             Err(_) => printer.error("Error writing history"),
@@ -486,14 +484,9 @@ pub fn build<
     It takes a rulefile, parses it and either removes all targets to the cache,
     or, if goal_target_opt is Some, removes only those targets that are acnestors
     of goal_target_opt in the depdnece-graph. */
-pub fn clean<
-    FileSystemType : FileSystem
-        + Clone + Send + 'static,
-    MetadataGetterType : MetadataGetter
-        + Clone + Send + 'static
->(
-    mut file_system : FileSystemType,
-    metadata_getter: MetadataGetterType,
+pub fn clean<SystemType : System + Clone + Send + 'static>
+(
+    mut system : SystemType,
     directory : &str,
     rulefile_path: &str,
     goal_target_opt: Option<String>
@@ -501,7 +494,7 @@ pub fn clean<
 -> Result<(), BuildError>
 {
     let (mut memory, cache, _memoryfile) =
-    match init_directory(&mut file_system, directory)
+    match init_directory(&mut system, directory)
     {
         Ok((memory, cache, memoryfile)) => (memory, cache, memoryfile),
         Err(error) =>
@@ -515,7 +508,7 @@ pub fn clean<
         }
     };
 
-    let rule_text = read_all_rules(&file_system, rulefile_path)?;
+    let rule_text = read_all_rules(&system, rulefile_path)?;
 
     let rules =
     match parse(rule_text)
@@ -561,8 +554,7 @@ pub fn clean<
             );
         }
 
-        let file_system_clone = file_system.clone();
-        let metadata_getter_clone = metadata_getter.clone();
+        let mut system_clone = system.clone();
         let local_cache_clone = cache.clone();
 
         match node.rule_ticket
@@ -574,8 +566,7 @@ pub fn clean<
                         {
                             clean_targets(
                                 target_infos,
-                                &file_system_clone,
-                                &metadata_getter_clone,
+                                &mut system_clone,
                                 &local_cache_clone)
                         }
                     )
@@ -624,23 +615,25 @@ pub fn clean<
 #[cfg(test)]
 mod test
 {
-    use crate::build::{build, BuildError};
-    use crate::executor::{FakeExecutor};
-    use crate::metadata::FakeMetadataGetter;
+    use crate::build::
+    {
+        build,
+        BuildError
+    };
+    use crate::system::
+    {
+        System,
+        fake::FakeSystem
+    };
     use crate::work::WorkError;
     use crate::ticket::TicketFactory;
     use crate::cache::LocalCache;
-    use crate::file::
+    use crate::system::util::
     {
         write_str_to_file,
         read_file_to_string
     };
     use crate::printer::EmptyPrinter;
-    use file_objects_rs::
-    {
-        FileSystem,
-        FakeFileSystem,
-    };
 
     #[test]
     fn build_basic()
@@ -657,32 +650,28 @@ verse2.txt
 poem.txt
 :
 ";
-        let mut file_system = FakeFileSystem::new();
-        let executor = FakeExecutor::new(file_system.clone());
-        let metadata_getter = FakeMetadataGetter::new();
+        let mut system = FakeSystem::new();
 
-        match write_str_to_file(&mut file_system, "verse1.txt", "Roses are red.\n")
+        match write_str_to_file(&mut system, "verse1.txt", "Roses are red.\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write"),
         }
 
-        match write_str_to_file(&mut file_system, "verse2.txt", "Violets are violet.\n")
+        match write_str_to_file(&mut system, "verse2.txt", "Violets are violet.\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write"),
         }
 
-        match write_str_to_file(&mut file_system, "test.rules", rules)
+        match write_str_to_file(&mut system, "test.rules", rules)
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write"),
         }
 
         match build(
-            file_system.clone(),
-            executor,
-            metadata_getter,
+            system.clone(),
             "test.directory",
             "test.rules",
             Some("poem.txt".to_string()),
@@ -692,7 +681,7 @@ poem.txt
             Err(error) => panic!("Unexpected build error: {}", error),
         }
 
-        match read_file_to_string(&mut file_system, "poem.txt")
+        match read_file_to_string(&mut system, "poem.txt")
         {
             Ok(text) => assert_eq!(text, "Roses are red.\nViolets are violet.\n"),
             Err(_) => panic!("Failed to read poem."),
@@ -713,39 +702,34 @@ verse2.txt
 poem.txt
 :
 ";
-        let mut file_system = FakeFileSystem::new();
+        let mut system = FakeSystem::new();
 
-        match file_system.create_dir(".ruler-cache")
+        match system.create_dir(".ruler-cache")
         {
             Ok(_) => {},
             Err(_) => panic!("Failed to create directory"),
         }
 
-        let executor = FakeExecutor::new(file_system.clone());
-        let metadata_getter = FakeMetadataGetter::new();
-
-        match write_str_to_file(&mut file_system, "verse1.txt", "Roses are red.\n")
+        match write_str_to_file(&mut system, "verse1.txt", "Roses are red.\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write"),
         }
 
-        match write_str_to_file(&mut file_system, "verse2.txt", "Violets are blue.\n")
+        match write_str_to_file(&mut system, "verse2.txt", "Violets are blue.\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write"),
         }
 
-        match write_str_to_file(&mut file_system, "test.rules", rules)
+        match write_str_to_file(&mut system, "test.rules", rules)
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write"),
         }
 
         match build(
-            file_system.clone(),
-            executor.clone(),
-            metadata_getter.clone(),
+            system.clone(),
             "test.directory",
             "test.rules",
             Some("poem.txt".to_string()),
@@ -755,28 +739,26 @@ poem.txt
             Err(error) => panic!("Unexpected build error: {}", error),
         }
 
-        match read_file_to_string(&mut file_system, "poem.txt")
+        match read_file_to_string(&mut system, "poem.txt")
         {
             Ok(text) => assert_eq!(text, "Roses are red.\nViolets are blue.\n"),
             Err(_) => panic!("Failed to read poem."),
         }
 
-        match write_str_to_file(&mut file_system, "verse2.txt", "Violets are violet.\n")
+        match write_str_to_file(&mut system, "verse2.txt", "Violets are violet.\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write."),
         }
 
-        match write_str_to_file(&mut file_system, "poem.txt", "Wrong content forcing a rebuild")
+        match write_str_to_file(&mut system, "poem.txt", "Wrong content forcing a rebuild")
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write."),
         }
 
         match build(
-            file_system.clone(),
-            executor.clone(),
-            metadata_getter.clone(),
+            system.clone(),
             "test.directory",
             "test.rules",
             Some("poem.txt".to_string()),
@@ -801,7 +783,7 @@ poem.txt
             },
         }
 
-        match read_file_to_string(&mut file_system, "poem.txt")
+        match read_file_to_string(&mut system, "poem.txt")
         {
             Ok(text) => assert_eq!(text, "Roses are red.\nViolets are violet.\n"),
             Err(_) => panic!("Failed to read poem."),
@@ -823,32 +805,28 @@ verse2.txt
 poem.txt
 :
 ";
-        let mut file_system = FakeFileSystem::new();
-        let executor = FakeExecutor::new(file_system.clone());
-        let metadata_getter = FakeMetadataGetter::new();
+        let mut system = FakeSystem::new();
 
-        match write_str_to_file(&mut file_system, "verse1.txt", "Roses are red.\n")
+        match write_str_to_file(&mut system, "verse1.txt", "Roses are red.\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write"),
         }
 
-        match write_str_to_file(&mut file_system, "verse2.txt", "Violets are blue.\n")
+        match write_str_to_file(&mut system, "verse2.txt", "Violets are blue.\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write"),
         }
 
-        match write_str_to_file(&mut file_system, "test.rules", rules)
+        match write_str_to_file(&mut system, "test.rules", rules)
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write"),
         }
 
         match build(
-            file_system.clone(),
-            executor.clone(),
-            metadata_getter.clone(),
+            system.clone(),
             ".ruler",
             "test.rules",
             Some("poem.txt".to_string()),
@@ -858,29 +836,27 @@ poem.txt
             Err(error) => panic!("Unexpected build error: {}", error),
         }
 
-        match read_file_to_string(&mut file_system, "poem.txt")
+        match read_file_to_string(&mut system, "poem.txt")
         {
             Ok(text) => assert_eq!(text, "Roses are red.\nViolets are blue.\n"),
             Err(_) => panic!("Failed to read poem."),
         }
 
         let ticket =
-        match TicketFactory::from_file(&file_system, "poem.txt")
+        match TicketFactory::from_file(&system, "poem.txt")
         {
             Ok(mut factory) => factory.result(),
             Err(_) => panic!("Failed to make ticket?"),
         };
 
-        match write_str_to_file(&mut file_system, "verse2.txt", "Violets are violet.\n")
+        match write_str_to_file(&mut system, "verse2.txt", "Violets are violet.\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write."),
         }
 
         match build(
-            file_system.clone(),
-            executor.clone(),
-            metadata_getter.clone(),
+            system.clone(),
             ".ruler",
             "test.rules",
             Some("poem.txt".to_string()),
@@ -890,37 +866,35 @@ poem.txt
             Err(error) => panic!("Unexpected build error: {}", error),
         }
 
-        match read_file_to_string(&mut file_system, "poem.txt")
+        match read_file_to_string(&mut system, "poem.txt")
         {
             Ok(text) => assert_eq!(text, "Roses are red.\nViolets are violet.\n"),
             Err(_) => panic!("Poem failed to be utf8?"),
         }
 
         let cache = LocalCache::new(".ruler/cache");
-        cache.restore_file(&file_system, &ticket, "temp-poem.txt");
+        cache.restore_file(&mut system, &ticket, "temp-poem.txt");
 
-        match read_file_to_string(&mut file_system, "temp-poem.txt")
+        match read_file_to_string(&mut system, "temp-poem.txt")
         {
             Ok(text) => assert_eq!(text, "Roses are red.\nViolets are blue.\n"),
             Err(_) => panic!("Poem failed to be utf8?"),
         }
 
-        match cache.back_up_file_with_ticket(&file_system, &ticket, "temp-poem.txt")
+        match cache.back_up_file_with_ticket(&mut system, &ticket, "temp-poem.txt")
         {
             Ok(_) => {},
             Err(_) => panic!("Failed to back up temp-poem"),
         }
 
-        match write_str_to_file(&mut file_system, "verse2.txt", "Violets are blue.\n")
+        match write_str_to_file(&mut system, "verse2.txt", "Violets are blue.\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write"),
         }
 
         match build(
-            file_system.clone(),
-            executor.clone(),
-            metadata_getter.clone(),
+            system.clone(),
             ".ruler",
             "test.rules",
             Some("poem.txt".to_string()),
@@ -930,7 +904,7 @@ poem.txt
             Err(error) => panic!("Unexpected build error: {}", error),
         }
 
-        match read_file_to_string(&mut file_system, "poem.txt")
+        match read_file_to_string(&mut system, "poem.txt")
         {
             Ok(text) => assert_eq!(text, "Roses are red.\nViolets are blue.\n"),
             Err(_) => panic!("Failed to read poem a second time."),
