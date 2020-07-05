@@ -34,7 +34,6 @@ use std::time::SystemTime;
 use std::str::from_utf8;
 
 
-
 #[derive(Debug, Clone)]
 pub struct Content(Arc<Mutex<Vec<u8>>>);
 
@@ -308,8 +307,6 @@ impl Node
     {
         let (dir_components, name) = get_dir_path_and_name(path)?;
 
-        println!("Creating file: {:?} {}", dir_components, name);
-
         self.insert(dir_components, name, Node::File(FileInfo::new(
             Metadata::new(timestamp),
             content.clone())))?;
@@ -407,10 +404,12 @@ impl Node
     {
         let components = get_components(path);
 
-        println!("Opening file: {:?}", components);
         match self.get_node(&components)?
         {
-            Node::File(info) => Ok(&info.content),
+            Node::File(info) =>
+            {
+                Ok(&info.content)
+            },
             Node::Dir(_) =>
             {
                 match components.last()
@@ -533,7 +532,7 @@ impl Write for FakeOpenFile
 #[derive(Debug, Clone)]
 pub struct FakeSystem
 {
-    root: Node,
+    root: Arc<Mutex<Node>>,
     current_timestamp: u64,
 }
 
@@ -585,7 +584,7 @@ impl FakeSystem
     {
         FakeSystem
         {
-            root : Node::empty_dir(),
+            root : Arc::new(Mutex::new(Node::empty_dir())),
 
             /*  When too many timestamps are 0 by default it triggers the
                 timestamp optimization at the wrong time */
@@ -597,6 +596,16 @@ impl FakeSystem
     {
         self.current_timestamp += increment;
     }
+
+    fn get_root_node(&self) -> impl Deref<Target=Node> + '_
+    {
+        self.root.lock().unwrap()
+    }
+
+    fn get_root_node_mut(&self) -> impl DerefMut<Target=Node> + '_
+    {
+        self.root.lock().unwrap()
+    }
 }
 
 impl System for FakeSystem
@@ -605,7 +614,7 @@ impl System for FakeSystem
 
     fn open(&self, path: &str) -> Result<Self::File, SystemError>
     {
-        match self.root.open_file(path)
+        match self.get_root_node().open_file(path)
         {
             Ok(content) =>
                 Ok(FakeOpenFile::new(content, AccessMode::Read)),
@@ -616,7 +625,7 @@ impl System for FakeSystem
 
     fn create_file(&mut self, path: &str) -> Result<Self::File, SystemError>
     {
-        match self.root.create_file(path, Content::empty(), self.current_timestamp)
+        match self.get_root_node_mut().create_file(path, Content::empty(), self.current_timestamp)
         {
             Ok(content) => Ok(FakeOpenFile::new(&content, AccessMode::Write)),
             Err(error) => Err(convert_node_error_to_system_error(error)),
@@ -625,7 +634,7 @@ impl System for FakeSystem
 
     fn create_dir(&mut self, path: &str) -> Result<(), SystemError>
     {
-        match self.root.create_dir(path)
+        match self.get_root_node_mut().create_dir(path)
         {
             Ok(_) => Ok(()),
             Err(error) => Err(convert_node_error_to_system_error(error)),
@@ -634,17 +643,17 @@ impl System for FakeSystem
 
     fn is_file(&self, path: &str) -> bool
     {
-        self.root.is_file(path)
+        self.get_root_node().is_file(path)
     }
 
     fn is_dir(&self, path: &str) -> bool
     {
-        self.root.is_dir(path)
+        self.get_root_node().is_dir(path)
     }
 
     fn remove_file(&mut self, path: &str) -> Result<(), SystemError>
     {
-        match self.root.remove_file(path)
+        match self.get_root_node_mut().remove_file(path)
         {
             Ok(_) => Ok(()),
             Err(error) => Err(convert_node_error_to_system_error(error)),
@@ -653,7 +662,7 @@ impl System for FakeSystem
 
     fn remove_dir(&mut self, path: &str) -> Result<(), SystemError>
     {
-        match self.root.remove_dir(path)
+        match self.get_root_node_mut().remove_dir(path)
         {
             Ok(_) => Ok(()),
             Err(error) => Err(convert_node_error_to_system_error(error)),
@@ -662,7 +671,7 @@ impl System for FakeSystem
 
     fn rename(&mut self, from: &str, to: &str) -> Result<(), SystemError>
     {
-        match self.root.rename(from, to)
+        match self.get_root_node_mut().rename(from, to)
         {
             Ok(_) => Ok(()),
             Err(error) => Err(convert_node_error_to_system_error(error)),
@@ -671,7 +680,7 @@ impl System for FakeSystem
 
     fn get_modified(&self, path: &str) -> Result<SystemTime, SystemError>
     {
-        match self.root.get_modified(path)
+        match self.get_root_node().get_modified(path)
         {
             Ok(system_time) => Ok(system_time),
             Err(error) => Err(convert_node_error_to_system_error(error)),
@@ -1141,6 +1150,44 @@ mod test
             }
         }
         match read_file(&system, "fruit_file.txt")
+        {
+            Ok(content) => assert_eq!(content, b"cantaloupe"),
+            Err(error) =>
+            {
+                match error
+                {
+                    ReadWriteError::SystemError(error) =>
+                        panic!("SystemError in read: {}", error),
+
+                    ReadWriteError::IOError(error) =>
+                        panic!("IOError in read: {}", error),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn system_create_file_write_read_round_trip_with_cloning()
+    {
+        let mut system1 = FakeSystem::new(10);
+        let system2 = system1.clone();
+        match write_str_to_file(&mut system1, "fruit_file.txt", "cantaloupe")
+        {
+            Ok(_) => {},
+            Err(error) =>
+            {
+                match error
+                {
+                    ReadWriteError::SystemError(error) =>
+                        panic!("SystemError in write: {}", error),
+
+                    ReadWriteError::IOError(error) =>
+                        panic!("IOError in write: {}", error),
+                }
+            }
+        }
+
+        match read_file(&system2, "fruit_file.txt")
         {
             Ok(content) => assert_eq!(content, b"cantaloupe"),
             Err(error) =>
