@@ -4,7 +4,6 @@ use crate::system::
     SystemError,
     CommandLineOutput
 };
-use std::collections::VecDeque;
 use std::process::Command;
 use std::fs;
 use std::io::ErrorKind;
@@ -121,23 +120,51 @@ impl System for RealSystem
         }
     }
 
-    fn execute_command(&mut self, command_list: Vec<String>) ->
+    fn execute_command(&mut self, mut command_lines: Vec<String>) ->
         Result<CommandLineOutput, SystemError>
     {
-        let mut command_queue = VecDeque::from(command_list);
-        let command_opt = match command_queue.pop_front()
+        let mut command_opt : Option<Command> = None;
+        for line in command_lines.drain(..)
         {
-            Some(first) =>
+            for element in line.split_whitespace()
             {
-                let mut command = Command::new(first);
-                while let Some(argument) = command_queue.pop_front()
+                match element
                 {
-                    command.arg(argument);
+                    ";" =>
+                    match command_opt.take()
+                    {
+                        Some(mut command) =>
+                        {
+                            match command.output()
+                            {
+                                Ok(output) =>
+                                {
+                                    if !output.status.success()
+                                    {
+                                        return Ok(CommandLineOutput::from_output(output))
+                                    }
+                                },
+                                Err(_error) => return Err(SystemError::CommandExecutationFailed),
+                            }
+                        },
+                        None => {},
+                    },
+                    
+                    _ =>
+                    command_opt = Some(
+                        match command_opt
+                        {
+                            None => Command::new(element),
+                            Some(mut command) =>
+                            {
+                                command.arg(element);
+                                command
+                            },
+                        }
+                    )
                 }
-                Some(command)
-            },
-            None => None
-        };
+            }
+        }
 
         match command_opt
         {
@@ -153,3 +180,4 @@ impl System for RealSystem
         }
     }
 }
+
