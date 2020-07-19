@@ -1,8 +1,13 @@
 extern crate clap;
 extern crate filesystem;
+extern crate regex;
 
 use clap::{Arg, App, SubCommand};
-use filesystem::OsFileSystem;
+use filesystem::
+{
+    FileSystem,
+    OsFileSystem,
+};
 
 use std::io::prelude::*;
 use std::net::TcpStream;
@@ -24,6 +29,7 @@ use self::executor::OsExecutor;
 use self::metadata::OsMetadataGetter;
 use self::ticket::TicketFactory;
 
+use regex::Regex;
 
 pub enum SplitError
 {
@@ -31,10 +37,12 @@ pub enum SplitError
     TargetSizesDifferWeird,
 }
 
-fn handle_connection(mut stream: TcpStream)
+fn handle_connection<FileSystemType: FileSystem>(
+    mut file_system : &FileSystemType,
+    mut stream: TcpStream)
 {
-    let mut buffer = [0; 512];
-    stream.read(&mut buffer).unwrap();
+    let mut buffer = [0u8; 1024];
+    stream.read(&mut buffer);
 
     let requeststring = std::str::from_utf8(&buffer).unwrap();
 
@@ -50,18 +58,59 @@ fn handle_connection(mut stream: TcpStream)
                 {
                     println!("token = {}", token);
 
-                    let filesystem = OsFileSystem::new();
+                    let re = Regex::new(r"/(.*)").unwrap();
 
-                    let contents = fs::read_to_string("bobomb.png").unwrap();
-                    let response = format!("HTTP/1.1 200 OK\r\n\r\n{}", contents);
+                    match re.captures(token)
+                    {
+                        Some(cap)=>
+                        {
+                            let path = &cap[1];
 
-                    stream.write(response.as_bytes()).unwrap();
-                    stream.flush().unwrap();
+                            let file_system = OsFileSystem::new();
+                            match file_system.open(path)
+                            {
+                                Ok(mut reader) =>
+                                {
+                                    stream.write("HTTP/1.1 200 OK\r\n\r\n".as_bytes());
+                                    let mut buffer = [0u8; 256];
+                                    loop
+                                    {
+                                        match reader.read(&mut buffer)
+                                        {
+                                            Ok(0) => break,
+                                            Ok(size) =>
+                                            {
+                                                stream.write(&buffer[..size]);
+                                            },
+                                            Err(why) =>
+                                            {
+                                                panic!("This is wrong, we should split this into a function and return an Option");
+                                            },
+                                        }
+                                    }
+                                    stream.flush().unwrap();
+                                },
+                                Err(why) =>
+                                {
+                                    let response = "HTTP/1.1 404 File Not Found\r\n\r\n".to_string();
+                                    stream.write(response.as_bytes()).unwrap();
+                                    stream.flush().unwrap();
+                                }
+                            }
+                            stream.flush().unwrap();
+                        },
+                        None=>
+                        {
+                            let response = "HTTP/1.1 404 File Not Found\r\n\r\n".to_string();
+                            stream.write(response.as_bytes()).unwrap();
+                            stream.flush().unwrap();
+                        }
+                    }
+
                 },
                 None=>
                 {
                     let response = "HTTP/1.1 404 File Not Found\r\n\r\n".to_string();
-
                     stream.write(response.as_bytes()).unwrap();
                     stream.flush().unwrap();
                 },
@@ -268,10 +317,11 @@ fn main()
     {
         let listener = TcpListener::bind("0.0.0.0:7878").unwrap();
 
+        let file_system = OsFileSystem::new();
         for stream in listener.incoming()
         {
             let stream = stream.unwrap();
-            handle_connection(stream);
+            handle_connection(&file_system, stream);
         }
     }
 }
