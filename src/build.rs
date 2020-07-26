@@ -49,7 +49,8 @@ use crate::system::
     SystemError
 };
 
-/*  For the purpose of */
+/*  Takes a vector of Nodes, iterates through them, and creates two multimaps, one for
+    senders and one for receivers. */
 fn make_multimaps(nodes : &Vec<Node>)
     -> (
         MultiMap<usize, (usize, Sender<Packet>)>,
@@ -461,13 +462,14 @@ pub fn build<
         }
     }
 
+    match memory.to_file(&mut system, &memoryfile)
+    {
+        Ok(_) => {},
+        Err(_) => printer.error("Error writing history"),
+    }
+
     if work_errors.len() == 0
     {
-        match memory.to_file(&mut system, &memoryfile)
-        {
-            Ok(_) => {},
-            Err(_) => printer.error("Error writing history"),
-        }
 
         Ok(())
     }

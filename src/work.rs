@@ -456,6 +456,13 @@ Result<Ticket, WorkError>
     Ok(factory.result())
 }
 
+/*  For testing, it's useful to be able to check the current sources' ticket of source files.
+    So, this function creates a bunch of channels just for the purpose of sending source files
+    through and getting a source ticket using wait_for_sources_ticket */
+fn current_sources_ticket()
+{
+}
+
 /*  Takes a vector of resolutions, and returns true if any of them are NeedsRebuild */
 fn needs_rebuild(resolutions : &Vec<FileResolution>) -> bool
 {
@@ -474,9 +481,9 @@ fn needs_rebuild(resolutions : &Vec<FileResolution>) -> bool
     false
 }
 
-/*  Handles the case when some target is irrecoverable from the cache, and the command
-    needs to execute to rebuild the node.  Natrually, return a WorkResult with option
-    indicating that the command executed (which contains the commandline result) */
+/*  Handles the case where at least one target is irrecoverable and therefore the command
+    needs to execute to rebuild the node.  When successful, returns a WorkResult with option
+    indicating that the command executed (WorkResult contains the commandline result) */
 fn rebuild_node<SystemType : System>
 (
     system : &mut SystemType,
