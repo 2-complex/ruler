@@ -11,6 +11,7 @@ use crate::system::
     System,
     SystemError,
 };
+use crate::system::util::get_timestamp;
 use crate::memory::
 {
     RuleHistory,
@@ -21,17 +22,15 @@ use crate::cache::{LocalCache, RestoreResult};
 
 use std::sync::mpsc::{Sender, Receiver, RecvError};
 use std::fmt;
-use std::time::{SystemTime, SystemTimeError};
 
-fn get_timestamp(system_time : SystemTime) -> Result<u64, SystemTimeError>
+pub struct TargetFileInfo
 {
-    match system_time.duration_since(SystemTime::UNIX_EPOCH)
-    {
-        Ok(duration) => Ok(1_000_000u64 * duration.as_secs() + u64::from(duration.subsec_micros())),
-        Err(e) => Err(e),
-    }
+    pub path : String,
+    pub history : TargetHistory,
 }
 
+/*  Takes a system and a TargetFileInfo, and obtains a ticket for the file described.
+    If the modified date of the file matches the one in TargetHistory exactly,   */
 pub fn get_file_ticket<SystemType: System>
 (
     system : &SystemType,
@@ -39,6 +38,8 @@ pub fn get_file_ticket<SystemType: System>
 )
 -> Result<Option<Ticket>, ReadWriteError>
 {
+    /*  The body of this match looks like it has unhandled errors.  What's happening is:
+        if any error occurs with the timestamp optimization, we skip the optimization. */
     match system.get_modified(&target_info.path)
     {
         Ok(system_time) =>
@@ -70,12 +71,6 @@ pub fn get_file_ticket<SystemType: System>
     {
         Ok(None)
     }
-}
-
-pub struct TargetFileInfo
-{
-    pub path : String,
-    pub history : TargetHistory,
 }
 
 pub enum FileResolution
@@ -456,13 +451,6 @@ Result<Ticket, WorkError>
     Ok(factory.result())
 }
 
-/*  For testing, it's useful to be able to check the current sources' ticket of source files.
-    So, this function creates a bunch of channels just for the purpose of sending source files
-    through and getting a source ticket using wait_for_sources_ticket */
-fn current_sources_ticket()
-{
-}
-
 /*  Takes a vector of resolutions, and returns true if any of them are NeedsRebuild */
 fn needs_rebuild(resolutions : &Vec<FileResolution>) -> bool
 {
@@ -586,7 +574,9 @@ Result<WorkResult, WorkError>
 }
 
 /*  This is a central, public function for handling a node in the depednece graph.
-    It is meant to be called by a dedicated thread, and as such, it eats all its arguments.*/
+    It is meant to be called by a dedicated thread, and as such, it eats all its arguments.
+
+    The RuleHistory gets modified when appropriate, and gets returned as part of the result. */
 pub fn handle_node<SystemType: System>
 (
     target_infos : Vec<TargetFileInfo>,
@@ -737,8 +727,13 @@ mod test
         WorkOption,
         WorkError,
         TargetFileInfo,
+        wait_for_sources_ticket
     };
-    use crate::ticket::TicketFactory;
+    use crate::ticket::
+    {
+        TicketFactory,
+        Ticket,
+    };
     use crate::memory::{RuleHistory, TargetHistory};
     use crate::packet::Packet;
     use crate::cache::LocalCache;
@@ -755,6 +750,60 @@ mod test
 
     use std::sync::mpsc::{self, Sender, Receiver};
     use std::thread::{self, JoinHandle};
+
+    /*  For testing, it's useful to be able to check the ticket of a list of source files.
+        So, this function creates a bunch of channels just for the purpose of sending source files
+        through and getting a source ticket using wait_for_sources_ticket */
+    fn current_sources_ticket
+    <
+        SystemType : System + Clone + Send + 'static,
+    >
+    (
+        system : &SystemType,
+        paths : Vec<String>
+    )
+    -> Result<Ticket, WorkError>
+    {
+        let mut receivers = vec![];
+
+        for path in paths
+        {
+            let (sender, receiver) = mpsc::channel();
+            receivers.push(receiver);
+
+            let system_clone = system.clone();
+            match thread::spawn(
+                move || -> Result<(), WorkError>
+                {
+                    match TicketFactory::from_file(&system_clone, &path)
+                    {
+                        Ok(mut factory) =>
+                        {
+                            match sender.send(Packet::from_ticket(factory.result()))
+                            {
+                                Ok(_) => Ok(()),
+                                Err(_error) => Err(WorkError::SenderError),
+                            }
+                        },
+                        Err(error) => Err(WorkError::FileIoError(path.to_string(), error)),
+                    }
+                }
+            ).join()
+            {
+                Ok(result) =>
+                {
+                    match result
+                    {
+                        Ok(_) => {},
+                        Err(error) => return Err(error),
+                    }
+                },
+                Err(_error) => return Err(WorkError::Weird),
+            }
+        }
+
+        wait_for_sources_ticket(receivers)
+    }
 
     fn to_info(mut targets : Vec<String>) -> Vec<TargetFileInfo>
     {
@@ -777,6 +826,9 @@ mod test
         result
     }
 
+    /*  Use the system to create a file, and write a string to it.  Then use get_file_ticket
+        to obtain a ticket for that file, and compare that against a ticket made directly
+        from the string. */
     #[test]
     fn work_get_tickets_from_filesystem()
     {
@@ -809,6 +861,108 @@ mod test
         }
     }
 
+    /*  Create a file and a TargetFileInfo for that file with matching timestamp.  Then fill the file
+        with some other data.  Make sure that when we get_file_ticket, we get the one from the history
+        instead of the one from the file. */
+    #[test]
+    fn work_test_timestamp_optimization()
+    {
+        // Set the clock to 11
+        let mut system = FakeSystem::new(11);
+
+        let content = "int main(){printf(\"my game\"); return 0;}";
+        let content_ticket = TicketFactory::from_str(content).result();
+
+        // Doctor a TargetFileInfo to indicate the game.cpp was written at time 11
+        let target_file_info = TargetFileInfo
+        {
+            path : "game.cpp".to_string(),
+            history : TargetHistory
+            {
+                ticket : content_ticket.clone(),
+                timestamp : 11,
+            }
+        };
+
+        // Meanwhile, in the filesystem put some incorrect rubbish in game.cpp
+        match write_str_to_file(&mut system, "game.cpp", "some rubbish")
+        {
+            Ok(_) => {},
+            Err(why) => panic!("Failed to make fake file: {}", why),
+        }
+
+        // Then get the ticket for the current target file, passing the TargetFileInfo
+        // with timestamp 11.  Check that it gives the ticket for the C++ code.
+        match get_file_ticket(
+            &system,
+            &target_file_info)
+        {
+            Ok(ticket_opt) =>
+            {
+                match ticket_opt
+                {
+                    Some(ticket) => assert_eq!(ticket, content_ticket),
+                    None => panic!("Failed to generate ticket"),
+                }
+            },
+            Err(_) => panic!("Unexpected error getting file ticket"),
+        }
+    }
+
+    /*  Create a file and a TargetFileInfo for that file with not-matching timestamp.  Fill the file
+        with new and improved code.  Make sure that when we get_file_ticket, we get the one from the
+        file because the history doesn't match. */
+    #[test]
+    fn work_test_timestamp_mismatch()
+    {
+        // Set the clock to 11
+        let mut system = FakeSystem::new(11);
+
+        let previous_content = "int main(){printf(\"my game\"); return 0;}";
+        let previous_ticket = TicketFactory::from_str(previous_content).result();
+
+        let current_content = "int main(){printf(\"my better game\"); return 0;}";
+        let current_ticket = TicketFactory::from_str(current_content).result();
+
+        // Doctor a TargetFileInfo to indicate the game.cpp was written at time 9
+        let target_file_info = TargetFileInfo
+        {
+            path : "game.cpp".to_string(),
+            history : TargetHistory
+            {
+                ticket : previous_ticket.clone(),
+                timestamp : 9,
+            }
+        };
+
+        // Meanwhile, in the filesystem, put new and improved game.cpp
+        match write_str_to_file(&mut system, "game.cpp", current_content)
+        {
+            Ok(_) => {},
+            Err(why) => panic!("Failed to make fake file: {}", why),
+        }
+
+        // Then get the ticket for the current target file, passing the TargetFileInfo
+        // with timestamp 11.  Check that it gives the ticket for the C++ code.
+        match get_file_ticket(
+            &system,
+            &target_file_info)
+        {
+            Ok(ticket_opt) =>
+            {
+                match ticket_opt
+                {
+                    Some(ticket) => assert_eq!(ticket, current_ticket),
+                    None => panic!("Failed to generate ticket"),
+                }
+            },
+            Err(_) => panic!("Unexpected error getting file ticket"),
+        }
+    }
+
+    /*  Create a rule-history and populate it simulating a game having been built from a
+        single C++ source file.  Get the file-ticket for the source, use that ticket to
+        get a target ticket from the rule-history, and check it is what's expected. */
     #[test]
     fn work_get_tickets_from_history()
     {
@@ -838,7 +992,7 @@ mod test
             Err(why) => panic!("Failed to make fake file: {}", why),
         }
 
-        // Then get the ticket for the current source file:
+        // Then get the file-ticket for the current source file:
         match get_file_ticket(
             &system,
             &TargetFileInfo
@@ -873,6 +1027,7 @@ mod test
                             None => panic!("Tickets not in history as expected"),
                         };
 
+                        // Check that the target tickets in the history match the ones for the target
                         assert_eq!(
                             vec![
                                 TicketFactory::from_str(target_content).result()
@@ -887,6 +1042,8 @@ mod test
         }
     }
 
+    /*  Call handle_node with minimal connections and the empty list as a command.
+        Check that runs without a hitch. */
     #[test]
     fn do_empty_command()
     {
@@ -917,7 +1074,6 @@ mod test
             Err(why) => panic!("Command failed: {}", why),
         }
     }
-
 
     #[test]
     fn wait_for_channels()
@@ -1400,6 +1556,112 @@ mod test
                     _ => panic!("Wrong error: {}", error),
                 }
             }
+        }
+    }
+
+    /*  Build a poem by concatinating two verses.  When the build succeeds (panic if it does not)
+        check that the rule history has a new pair in it with the source-ticket and target ticket according
+        to what was built. */
+    #[test]
+    fn poem_work_populates_rule_history()
+    {
+        let (sender_a, receiver_a) = mpsc::channel();
+        let (sender_b, receiver_b) = mpsc::channel();
+        let (sender_c, _receiver_c) = mpsc::channel();
+
+        let rule_history = RuleHistory::new();
+
+        let mut system = FakeSystem::new(10);
+
+        match system.create_dir(".ruler-cache")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("Failed to create directory"),
+        }
+
+        match write_str_to_file(&mut system, "verse1.txt", "Roses are red\n")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File write operation failed"),
+        }
+
+        match write_str_to_file(&mut system, "verse2.txt", "Violets are violet\n")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File write operation failed"),
+        }
+
+        match write_str_to_file(&mut system, "poem.txt", "Arbitrary content")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File write operation failed"),
+        }
+
+        match sender_a.send(Packet::from_ticket(TicketFactory::from_str("Roses are red\n").result()))
+        {
+            Ok(p) => assert_eq!(p, ()),
+            Err(e) => panic!("Unexpected error sending: {}", e),
+        }
+
+        match sender_b.send(Packet::from_ticket(TicketFactory::from_str("Violets are violet\n").result()))
+        {
+            Ok(p) => assert_eq!(p, ()),
+            Err(e) => panic!("Unexpected error sending: {}", e),
+        }
+
+        match handle_node(
+            to_info(vec!["poem.txt".to_string()]),
+            vec![
+                "mycat".to_string(),
+                "verse1.txt".to_string(),
+                "verse2.txt".to_string(),
+                "poem.txt".to_string()
+            ],
+            Some(rule_history),
+            system.clone(),
+            vec![(0, sender_c)],
+            vec![receiver_a, receiver_b],
+            LocalCache::new(".ruler-cache"))
+        {
+            Ok(result) =>
+            {
+                match result.work_option
+                {
+                    WorkOption::CommandExecuted(_command_result) =>
+                    {
+                    },
+                    _ => panic!("Wrong kind of WorkOption"),
+                }
+
+                let source_ticket = 
+                match current_sources_ticket(
+                    &system,
+                    vec![
+                        "verse1.txt".to_string(),
+                        "verse2.txt".to_string(),
+                    ])
+                {
+                    Ok(ticket) => ticket,
+                    Err(error) => panic!("Expected ticket, got error: {}", error),
+                };
+
+                match result.rule_history
+                {
+                    Some(rule_history) => 
+                    {
+                        let target_tickets = rule_history.get_target_tickets(&source_ticket).unwrap();
+                        assert_eq!(
+                            *target_tickets,
+                            vec![
+                                TicketFactory::from_str("Roses are red\nViolets are violet\n").result()
+                            ]
+                        );
+                    },
+                    None => panic!("Expected RuleHistory, got none"),
+                }
+
+            },
+            Err(error) =>  panic!("Unexpected error: {}", error),
         }
     }
 

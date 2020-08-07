@@ -7,7 +7,6 @@ use std::time::SystemTime;
 #[cfg(test)]
 pub mod fake;
 
-#[cfg(test)]
 pub mod util;
 
 pub mod real;
@@ -166,7 +165,8 @@ impl fmt::Display for SystemError
     }
 }
 
-
+/*  System abstracts the filesystem and command-line executor.  An implementation can appeal to the
+    real computer's file-system and command-line, or it can fake it for testing. */
 pub trait System: Clone + Send + Sync
 {
     type File: io::Read + io::Write + fmt::Debug;

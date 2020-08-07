@@ -10,6 +10,7 @@ use std::io::
     Read,
     Write
 };
+#[cfg(test)]
 use std::time::Duration;
 use std::time::
 {
@@ -19,6 +20,7 @@ use std::time::
 use std::str::from_utf8;
 use std::fmt;
 
+#[cfg(test)]
 pub fn timestamp_to_system_time(timestamp: u64) -> SystemTime
 {
     SystemTime::UNIX_EPOCH
@@ -63,7 +65,9 @@ pub fn write_str_to_file
 }
 
 /*  Reads binary data from a file in a file-system into a Vec<u8>.
-    If system fails, forwards the system error.  If file-io fails, forwards the std::io::Error. */
+    If system fails, forwards the system error.  If file-io fails,
+    forwards the std::io::Error. */
+#[cfg(test)]
 pub fn read_file
 <
     F : System,

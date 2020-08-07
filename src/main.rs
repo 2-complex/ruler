@@ -1,7 +1,33 @@
 extern crate clap;
+extern crate toml;
+extern crate serde;
 
-use clap::{Arg, App, SubCommand};
+use clap::
+{
+    Arg,
+    App,
+    SubCommand
+};
+use serde::
+{
+    Serialize,
+    Deserialize
+};
+use std::fmt;
+use crate::system::
+{
+    System,
+    SystemError,
+    ReadWriteError
+};
+use crate::system::util::
+{
+    read_file_to_string,
+    write_str_to_file,
+    ReadFileToStringError,
+};
 use crate::system::real::RealSystem;
+use crate::printer::StandardPrinter;
 
 mod cache;
 mod build;
@@ -13,7 +39,149 @@ mod packet;
 mod printer;
 mod system;
 
-use self::printer::StandardPrinter;
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+struct BuildInvocation
+{
+    rules: Option<String>,
+    target: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+struct Config
+{
+    again: Option<BuildInvocation>
+}
+
+impl Config
+{
+    fn new() -> Config
+    {
+        Config
+        {
+            again : None
+        }
+    }
+}
+
+pub enum ConfigError
+{
+    FailedToCreateDirectory(SystemError),
+    FailedToCreateConfigFile(ReadWriteError),
+    FailedToReadConfigFile(ReadFileToStringError),
+    TomlDeError(toml::de::Error),
+    TomlSerError(toml::ser::Error),
+}
+
+impl fmt::Display for ConfigError
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
+    {
+        match self
+        {
+            ConfigError::FailedToCreateDirectory(error) =>
+                write!(formatter, "Failed to create directory: {}", error),
+
+            ConfigError::FailedToCreateConfigFile(error) =>
+                write!(formatter, "Failed to create config file: {}", error),
+
+            ConfigError::FailedToReadConfigFile(error) =>
+                write!(formatter, "Failed to create cache directory: {}", error),
+
+            ConfigError::TomlDeError(error) =>
+                write!(formatter, "Config file opened, but failed to parse as toml: {}", error),
+
+            ConfigError::TomlSerError(error) =>
+                write!(formatter, "Config failed to encode as toml: {}", error),
+        }
+    }
+}
+
+/*  From the given .ruler directry read the config file and parse as toml to obtain a
+    Config object.  If any part of that fails, forward the appropriate error. */
+fn read_config<SystemType : System>
+(
+    system : &mut SystemType,
+    directory : &str
+)
+->
+Result<Config, ConfigError>
+{
+    if ! system.is_dir(directory)
+    {
+        match system.create_dir(directory)
+        {
+            Ok(_) => {},
+            Err(error) => return Err(ConfigError::FailedToCreateDirectory(error)),
+        }
+    }
+
+    let config_path = format!("{}/config.toml", directory);
+
+    if system.is_file(&config_path)
+    {
+        match read_file_to_string(system, &config_path)
+        {
+            Ok(content_string) =>
+            {
+                return
+                match toml::from_str(&content_string)
+                {
+                    Ok(config) => Ok(config),
+                    Err(error) => Err(ConfigError::TomlDeError(error)),
+                }
+            },
+            Err(error) => return Err(ConfigError::FailedToReadConfigFile(error)),
+        }
+    }
+    else
+    {
+        let default_config = Config::new();
+        match toml::to_string(&default_config)
+        {
+            Ok(config_toml) =>
+            match write_str_to_file(system, &config_path, &config_toml)
+            {
+                Ok(_) => Ok(default_config),
+                Err(error) => Err(ConfigError::FailedToCreateConfigFile(error)),
+            },
+            Err(error) => Err(ConfigError::TomlSerError(error)),
+        }
+    }
+}
+
+/*  In the given directory, write the config object to toml file.  If any part of that
+    goes wrong, error. */
+fn write_config<SystemType : System>
+(
+    system : &mut SystemType,
+    directory : &str,
+    config : &Config
+)
+->
+Result<(), ConfigError>
+{
+    if ! system.is_dir(directory)
+    {
+        match system.create_dir(directory)
+        {
+            Ok(_) => {},
+            Err(error) => return Err(ConfigError::FailedToCreateDirectory(error)),
+        }
+    }
+
+    let config_path = format!("{}/config.toml", directory);
+
+    match toml::to_string(config)
+    {
+        Ok(config_toml) =>
+        match write_str_to_file(system, &config_path, &config_toml)
+        {
+            Ok(_) => Ok(()),
+            Err(error) => Err(ConfigError::FailedToCreateConfigFile(error)),
+        },
+        Err(error) => Err(ConfigError::TomlSerError(error)),
+    }
+}
 
 fn main()
 {
@@ -50,7 +218,6 @@ file, determines which ones need to update and in what order, and runs the
 commands for those rules.
 
 ")
-        .setting(clap::AppSettings::ArgRequiredElseHelp)
         .subcommand(
             SubCommand::with_name("clean")
             .help("
@@ -80,6 +247,18 @@ Path to a specific build-target to build.  Ruler will only build this target, an
                 .index(1)
             )
         )
+        .subcommand(
+            SubCommand::with_name("again")
+            .help("
+Repeats the most recent ruler build invocation.
+")
+            .arg(Arg::with_name("target")
+                .help("
+Path to a specific build-target to build.  Ruler will only build this target, and its ancestors, as needed.")
+                .required(false)
+                .index(1)
+            )
+        )
         .arg(Arg::with_name("rules")
             .short("r")
             .long("rules")
@@ -88,21 +267,72 @@ Path to a specific build-target to build.  Ruler will only build this target, an
             .takes_value(true))
         .get_matches();
 
-
-    if let Some(matches) = big_matches.subcommand_matches("clean")
+    if let Some(matches) = big_matches.subcommand_matches("again")
     {
-        let rulefile =
-        match matches.value_of("rules")
-        {
-            Some(value) => value,
-            None => "build.rules",
-        };
-
         let directory =
         match matches.value_of("directory")
         {
             Some(value) => value,
             None => ".ruler",
+        };
+
+        let mut system = RealSystem::new();
+        match read_config(&mut system, &directory)
+        {
+            Ok(config) =>
+                match config.again
+                {
+                    Some(again) => 
+                    {
+                        let rules =
+                        match again.rules
+                        {
+                            Some(value) => value.clone(),
+                            None => "build.rules".to_string(),
+                        };
+
+                        let target =
+                        match again.target
+                        {
+                            Some(value) => Some(value.to_string()),
+                            None => None,
+                        };
+
+                        let mut printer = StandardPrinter::new();
+                        match build::build(
+                            system,
+                            directory,
+                            &rules,
+                            target,
+                            &mut printer)
+                        {
+                            Ok(()) => {},
+                            Err(error) => eprintln!("{}", error),
+                        }
+                    }
+                    None =>
+                    {
+                        println!("There is no again");
+                    },
+                }
+            Err(config_error) => println!("Error reading config: {}", config_error),
+        }
+    }
+
+    if let Some(matches) = big_matches.subcommand_matches("clean")
+    {
+        let directory =
+        match matches.value_of("directory")
+        {
+            Some(value) => value,
+            None => ".ruler",
+        };
+
+        let rulefile =
+        match matches.value_of("rules")
+        {
+            Some(value) => value,
+            None => "build.rules",
         };
 
         let target =
@@ -143,17 +373,40 @@ Path to a specific build-target to build.  Ruler will only build this target, an
             None => None,
         };
 
+        let config = Config
+        {
+            again : Some(
+                BuildInvocation
+                {
+                    target : target.clone(),
+                    rules : Some(rulefile.to_string()),
+                }
+            )
+        };
+
+        let mut system = RealSystem::new();
         let mut printer = StandardPrinter::new();
 
-        match build::build(
-            RealSystem::new(),
-            directory,
-            rulefile,
-            target,
-            &mut printer)
+        match write_config(&mut system, &directory, &config)
         {
-            Ok(()) => {},
-            Err(error) => eprintln!("{}", error),
+            Ok(()) =>
+            {
+                match build::build(
+                    system,
+                    directory,
+                    rulefile,
+                    target,
+                    &mut printer)
+                {
+                    Ok(()) => {},
+                    Err(error) => eprintln!("{}", error),
+                }
+            },
+            Err(error) =>
+            {
+                println!("Error writing config file: {}", error);
+            }
         }
+
     }
 }
