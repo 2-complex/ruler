@@ -1,6 +1,6 @@
 [package]
 name = "ruler"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Peterson Trethewey <peterson@2-complex.com>"]
 description = "A straight-forward, general-purpose build tool"
 homepage = "https://rulerbuild.com"
