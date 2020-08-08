@@ -6,7 +6,8 @@ use clap::
 {
     Arg,
     App,
-    SubCommand
+    SubCommand,
+    AppSettings
 };
 use serde::
 {
@@ -220,8 +221,14 @@ commands for those rules.
 ")
         .subcommand(
             SubCommand::with_name("clean")
+            .about("Removes all targets")
             .help("
-Removes all files and directories specificed as targets in the rules file.")
+Removes all files and directories specificed as targets in the rules file.
+If a target is specified, removes all that targets ancestors.
+
+Note: clean does not delete the files, it moves them to a cache so they can be
+recovered later if needed.
+")
             .arg(Arg::with_name("target")
                 .help("
 The path to the clean-target.  The clean command removes all files listed as
@@ -234,23 +241,27 @@ specified, the clean command removes all files listed as targets in any rule.
         )
         .subcommand(
             SubCommand::with_name("build")
+            .about("Builds the given target or all targets")
             .help("
 Builds the given target.  If no build-target is specified, builds all targets.
-The target must be a file listed in the target section of the current rules file.
-The rules file is either a file in the current working directory called \"build.rules\"
-or it can be specificed using --rules=<path>
+The target must be a file listed in the target section of the current rules
+file.  The rules file is either a file in the current working directory called
+\"build.rules\" or it can be specificed using --rules=<path>
 ")
             .arg(Arg::with_name("target")
                 .help("
-Path to a specific build-target to build.  Ruler will only build this target, and its ancestors, as needed.")
+Path to a specific build-target to build.  Ruler will only build this target,
+and its ancestors, as needed.")
                 .required(false)
                 .index(1)
             )
         )
         .subcommand(
             SubCommand::with_name("again")
+            .about("Repeats the most recent build command")
             .help("
-Repeats the most recent ruler build invocation.
+Repeats the most recent `ruler build` invocation.  To get started, type `ruler build`.
+The next time you run `ruler again`, it will repeat that `ruler build` with the same options.
 ")
             .arg(Arg::with_name("target")
                 .help("
@@ -265,6 +276,7 @@ Path to a specific build-target to build.  Ruler will only build this target, an
             .value_name("rules")
             .help("Path to a custom rules file (default: build.rules)")
             .takes_value(true))
+        .setting(AppSettings::ArgRequiredElseHelp)
         .get_matches();
 
     if let Some(matches) = big_matches.subcommand_matches("again")
@@ -312,7 +324,8 @@ Path to a specific build-target to build.  Ruler will only build this target, an
                     }
                     None =>
                     {
-                        println!("There is no again");
+                        println!("Repeats the most recent `ruler build` invocation.  To get started, type `ruler build`.
+The next time you run `ruler again`, it will repeat that `ruler build` with the same options.");
                     },
                 }
             Err(config_error) => println!("Error reading config: {}", config_error),
