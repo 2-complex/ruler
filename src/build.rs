@@ -1,7 +1,5 @@
-extern crate filesystem;
 extern crate multimap;
 
-use filesystem::FileSystem;
 use multimap::MultiMap;
 
 use std::thread;
@@ -9,7 +7,11 @@ use std::sync::mpsc::{Sender, Receiver};
 use std::sync::mpsc;
 use std::str::from_utf8;
 use std::fmt;
-use std::io::Error;
+use std::io::
+{
+    self,
+    Read,
+};
 
 use crate::rule::
 {
@@ -30,32 +32,33 @@ use crate::work::
     FileResolution,
     handle_node,
     clean_targets,
-    upload_targets,
 };
 
-use crate::metadata::MetadataGetter;
-use crate::executor::Executor;
 use crate::memory::{Memory, MemoryError};
 use crate::cache::LocalCache;
+use crate::printer::Printer;
 
-use std::io::Write;
 use termcolor::
 {
     Color,
-    ColorChoice,
-    ColorSpec,
-    StandardStream,
-    WriteColor
 };
 
+use crate::system::
+{
+    System,
+    SystemError
+};
+
+/*  Takes a vector of Nodes, iterates through them, and creates two multimaps, one for
+    senders and one for receivers. */
 fn make_multimaps(nodes : &Vec<Node>)
     -> (
         MultiMap<usize, (usize, Sender<Packet>)>,
-        MultiMap<usize, (Receiver<Packet>)>
+        MultiMap<usize, Receiver<Packet>>
     )
 {
     let mut senders : MultiMap<usize, (usize, Sender<Packet>)> = MultiMap::new();
-    let mut receivers : MultiMap<usize, (Receiver<Packet>)> = MultiMap::new();
+    let mut receivers : MultiMap<usize, Receiver<Packet>> = MultiMap::new();
 
     for (target_index, node) in nodes.iter().enumerate()
     {
@@ -75,7 +78,8 @@ pub enum BuildError
 {
     MemoryFileFailedToRead(MemoryError),
     RuleFileNotUTF8,
-    RuleFileFailedToOpen(String, Error),
+    RuleFileFailedToRead(String, io::Error),
+    RuleFileFailedToOpen(String, SystemError),
     WorkErrors(Vec<WorkError>),
     RuleFileFailedToParse(ParseError),
     TopologicalSortFailed(TopologicalSortError),
@@ -96,14 +100,17 @@ impl fmt::Display for BuildError
             BuildError::RuleFileNotUTF8 =>
                 write!(formatter, "Rule file not valid UTF8."),
 
-            BuildError::RuleFileFailedToOpen(path, error) =>
-                write!(formatter, "Rule file did not open: {}\n{}", path, error),
-
             BuildError::RuleFileFailedToParse(error) =>
                 write!(formatter, "{}", error),
 
             BuildError::TopologicalSortFailed(error) =>
                 write!(formatter, "Dependence search failed: {}", error),
+
+            BuildError::RuleFileFailedToRead(path, error) =>
+                write!(formatter, "Build file {} failed to read with error: {}", path, error),
+
+            BuildError::RuleFileFailedToOpen(path, error) =>
+                write!(formatter, "Build file {} failed to open with error: {}", path, error),
 
             BuildError::WorkErrors(work_errors) =>
             {
@@ -126,8 +133,8 @@ impl fmt::Display for BuildError
 
 pub enum InitDirectoryError
 {
-    FailedToCreateDirectory(Error),
-    FailedToCreateCacheDirectory(Error),
+    FailedToCreateDirectory(SystemError),
+    FailedToCreateCacheDirectory(SystemError),
     FailedToReadMemoryFile(MemoryError),
 }
 
@@ -149,18 +156,17 @@ impl fmt::Display for InitDirectoryError
     }
 }
 
-pub fn init_directory<
-    FileSystemType : FileSystem
-        + Clone + Send + 'static
->(
-    file_system : &mut FileSystemType,
+pub fn init_directory<SystemType : System + Clone + Send + 'static>
+(
+    system : &mut SystemType,
     directory : &str
 )
--> Result<(Memory, LocalCache, String), InitDirectoryError>
+->
+Result<(Memory, LocalCache, String), InitDirectoryError>
 {
-    if ! file_system.is_dir(directory)
+    if ! system.is_dir(directory)
     {
-        match file_system.create_dir(directory)
+        match system.create_dir(directory)
         {
             Ok(_) => {},
             Err(error) => return Err(InitDirectoryError::FailedToCreateDirectory(error)),
@@ -169,9 +175,9 @@ pub fn init_directory<
 
     let cache_path = format!("{}/cache", directory);
 
-    if ! file_system.is_dir(&cache_path)
+    if ! system.is_dir(&cache_path)
     {
-        match file_system.create_dir(&cache_path)
+        match system.create_dir(&cache_path)
         {
             Ok(_) => {},
             Err(error) => return Err(InitDirectoryError::FailedToCreateCacheDirectory(error)),
@@ -181,7 +187,7 @@ pub fn init_directory<
     let memoryfile = format!("{}/memory", directory);
 
     Ok((
-        match Memory::from_file(file_system, &memoryfile)
+        match Memory::from_file(system, &memoryfile)
         {
             Ok(memory) => memory,
             Err(error) => return Err(InitDirectoryError::FailedToReadMemoryFile(error)),
@@ -191,63 +197,59 @@ pub fn init_directory<
     ))
 }
 
-fn print_single_banner_line(banner_text : &str, banner_color : Color, path : &str)
+
+fn read_all_rules<SystemType : System>
+(
+    system : &SystemType,
+    rulefile_path : &str
+)
+-> Result<String, BuildError>
 {
-    let mut stdout = StandardStream::stdout(ColorChoice::Always);
-    match stdout.set_color(ColorSpec::new().set_fg(Some(banner_color)))
+    match system.open(rulefile_path)
     {
-        Ok(_) => {},
-        Err(_error) => {},
-    }
-    match write!(&mut stdout, "{}: ", banner_text)
-    {
-        Ok(_) => {},
-        Err(_error) =>
+        Ok(mut file) =>
         {
-            /*  If the write doesn't work, change the color back, but
-                other than that, I don't know what to do. */
-            match stdout.set_color(ColorSpec::new().set_fg(None))
+            let mut rule_content = Vec::new();
+            match file.read_to_end(&mut rule_content)
             {
-                Ok(_) => {},
-                Err(_error) => {},
+                Ok(_size) =>
+                {
+                    match from_utf8(&rule_content)
+                    {
+                        Ok(rule_text) => Ok(rule_text.to_owned()),
+                        Err(_) => return Err(BuildError::RuleFileNotUTF8),
+                    }
+                },
+                Err(error) => return Err(
+                    BuildError::RuleFileFailedToRead(
+                        rulefile_path.to_string(), error)),
             }
-            return
-        }
-    }
-    match stdout.set_color(ColorSpec::new().set_fg(None))
-    {
-        Ok(_) => {},
-        Err(_error) => {},
-    }
-    match writeln!(&mut stdout, "{}", path)
-    {
-        Ok(_) => {},
-        Err(_error) =>
-        {
-            // Again, just not sure what to do if write fails.
         },
+        Err(error) => return Err(
+            BuildError::RuleFileFailedToOpen(
+                rulefile_path.to_string(), error)),
     }
 }
 
+
+/*  This is the function that runs when you type "ruler build" at the commandline.
+    It opens the rulefile, parses it, and then either updates all targets in all rules
+    or, if goal_target_opt is Some, only the targets that are ancstors of goal_target_opt
+    in the dependence graph. */
 pub fn build<
-    FileSystemType : FileSystem
-        + Clone + Send + 'static,
-    ExecType : Executor
-        + Clone + Send + 'static,
-    MetadataGetterType : MetadataGetter
-        + Clone + Send + 'static
+    SystemType : System + Clone + Send + 'static,
+    PrinterType : Printer,
 >(
-    mut file_system : FileSystemType,
-    executor : ExecType,
-    metadata_getter: MetadataGetterType,
+    mut system : SystemType,
     directory : &str,
-    rulefile: &str,
-    goal_target_opt: Option<String>
+    rulefile_path: &str,
+    goal_target_opt: Option<String>,
+    printer: &mut PrinterType,
 )
 -> Result<(), BuildError>
 {
     let (mut memory, cache, memoryfile) =
-    match init_directory(&mut file_system, directory)
+    match init_directory(&mut system, directory)
     {
         Ok((memory, cache, memoryfile)) => (memory, cache, memoryfile),
         Err(error) =>
@@ -261,19 +263,7 @@ pub fn build<
         }
     };
 
-    let rule_text =
-    match file_system.read_file(rulefile)
-    {
-        Ok(rule_content) =>
-        {
-            match from_utf8(&rule_content)
-            {
-                Ok(rule_text) => rule_text.to_owned(),
-                Err(_) => return Err(BuildError::RuleFileNotUTF8),
-            }
-        },
-        Err(error) => return Err(BuildError::RuleFileFailedToOpen(rulefile.to_string(), error)),
-    };
+    let rule_text = read_all_rules(&system, rulefile_path)?;
 
     let rules =
     match parse(rule_text)
@@ -333,17 +323,15 @@ pub fn build<
             );
         }
 
-        let executor_clone = executor.clone();
         let local_cache_clone = cache.clone();
 
         let command = node.command;
         let rule_history =  match &node.rule_ticket
         {
-            Some(ticket) => Some(memory.get_rule_history(&ticket)),
+            Some(ticket) => Some(memory.take_rule_history(&ticket)),
             None => None,
         };
-        let file_system_clone = file_system.clone();
-        let metadata_getter_clone = metadata_getter.clone();
+        let system_clone = system.clone();
 
         handles.push(
             (
@@ -355,13 +343,10 @@ pub fn build<
                             target_infos,
                             command,
                             rule_history,
-                            file_system_clone,
-                            metadata_getter_clone,
+                            system_clone,
                             sender_vec,
                             receiver_vec,
-                            executor_clone,
-                            local_cache_clone,
-                            vec![])
+                            local_cache_clone)
                     }
                 )
             )
@@ -409,7 +394,7 @@ pub fn build<
                                                 ("  Outdated", Color::Red),
                                         };
 
-                                    print_single_banner_line(banner_text, banner_color, &target_info.path);
+                                    printer.print_single_banner_line(banner_text, banner_color, &target_info.path);
                                 }
                             },
 
@@ -417,27 +402,29 @@ pub fn build<
                             {
                                 for target_info in work_result.target_infos.iter()
                                 {
-                                    print_single_banner_line("  Building", Color::Magenta, &target_info.path);  
+                                    printer.print_single_banner_line("     Built", Color::Magenta, &target_info.path);  
                                 }
 
                                 if output.out != ""
                                 {
-                                    println!("{}", output.out);
+                                    printer.print(&output.out);
                                 }
 
                                 if output.err != ""
                                 {
-                                    eprintln!("ERROR:\n{}", output.err);
+                                    printer.error(&output.err);
                                 }
 
                                 if !output.success
                                 {
-                                    eprintln!("RESULT: {}", 
-                                        match output.code
-                                        {
-                                            Some(code) => format!("{}", code),
-                                            None => "None".to_string(),
-                                        }
+                                    printer.error(
+                                        &format!("RESULT: {}", 
+                                            match output.code
+                                            {
+                                                Some(code) => format!("{}", code),
+                                                None => "None".to_string(),
+                                            }
+                                        )
                                     );
                                 }
 
@@ -475,13 +462,14 @@ pub fn build<
         }
     }
 
+    match memory.to_file(&mut system, &memoryfile)
+    {
+        Ok(_) => {},
+        Err(_) => printer.error("Error writing history"),
+    }
+
     if work_errors.len() == 0
     {
-        match memory.to_file(&mut file_system, &memoryfile)
-        {
-            Ok(_) => {},    
-            Err(_) => eprintln!("Error writing history"),
-        }
 
         Ok(())
     }
@@ -491,22 +479,21 @@ pub fn build<
     }
 }
 
-pub fn clean<
-    FileSystemType : FileSystem
-        + Clone + Send + 'static,
-    MetadataGetterType : MetadataGetter
-        + Clone + Send + 'static
->(
-    mut file_system : FileSystemType,
-    metadata_getter: MetadataGetterType,
+/*  This is the function that runs when you type "ruler clean" at the command-line.
+    It takes a rulefile, parses it and either removes all targets to the cache,
+    or, if goal_target_opt is Some, removes only those targets that are acnestors
+    of goal_target_opt in the depdnece-graph. */
+pub fn clean<SystemType : System + Clone + Send + 'static>
+(
+    mut system : SystemType,
     directory : &str,
-    rulefile: &str,
+    rulefile_path: &str,
     goal_target_opt: Option<String>
 )
 -> Result<(), BuildError>
 {
     let (mut memory, cache, _memoryfile) =
-    match init_directory(&mut file_system, directory)
+    match init_directory(&mut system, directory)
     {
         Ok((memory, cache, memoryfile)) => (memory, cache, memoryfile),
         Err(error) =>
@@ -520,19 +507,7 @@ pub fn clean<
         }
     };
 
-    let rule_text =
-    match file_system.read_file(rulefile)
-    {
-        Ok(rule_content) =>
-        {
-            match from_utf8(&rule_content)
-            {
-                Ok(rule_text) => rule_text.to_owned(),
-                Err(_) => return Err(BuildError::RuleFileNotUTF8),
-            }
-        },
-        Err(error) => return Err(BuildError::RuleFileFailedToOpen(rulefile.to_string(), error)),
-    };
+    let rule_text = read_all_rules(&system, rulefile_path)?;
 
     let rules =
     match parse(rule_text)
@@ -578,8 +553,7 @@ pub fn clean<
             );
         }
 
-        let file_system_clone = file_system.clone();
-        let metadata_getter_clone = metadata_getter.clone();
+        let mut system_clone = system.clone();
         let local_cache_clone = cache.clone();
 
         match node.rule_ticket
@@ -591,116 +565,8 @@ pub fn clean<
                         {
                             clean_targets(
                                 target_infos,
-                                &file_system_clone,
-                                &metadata_getter_clone,
+                                &mut system_clone,
                                 &local_cache_clone)
-                        }
-                    )
-                ),
-            None => {},
-        }
-    }
-
-    let mut work_errors = Vec::new();
-
-    for handle in handles
-    {
-        match handle.join()
-        {
-            Err(_error) => return Err(BuildError::Weird),
-            Ok(remove_result_result) =>
-            {
-                match remove_result_result
-                {
-                    Ok(_) => {},
-                    Err(work_error) =>
-                    {
-                        match work_error
-                        {
-                            _ =>
-                            {
-                                work_errors.push(work_error);
-                            }
-                        }
-                    },
-                }
-            }
-        }
-    }
-
-    if work_errors.len() == 0
-    {
-        Ok(())
-    }
-    else
-    {
-        Err(BuildError::WorkErrors(work_errors))
-    }
-}
-
-pub fn upload<
-    FileSystemType : FileSystem
-        + Clone + Send + 'static,
->(
-    file_system : FileSystemType,
-    rulefile : &str,
-    target : &str,
-    server_url : &str,
-)
--> Result<(), BuildError>
-{
-    let rule_text =
-    match file_system.read_file(rulefile)
-    {
-        Ok(rule_content) =>
-        {
-            match from_utf8(&rule_content)
-            {
-                Ok(rule_text) => rule_text.to_owned(),
-                Err(_) => return Err(BuildError::RuleFileNotUTF8),
-            }
-        },
-        Err(error) => return Err(BuildError::RuleFileFailedToOpen(rulefile.to_string(), error)),
-    };
-
-    let rules =
-    match parse(rule_text)
-    {
-        Ok(rules) => rules,
-        Err(error) => return Err(BuildError::RuleFileFailedToParse(error)),
-    };
-
-    let mut nodes =
-    match topological_sort(rules, &target)
-    {
-        Ok(nodes) => nodes,
-        Err(error) => return Err(BuildError::TopologicalSortFailed(error)),
-    };
-
-    let mut handles = Vec::new();
-
-    for mut node in nodes.drain(..)
-    {
-        let mut target_paths = Vec::new();
-        for target_path in node.targets.drain(..)
-        {
-            target_paths.push(target_path);
-        }
-
-        let file_system_clone = file_system.clone();
-        let server_url_clone = server_url.to_string();
-
-        match node.rule_ticket
-        {
-            Some(_ticket) =>
-                handles.push(
-                    thread::spawn(
-                        move || -> Result<(), WorkError>
-                        {
-                            upload_targets(
-                                &file_system_clone,
-                                target_paths,
-                                server_url_clone)
                         }
                     )
                 ),
@@ -748,15 +614,25 @@ pub fn upload<
 #[cfg(test)]
 mod test
 {
-    use crate::build::{build, BuildError};
-    use crate::executor::{FakeExecutor};
-    use crate::metadata::FakeMetadataGetter;
+    use crate::build::
+    {
+        build,
+        BuildError
+    };
+    use crate::system::
+    {
+        System,
+        fake::FakeSystem
+    };
     use crate::work::WorkError;
     use crate::ticket::TicketFactory;
     use crate::cache::LocalCache;
-
-    use filesystem::{FileSystem, FakeFileSystem};
-    use std::str::from_utf8;
+    use crate::system::util::
+    {
+        write_str_to_file,
+        read_file_to_string
+    };
+    use crate::printer::EmptyPrinter;
 
     #[test]
     fn build_basic()
@@ -773,50 +649,40 @@ verse2.txt
 poem.txt
 :
 ";
-        let file_system = FakeFileSystem::new();
-        let executor = FakeExecutor::new(file_system.clone());
-        let metadata_getter = FakeMetadataGetter::new();
+        let mut system = FakeSystem::new(10);
 
-        match file_system.write_file("verse1.txt", "Roses are red.\n")
+        match write_str_to_file(&mut system, "verse1.txt", "Roses are red.\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write"),
         }
 
-        match file_system.write_file("verse2.txt", "Violets are violet.\n")
+        match write_str_to_file(&mut system, "verse2.txt", "Violets are violet.\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write"),
         }
 
-        match file_system.write_file("test.rules", rules)
+        match write_str_to_file(&mut system, "test.rules", rules)
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write"),
         }
 
         match build(
-            file_system.clone(),
-            executor,
-            metadata_getter,
+            system.clone(),
             "test.directory",
             "test.rules",
-            Some("poem.txt".to_string()))
+            Some("poem.txt".to_string()),
+            &mut EmptyPrinter::new())
         {
             Ok(()) => {},
             Err(error) => panic!("Unexpected build error: {}", error),
         }
 
-        match file_system.read_file("poem.txt")
+        match read_file_to_string(&mut system, "poem.txt")
         {
-            Ok(content) =>
-            {
-                match from_utf8(&content)
-                {
-                    Ok(text) => assert_eq!(text, "Roses are red.\nViolets are violet.\n"),
-                    Err(_) => panic!("Poem failed to be utf8?"),
-                }
-            }
+            Ok(text) => assert_eq!(text, "Roses are red.\nViolets are violet.\n"),
             Err(_) => panic!("Failed to read poem."),
         }
     }
@@ -835,79 +701,67 @@ verse2.txt
 poem.txt
 :
 ";
-        let file_system = FakeFileSystem::new();
+        let mut system = FakeSystem::new(10);
 
-        match file_system.create_dir(".ruler-cache")
+        match system.create_dir(".ruler-cache")
         {
             Ok(_) => {},
             Err(_) => panic!("Failed to create directory"),
         }
 
-        let executor = FakeExecutor::new(file_system.clone());
-        let metadata_getter = FakeMetadataGetter::new();
-
-        match file_system.write_file("verse1.txt", "Roses are red.\n")
+        match write_str_to_file(&mut system, "verse1.txt", "Roses are red.\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write"),
         }
 
-        match file_system.write_file("verse2.txt", "Violets are blue.\n")
+        match write_str_to_file(&mut system, "verse2.txt", "Violets are blue.\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write"),
         }
 
-        match file_system.write_file("test.rules", rules)
+        match write_str_to_file(&mut system, "test.rules", rules)
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write"),
         }
 
         match build(
-            file_system.clone(),
-            executor.clone(),
-            metadata_getter.clone(),
+            system.clone(),
             "test.directory",
             "test.rules",
-            Some("poem.txt".to_string()))
+            Some("poem.txt".to_string()),
+            &mut EmptyPrinter::new())
         {
             Ok(()) => {},
             Err(error) => panic!("Unexpected build error: {}", error),
         }
 
-        match file_system.read_file("poem.txt")
+        match read_file_to_string(&mut system, "poem.txt")
         {
-            Ok(content) =>
-            {
-                match from_utf8(&content)
-                {
-                    Ok(text) => assert_eq!(text, "Roses are red.\nViolets are blue.\n"),
-                    Err(_) => panic!("Poem failed to be utf8?"),
-                }
-            }
+            Ok(text) => assert_eq!(text, "Roses are red.\nViolets are blue.\n"),
             Err(_) => panic!("Failed to read poem."),
         }
 
-        match file_system.write_file("verse2.txt", "Violets are violet.\n")
+        match write_str_to_file(&mut system, "verse2.txt", "Violets are violet.\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write."),
         }
 
-        match file_system.write_file("poem.txt", "Wrong content forcing a rebuild")
+        match write_str_to_file(&mut system, "poem.txt", "Wrong content forcing a rebuild")
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write."),
         }
 
         match build(
-            file_system.clone(),
-            executor.clone(),
-            metadata_getter.clone(),
+            system.clone(),
             "test.directory",
             "test.rules",
-            Some("poem.txt".to_string()))
+            Some("poem.txt".to_string()),
+            &mut EmptyPrinter::new())
         {
             Ok(()) => panic!("Unexpected silence when contradiction should arise"),
             Err(error) =>
@@ -928,16 +782,9 @@ poem.txt
             },
         }
 
-        match file_system.read_file("poem.txt")
+        match read_file_to_string(&mut system, "poem.txt")
         {
-            Ok(content) =>
-            {
-                match from_utf8(&content)
-                {
-                    Ok(text) => assert_eq!(text, "Roses are red.\nViolets are violet.\n"),
-                    Err(_) => panic!("Poem failed to be utf8?"),
-                }
-            }
+            Ok(text) => assert_eq!(text, "Roses are red.\nViolets are violet.\n"),
             Err(_) => panic!("Failed to read poem."),
         }
     }
@@ -957,141 +804,108 @@ verse2.txt
 poem.txt
 :
 ";
-        let file_system = FakeFileSystem::new();
-        let executor = FakeExecutor::new(file_system.clone());
-        let metadata_getter = FakeMetadataGetter::new();
+        let mut system = FakeSystem::new(10);
 
-        match file_system.write_file("verse1.txt", "Roses are red.\n")
+        match write_str_to_file(&mut system, "verse1.txt", "Roses are red.\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write"),
         }
 
-        match file_system.write_file("verse2.txt", "Violets are blue.\n")
+        match write_str_to_file(&mut system, "verse2.txt", "Violets are blue.\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write"),
         }
 
-        match file_system.write_file("test.rules", rules)
+        match write_str_to_file(&mut system, "test.rules", rules)
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write"),
         }
 
         match build(
-            file_system.clone(),
-            executor.clone(),
-            metadata_getter.clone(),
+            system.clone(),
             ".ruler",
             "test.rules",
-            Some("poem.txt".to_string()))
+            Some("poem.txt".to_string()),
+            &mut EmptyPrinter::new())
         {
             Ok(()) => {},
             Err(error) => panic!("Unexpected build error: {}", error),
         }
 
-        match file_system.read_file("poem.txt")
+        match read_file_to_string(&mut system, "poem.txt")
         {
-            Ok(content) =>
-            {
-                match from_utf8(&content)
-                {
-                    Ok(text) => assert_eq!(text, "Roses are red.\nViolets are blue.\n"),
-                    Err(_) => panic!("Poem failed to be utf8?"),
-                }
-            }
+            Ok(text) => assert_eq!(text, "Roses are red.\nViolets are blue.\n"),
             Err(_) => panic!("Failed to read poem."),
         }
 
         let ticket =
-        match TicketFactory::from_file(&file_system, "poem.txt")
+        match TicketFactory::from_file(&system, "poem.txt")
         {
             Ok(mut factory) => factory.result(),
             Err(_) => panic!("Failed to make ticket?"),
         };
 
-        match file_system.write_file("verse2.txt", "Violets are violet.\n")
+        match write_str_to_file(&mut system, "verse2.txt", "Violets are violet.\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write."),
         }
 
         match build(
-            file_system.clone(),
-            executor.clone(),
-            metadata_getter.clone(),
+            system.clone(),
             ".ruler",
             "test.rules",
-            Some("poem.txt".to_string()))
+            Some("poem.txt".to_string()),
+            &mut EmptyPrinter::new())
         {
             Ok(()) => {},
             Err(error) => panic!("Unexpected build error: {}", error),
         }
 
-        match file_system.read_file("poem.txt")
+        match read_file_to_string(&mut system, "poem.txt")
         {
-            Ok(content) =>
-            {
-                match from_utf8(&content)
-                {
-                    Ok(text) => assert_eq!(text, "Roses are red.\nViolets are violet.\n"),
-                    Err(_) => panic!("Poem failed to be utf8?"),
-                }
-            }
-            Err(_) => panic!("Failed to read poem a second time."),
+            Ok(text) => assert_eq!(text, "Roses are red.\nViolets are violet.\n"),
+            Err(_) => panic!("Poem failed to be utf8?"),
         }
 
         let cache = LocalCache::new(".ruler/cache");
-        cache.restore_file(&file_system, &ticket, "temp-poem.txt");
+        cache.restore_file(&mut system, &ticket, "temp-poem.txt");
 
-        match file_system.read_file("temp-poem.txt")
+        match read_file_to_string(&mut system, "temp-poem.txt")
         {
-            Ok(content) =>
-            {
-                match from_utf8(&content)
-                {
-                    Ok(text) => assert_eq!(text, "Roses are red.\nViolets are blue.\n"),
-                    Err(_) => panic!("Poem failed to be utf8?"),
-                }
-            }
-            Err(_) => panic!("Failed to read temp-poem."),
+            Ok(text) => assert_eq!(text, "Roses are red.\nViolets are blue.\n"),
+            Err(_) => panic!("Poem failed to be utf8?"),
         }
 
-        match cache.back_up_file_with_ticket(&file_system, &ticket, "temp-poem.txt")
+        match cache.back_up_file_with_ticket(&mut system, &ticket, "temp-poem.txt")
         {
             Ok(_) => {},
             Err(_) => panic!("Failed to back up temp-poem"),
         }
 
-        match file_system.write_file("verse2.txt", "Violets are blue.\n")
+        match write_str_to_file(&mut system, "verse2.txt", "Violets are blue.\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File failed to write"),
         }
 
         match build(
-            file_system.clone(),
-            executor.clone(),
-            metadata_getter.clone(),
+            system.clone(),
             ".ruler",
             "test.rules",
-            Some("poem.txt".to_string()))
+            Some("poem.txt".to_string()),
+            &mut EmptyPrinter::new())
         {
             Ok(()) => {},
             Err(error) => panic!("Unexpected build error: {}", error),
         }
 
-        match file_system.read_file("poem.txt")
+        match read_file_to_string(&mut system, "poem.txt")
         {
-            Ok(content) =>
-            {
-                match from_utf8(&content)
-                {
-                    Ok(text) => assert_eq!(text, "Roses are red.\nViolets are blue.\n"),
-                    Err(_) => panic!("Poem failed to be utf8?"),
-                }
-            }
+            Ok(text) => assert_eq!(text, "Roses are red.\nViolets are blue.\n"),
             Err(_) => panic!("Failed to read poem a second time."),
         }
     }

@@ -1,18 +1,37 @@
 extern crate clap;
-extern crate filesystem;
+extern crate toml;
+extern crate serde;
 extern crate regex;
 
-use clap::{Arg, App, SubCommand};
-use filesystem::
+use clap::
 {
-    FileSystem,
-    OsFileSystem,
+    Arg,
+    App,
+    SubCommand,
+    AppSettings
 };
-
-use std::io::prelude::*;
+use serde::
+{
+    Serialize,
+    Deserialize
+};
 use std::net::TcpStream;
 use std::net::TcpListener;
-use std::fs;
+use std::fmt;
+use crate::system::
+{
+    System,
+    SystemError,
+    ReadWriteError
+};
+use crate::system::util::
+{
+    read_file_to_string,
+    write_str_to_file,
+    ReadFileToStringError,
+};
+use crate::system::real::RealSystem;
+use crate::printer::StandardPrinter;
 
 mod cache;
 mod build;
@@ -20,14 +39,153 @@ mod rule;
 mod ticket;
 mod work;
 mod memory;
-mod executor;
 mod packet;
-mod metadata;
-mod internet;
+mod printer;
+mod system;
 
-use self::executor::OsExecutor;
-use self::metadata::OsMetadataGetter;
-use self::ticket::TicketFactory;
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+struct BuildInvocation
+{
+    rules: Option<String>,
+    target: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+struct Config
+{
+    again: Option<BuildInvocation>
+}
+
+impl Config
+{
+    fn new() -> Config
+    {
+        Config
+        {
+            again : None
+        }
+    }
+}
+
+pub enum ConfigError
+{
+    FailedToCreateDirectory(SystemError),
+    FailedToCreateConfigFile(ReadWriteError),
+    FailedToReadConfigFile(ReadFileToStringError),
+    TomlDeError(toml::de::Error),
+    TomlSerError(toml::ser::Error),
+}
+
+impl fmt::Display for ConfigError
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
+    {
+        match self
+        {
+            ConfigError::FailedToCreateDirectory(error) =>
+                write!(formatter, "Failed to create directory: {}", error),
+
+            ConfigError::FailedToCreateConfigFile(error) =>
+                write!(formatter, "Failed to create config file: {}", error),
+
+            ConfigError::FailedToReadConfigFile(error) =>
+                write!(formatter, "Failed to create cache directory: {}", error),
+
+            ConfigError::TomlDeError(error) =>
+                write!(formatter, "Config file opened, but failed to parse as toml: {}", error),
+
+            ConfigError::TomlSerError(error) =>
+                write!(formatter, "Config failed to encode as toml: {}", error),
+        }
+    }
+}
+
+/*  From the given .ruler directry read the config file and parse as toml to obtain a
+    Config object.  If any part of that fails, forward the appropriate error. */
+fn read_config<SystemType : System>
+(
+    system : &mut SystemType,
+    directory : &str
+)
+->
+Result<Config, ConfigError>
+{
+    if ! system.is_dir(directory)
+    {
+        match system.create_dir(directory)
+        {
+            Ok(_) => {},
+            Err(error) => return Err(ConfigError::FailedToCreateDirectory(error)),
+        }
+    }
+
+    let config_path = format!("{}/config.toml", directory);
+
+    if system.is_file(&config_path)
+    {
+        match read_file_to_string(system, &config_path)
+        {
+            Ok(content_string) =>
+            {
+                return
+                match toml::from_str(&content_string)
+                {
+                    Ok(config) => Ok(config),
+                    Err(error) => Err(ConfigError::TomlDeError(error)),
+                }
+            },
+            Err(error) => return Err(ConfigError::FailedToReadConfigFile(error)),
+        }
+    }
+    else
+    {
+        let default_config = Config::new();
+        match toml::to_string(&default_config)
+        {
+            Ok(config_toml) =>
+            match write_str_to_file(system, &config_path, &config_toml)
+            {
+                Ok(_) => Ok(default_config),
+                Err(error) => Err(ConfigError::FailedToCreateConfigFile(error)),
+            },
+            Err(error) => Err(ConfigError::TomlSerError(error)),
+        }
+    }
+}
+
+/*  In the given directory, write the config object to toml file.  If any part of that
+    goes wrong, error. */
+fn write_config<SystemType : System>
+(
+    system : &mut SystemType,
+    directory : &str,
+    config : &Config
+)
+->
+Result<(), ConfigError>
+{
+    if ! system.is_dir(directory)
+    {
+        match system.create_dir(directory)
+        {
+            Ok(_) => {},
+            Err(error) => return Err(ConfigError::FailedToCreateDirectory(error)),
+        }
+    }
+
+    let config_path = format!("{}/config.toml", directory);
+
+    match toml::to_string(config)
+    {
+        Ok(config_toml) =>
+        match write_str_to_file(system, &config_path, &config_toml)
+        {
+            Ok(_) => Ok(()),
+            Err(error) => Err(ConfigError::FailedToCreateConfigFile(error)),
+        },
+        Err(error) => Err(ConfigError::TomlSerError(error)),
+    }
+}
 
 use regex::Regex;
 
@@ -137,109 +295,168 @@ fn main()
 {
     let big_matches = App::new("Ruler")
         .version("0.1.0")
-        .author("Peterson Trethewey <ptrethewey@roblox.com>")
-        .about("You know when you have files that depend on other files?  This is for that situation.")
-        .setting(clap::AppSettings::ArgRequiredElseHelp)
+        .author("Peterson Trethewey <peterson@2-complex.com>")
+        .about("
+Ruler is a tool for managing a dependence graph of files.  It works with a
+.rules file.  A .rules file contains newline-separated blocks called 'rules'.
+Each rule looks like this:
+
+path/to/target/file1
+path/to/target/file2
+:
+path/to/source/file1
+path/to/source/file2
+path/to/source/file3
+:
+command
+--option1=value1
+--option2=value2
+:
+
+The command-line invocation is meant to update the target files using the
+source files as input.
+
+Ruler maintains a history of file-hashes to determine whether a target needs to
+update.  When you type a build command such as:
+
+ruler build
+
+Ruler checks the current state of the targets against the hashes it has on
+file, determines which ones need to update and in what order, and runs the
+commands for those rules.
+
+")
         .subcommand(
             SubCommand::with_name("clean")
-            .help("Removes all files and directories specificed as targets in the rules file")
+            .about("Removes all targets")
+            .help("
+Removes all files and directories specificed as targets in the rules file.
+If a target is specified, removes all that targets ancestors.
+
+Note: clean does not delete the files, it moves them to a cache so they can be
+recovered later if needed.
+")
             .arg(Arg::with_name("target")
-                .help("The path to the clean-target file to be cleaned.  Clean command removes all files which are listed as targets in rules that the clean-target depends on.\nIf no clean-target is specified, clean command removes all files listed as targets in any rule.")
+                .help("
+The path to the clean-target.  The clean command removes all files listed as
+targets in rules that the clean-target depends on.  If no clean-target is
+specified, the clean command removes all files listed as targets in any rule.
+")
                 .required(false)
                 .index(1)
             )
         )
         .subcommand(
             SubCommand::with_name("build")
-            .help("Builds the given target.\nThe target must be a file listed in the target section of the current rules file.\nThe rules file is either a file in the current working directory called \"build.rules\" or it can be specificed using --rules=<path>")
+            .about("Builds the given target or all targets")
+            .help("
+Builds the given target.  If no build-target is specified, builds all targets.
+The target must be a file listed in the target section of the current rules
+file.  The rules file is either a file in the current working directory called
+\"build.rules\" or it can be specificed using --rules=<path>
+")
             .arg(Arg::with_name("target")
-                .help("The path to the target file (or directory) to be built")
+                .help("
+Path to a specific build-target to build.  Ruler will only build this target,
+and its ancestors, as needed.")
                 .required(false)
                 .index(1)
             )
         )
         .subcommand(
-            SubCommand::with_name("hash")
-            .help("Prints out the hash of a file.")
-            .arg(Arg::with_name("path")
-                .help("The path to the file to be hashed")
-                .required(true)
+            SubCommand::with_name("again")
+            .about("Repeats the most recent build command")
+            .help("
+Repeats the most recent `ruler build` invocation.  To get started, type `ruler build`.
+The next time you run `ruler again`, it will repeat that `ruler build` with the same options.
+")
+            .arg(Arg::with_name("target")
+                .help("
+Path to a specific build-target to build.  Ruler will only build this target, and its ancestors, as needed.")
+                .required(false)
                 .index(1)
             )
         )
-        .subcommand(
-            SubCommand::with_name("serve")
-            .help("Serves the current project and cache to any other clients on other computers who want to get intermediate build files from the network instead of building them.")
-        )
-        .subcommand(
-            SubCommand::with_name("memory")
-            .help("Shows the content of ruler memory.  This includes rule histores and target histories.")
-        )
+        .arg(Arg::with_name("rules")
+            .short("r")
+            .long("rules")
+            .value_name("rules")
+            .help("Path to a custom rules file (default: build.rules)")
+            .takes_value(true))
+.subcommand(
+SubCommand::with_name("serve")
+.help("Serves the current project and cache to any other clients on other computers who want to get intermediate build files from the network instead of building them.")
+)
+        .setting(AppSettings::ArgRequiredElseHelp)
         .get_matches();
 
-
-    if let Some(matches) = big_matches.subcommand_matches("hash")
+    if let Some(matches) = big_matches.subcommand_matches("again")
     {
-        let path =
-        match matches.value_of("path")
-        {
-            Some(value) => value,
-            None => panic!("No path!"),
-        };
-
-        match TicketFactory::from_file(&OsFileSystem::new(), path)
-        {
-            Ok(mut factory) =>
-            {
-                println!("{}", factory.result().base64());
-            },
-            Err(error) => eprintln!("{}", error),
-        }
-    }
-
-    if let Some(matches) = big_matches.subcommand_matches("upload")
-    {
-        let rulefile = "build.rules";
-
-        let target =
-        match matches.value_of("target")
-        {
-            Some(value) => value,
-            None => panic!("No target!"),
-        };
-
-        let server_url =
-        match matches.value_of("server")
-        {
-            Some(value) => value,
-            None => panic!("No server!"),
-        };
-
-        match build::upload(
-            OsFileSystem::new(),
-            rulefile,
-            target,
-            server_url)
-        {
-            Ok(()) => {},
-            Err(error) => eprintln!("{}", error),
-        }
-    }
-
-    if let Some(matches) = big_matches.subcommand_matches("clean")
-    {
-        let rulefile =
-        match matches.value_of("rules")
-        {
-            Some(value) => value,
-            None => "build.rules",
-        };
-
         let directory =
         match matches.value_of("directory")
         {
             Some(value) => value,
             None => ".ruler",
+        };
+
+        let mut system = RealSystem::new();
+        match read_config(&mut system, &directory)
+        {
+            Ok(config) =>
+                match config.again
+                {
+                    Some(again) => 
+                    {
+                        let rules =
+                        match again.rules
+                        {
+                            Some(value) => value.clone(),
+                            None => "build.rules".to_string(),
+                        };
+
+                        let target =
+                        match again.target
+                        {
+                            Some(value) => Some(value.to_string()),
+                            None => None,
+                        };
+
+                        let mut printer = StandardPrinter::new();
+                        match build::build(
+                            system,
+                            directory,
+                            &rules,
+                            target,
+                            &mut printer)
+                        {
+                            Ok(()) => {},
+                            Err(error) => eprintln!("{}", error),
+                        }
+                    }
+                    None =>
+                    {
+                        println!("Repeats the most recent `ruler build` invocation.  To get started, type `ruler build`.
+The next time you run `ruler again`, it will repeat that `ruler build` with the same options.");
+                    },
+                }
+            Err(config_error) => println!("Error reading config: {}", config_error),
+        }
+    }
+
+    if let Some(matches) = big_matches.subcommand_matches("clean")
+    {
+        let directory =
+        match matches.value_of("directory")
+        {
+            Some(value) => value,
+            None => ".ruler",
+        };
+
+        let rulefile =
+        match matches.value_of("rules")
+        {
+            Some(value) => value,
+            None => "build.rules",
         };
 
         let target =
@@ -250,29 +467,9 @@ fn main()
         };
 
         match build::clean(
-            OsFileSystem::new(),
-            OsMetadataGetter::new(),
-            directory, rulefile, target)
+            RealSystem::new(), directory, rulefile, target)
         {
             Ok(()) => {},
-            Err(error) => eprintln!("{}", error),
-        }
-    }
-
-    if let Some(matches) = big_matches.subcommand_matches("memory")
-    {
-        let directory =
-        match matches.value_of("directory")
-        {
-            Some(value) => value,
-            None => ".ruler",
-        };
-
-        let mut file_system = OsFileSystem::new();
-
-        match build::init_directory(&mut file_system, directory)
-        {
-            Ok((memory, _, _)) => println!("{}", memory),
             Err(error) => eprintln!("{}", error),
         }
     }
@@ -300,29 +497,53 @@ fn main()
             None => None,
         };
 
-        match build::build(
-            OsFileSystem::new(),
-            OsExecutor::new(),
-            OsMetadataGetter::new(),
-            directory,
-            rulefile,
-            target)
+        let config = Config
         {
-            Ok(()) => {},
-            Err(error) => eprintln!("{}", error),
+            again : Some(
+                BuildInvocation
+                {
+                    target : target.clone(),
+                    rules : Some(rulefile.to_string()),
+                }
+            )
+        };
+
+        let mut system = RealSystem::new();
+        let mut printer = StandardPrinter::new();
+
+        match write_config(&mut system, &directory, &config)
+        {
+            Ok(()) =>
+            {
+                match build::build(
+                    system,
+                    directory,
+                    rulefile,
+                    target,
+                    &mut printer)
+                {
+                    Ok(()) => {},
+                    Err(error) => eprintln!("{}", error),
+                }
+            },
+            Err(error) =>
+            {
+                println!("Error writing config file: {}", error);
+            }
         }
+
     }
 
-    if let Some(matches) = big_matches.subcommand_matches("serve")
-    {
-        let listener = TcpListener::bind("0.0.0.0:7878").unwrap();
+if let Some(matches) = big_matches.subcommand_matches("serve")
+{
+let listener = TcpListener::bind("0.0.0.0:7878").unwrap();
 
-        let file_system = OsFileSystem::new();
-        for stream in listener.incoming()
-        {
-            let stream = stream.unwrap();
-            handle_connection(&file_system, stream);
-        }
-    }
+let file_system = OsFileSystem::new();
+for stream in listener.incoming()
+{
+let stream = stream.unwrap();
+handle_connection(&file_system, stream);
+}
+}
 }
 
