@@ -2,7 +2,12 @@ extern crate bincode;
 extern crate serde;
 
 use crypto::sha2::Sha512;
-use base64::encode_config;
+use base64::
+{
+    encode_config,
+    decode_config,
+    DecodeError
+};
 use crypto::digest::Digest;
 use std::hash::{Hash, Hasher};
 use serde::{Serialize, Deserialize};
@@ -15,7 +20,7 @@ use std::fmt;
 use std::io::Read;
 
 /*  Ticket is a struct representing a hash of a file or a rule.  To construct a ticket,
-    you first make a TiketFactory, and you can feed the factory data bit by bit for it to
+    you first make a TicketFactory, and you can feed the factory data bit by bit for it to
     hash, using functions that start with "input_" then get the ticket using result(). */
 pub struct TicketFactory
 {
@@ -110,10 +115,26 @@ pub struct Ticket
 
 impl Ticket
 {
+    /*  Constructs a ticket from a base64-encoded string. */
+    pub fn from_base64(base64_str : &str) -> Result<Ticket, DecodeError>
+    {
+        match decode_config(base64_str, base64::URL_SAFE)
+        {
+            Ok(bytes) =>
+            {
+                Ok(Ticket{ sha : bytes })
+            }
+            Err(error) =>
+            {
+                Err(error)
+            }
+        }
+    }
+
     /*  Returns a string URL-safe base64-encoded hash */
     pub fn base64(&self) -> String
     {
-        format!("{}", encode_config(&self.sha, base64::URL_SAFE))
+        encode_config(&self.sha, base64::URL_SAFE).to_string()
     }
 
     /*  Use this function to create a ticket based on the targets, sources and command
@@ -182,7 +203,11 @@ mod test
     {
         FakeSystem
     };
-    use lipsum::{LOREM_IPSUM};
+    use lipsum::
+    {
+        LOREM_IPSUM
+    };
+    use base64::DecodeError;
 
     /*  Uses a TicketFactory to construct a Ticket based on a single string with one character,
         compares with exemplar. */
@@ -309,5 +334,68 @@ mod test
         let decoded: Ticket = bincode::deserialize(&encoded[..]).unwrap();
         assert_eq!(ticket, decoded);
         assert_eq!(ticket.base64(), decoded.base64());
+    }
+
+    /*  Make a ticket from a base64 string, then compute it's base64 string, make sure they match. */
+    #[test]
+    fn ticket_base64_round_trip()
+    {
+        let base64_str = "UUIguBwMxofHdUKdfRVzVpLkqPRwg5IISF49Wc2jVd6-pmF9lxunRtP26JDPNlAgX3MoUrJEfrQ9nVKFJly8Og==";
+        match Ticket::from_base64(base64_str)
+        {
+            Ok(ticket) =>
+            {
+                assert_eq!(ticket.base64(), base64_str);
+            },
+            Err(error) => panic!("Unexpected error deserializing perfectly good hash: {}", error)
+        }
+    }
+
+    /*  Try to make a ticket from a base64 string but the string isn't proper base64, make sure it errors. */
+    #[test]
+    fn ticket_base64_not_urlsafe()
+    {
+        let base64_str = "UUIguBwMxofHdUKdfRVzVpLkqPRwg5IISF49Wc2jVd6/pmF9lxunRtP26JDPNlAgX3MoUrJEfrQ9nVKFJly8Og==";
+        match Ticket::from_base64(base64_str)
+        {
+            Ok(_ticket) =>
+            {
+                panic!("Unexpected success when uhhasning non-urlsafe string")
+            },
+            Err(error) =>
+            {
+                match error
+                {
+                    DecodeError::InvalidByte(offset, byte) =>
+                    {
+                        assert_eq!(byte, 47);
+                        assert_eq!(offset, 43);
+                    },
+                    _ => panic!("Unexpected error type"),
+                }
+            }
+        }
+    }
+
+    /*  Try to make a ticket from a base64 string but the string isn't proper base64, make sure it errors. */
+    #[test]
+    fn ticket_base64_nonsense()
+    {
+        let base64_str = "(){}/";
+        match Ticket::from_base64(base64_str)
+        {
+            Ok(_ticket) =>
+            {
+                panic!("Unexpected success when uhhasning non-base64 string")
+            },
+            Err(error) =>
+            {
+                match error
+                {
+                    DecodeError::InvalidLength => {},
+                    _ => panic!("Unexpected error type : "),
+                }
+            }
+        }
     }
 }

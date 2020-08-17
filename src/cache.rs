@@ -16,6 +16,13 @@ pub enum RestoreResult
     SystemError(SystemError)
 }
 
+pub enum OpenError
+{
+    NotThere,
+    CacheDirectoryMissing,
+    SystemError(SystemError)
+}
+
 #[derive(Clone)]
 pub struct LocalCache
 {
@@ -33,12 +40,16 @@ impl LocalCache
         }
     }
 
-    pub fn restore_file<SystemType : System>(
+    /*  Searches the cache for a file with the given ticket.  Replaces it at the path in question if it's there,
+        returns a RestoreResult indicating what happend.  */
+    pub fn restore_file<SystemType : System>
+    (
         &self,
         system : &mut SystemType,
         ticket : &Ticket,
         target_path : &str
-    ) -> RestoreResult
+    )
+    -> RestoreResult
     {
         if system.is_dir(&self.path)
         {
@@ -59,6 +70,39 @@ impl LocalCache
         else
         {
             RestoreResult::CacheDirectoryMissing
+        }
+    }
+
+    /*  Does what restore does except, instead of moving file contents to the right place in the file system
+        opens the file and returns the File object to be read by the caller. */
+    pub fn open<SystemType : System>
+    (
+        &self,
+        system : &mut SystemType,
+        ticket : &Ticket,
+        _target_path : &str
+    )
+    -> Result<SystemType::File, OpenError>
+    {
+        if system.is_dir(&self.path)
+        {
+            let cache_path = format!("{}/{}", self.path, ticket.base64());
+            if system.is_file(&cache_path)
+            {
+                match system.open(&cache_path)
+                {
+                    Ok(file) => Ok(file),
+                    Err(error) => Err(OpenError::SystemError(error))
+                }
+            }
+            else
+            {
+                Err(OpenError::NotThere)
+            }
+        }
+        else
+        {
+            Err(OpenError::CacheDirectoryMissing)
         }
     }
 
@@ -94,7 +138,7 @@ impl LocalCache
             Ok(mut factory) =>
             {
                 self.back_up_file_with_ticket(system, &factory.result(), target_path)
-            }
+            },
             Err(error) => Err(error)
         }
     }
@@ -109,12 +153,19 @@ mod test
         fake::FakeSystem
     };
     use crate::ticket::TicketFactory;
-    use crate::cache::{LocalCache, RestoreResult};
+    use crate::cache::
+    {
+        LocalCache,
+        RestoreResult,
+        OpenError,
+    };
     use crate::system::util::
     {
         write_str_to_file,
         read_file_to_string
     };
+
+    use std::io::Read;
 
     #[test]
     fn back_up_and_restore()
@@ -159,6 +210,55 @@ mod test
         {
             Ok(content) => assert_eq!(content, "apples\n"),
             Err(_) => panic!("Restored file was not there"),
+        }
+    }
+
+    #[test]
+    fn back_up_and_open()
+    {
+        let mut system = FakeSystem::new(10);
+
+        match system.create_dir(".ruler-cache")
+        {
+            Ok(()) => {},
+            Err(error) => panic!("Failed to initialize file situation: {}", error),
+        }
+
+        let cache = LocalCache::new(".ruler-cache");
+
+        match write_str_to_file(&mut system, "apples.txt", "apples\n")
+        {
+            Ok(()) => {},
+            Err(error) => panic!("Failed to initialize file situation: {}", error),
+        }
+
+        assert!(system.is_file("apples.txt"));
+
+        match cache.back_up_file(&mut system, "apples.txt")
+        {
+            Ok(()) => {},
+            Err(error) => panic!("Backup failed unexpectedly: {}", error),
+        }
+
+        assert!(!system.is_file("apples.txt"));
+
+        match cache.open(&mut system, &TicketFactory::from_str("apples\n").result(), "apples.txt")
+        {
+            Ok(mut file) =>
+            {
+                let mut buffer = String::new();
+                match file.read_to_string(&mut buffer)
+                {
+                    Ok(_) =>
+                    {
+                        assert_eq!(buffer, "apples\n".to_string());
+                    },
+                    Err(error) => panic!("Unexpected error when comparing file: {}", error),
+                }
+            },
+            Err(OpenError::NotThere) => panic!("Backup not there when expected"),
+            Err(OpenError::CacheDirectoryMissing) => panic!("Cache directory missing, but we just made it"),
+            Err(OpenError::SystemError(_error)) => panic!("File error in the middle of legit restore"),
         }
     }
 

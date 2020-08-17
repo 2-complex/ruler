@@ -15,8 +15,7 @@ use serde::
     Serialize,
     Deserialize
 };
-use std::net::TcpStream;
-use std::net::TcpListener;
+
 use std::fmt;
 use crate::system::
 {
@@ -35,6 +34,7 @@ use crate::printer::StandardPrinter;
 
 mod cache;
 mod build;
+mod network;
 mod rule;
 mod ticket;
 mod work;
@@ -42,6 +42,7 @@ mod memory;
 mod packet;
 mod printer;
 mod system;
+mod directory;
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 struct BuildInvocation
@@ -187,109 +188,6 @@ Result<(), ConfigError>
     }
 }
 
-use regex::Regex;
-
-pub enum SplitError
-{
-    Contradiction(Vec<usize>),
-    TargetSizesDifferWeird,
-}
-
-fn handle_connection<FileSystemType: FileSystem>(
-    mut file_system : &FileSystemType,
-    mut stream: TcpStream)
-{
-    let mut buffer = [0u8; 1024];
-    stream.read(&mut buffer);
-
-    let requeststring = std::str::from_utf8(&buffer).unwrap();
-
-    let mut splitthing = requeststring.split_whitespace();
-
-    match(splitthing.next())
-    {
-        Some("GET") =>
-        {
-            match(splitthing.next())
-            {
-                Some(token) =>
-                {
-                    println!("token = {}", token);
-
-                    let re = Regex::new(r"/(.*)").unwrap();
-
-                    match re.captures(token)
-                    {
-                        Some(cap)=>
-                        {
-                            let path = &cap[1];
-
-                            let file_system = OsFileSystem::new();
-                            match file_system.open(path)
-                            {
-                                Ok(mut reader) =>
-                                {
-                                    stream.write("HTTP/1.1 200 OK\r\n\r\n".as_bytes());
-                                    let mut buffer = [0u8; 256];
-                                    loop
-                                    {
-                                        match reader.read(&mut buffer)
-                                        {
-                                            Ok(0) => break,
-                                            Ok(size) =>
-                                            {
-                                                stream.write(&buffer[..size]);
-                                            },
-                                            Err(why) =>
-                                            {
-                                                panic!("This is wrong, we should split this into a function and return an Option");
-                                            },
-                                        }
-                                    }
-                                    stream.flush().unwrap();
-                                },
-                                Err(why) =>
-                                {
-                                    let response = "HTTP/1.1 404 File Not Found\r\n\r\n".to_string();
-                                    stream.write(response.as_bytes()).unwrap();
-                                    stream.flush().unwrap();
-                                }
-                            }
-                            stream.flush().unwrap();
-                        },
-                        None=>
-                        {
-                            let response = "HTTP/1.1 404 File Not Found\r\n\r\n".to_string();
-                            stream.write(response.as_bytes()).unwrap();
-                            stream.flush().unwrap();
-                        }
-                    }
-
-                },
-                None=>
-                {
-                    let response = "HTTP/1.1 404 File Not Found\r\n\r\n".to_string();
-                    stream.write(response.as_bytes()).unwrap();
-                    stream.flush().unwrap();
-                },
-            }
-        },
-        Some(_) =>
-        {
-            let response = "HTTP/1.1 405 Method Not Allowed\r\n\r\n".to_string();
-
-            stream.write(response.as_bytes()).unwrap();
-            stream.flush().unwrap();
-        },
-        None =>
-        {
-            let response = "".to_string();
-            stream.write(response.as_bytes()).unwrap();
-            stream.flush().unwrap();
-        }
-    }
-
-}
 
 fn main()
 {
@@ -367,12 +265,14 @@ and its ancestors, as needed.")
             SubCommand::with_name("again")
             .about("Repeats the most recent build command")
             .help("
-Repeats the most recent `ruler build` invocation.  To get started, type `ruler build`.
-The next time you run `ruler again`, it will repeat that `ruler build` with the same options.
+Repeats the most recent `ruler build` invocation.  To get started, type
+`ruler build`.  The next time you run `ruler again`, it will repeat that
+`ruler build` with the same options.
 ")
             .arg(Arg::with_name("target")
                 .help("
-Path to a specific build-target to build.  Ruler will only build this target, and its ancestors, as needed.")
+Path to a specific build-target to build.  Ruler will only build this target,
+and its ancestors, as needed.")
                 .required(false)
                 .index(1)
             )
@@ -383,12 +283,39 @@ Path to a specific build-target to build.  Ruler will only build this target, an
             .value_name("rules")
             .help("Path to a custom rules file (default: build.rules)")
             .takes_value(true))
-.subcommand(
-SubCommand::with_name("serve")
-.help("Serves the current project and cache to any other clients on other computers who want to get intermediate build files from the network instead of building them.")
-)
+        .subcommand(
+            SubCommand::with_name("serve")
+            .help("
+Serves the current project and cache to any other clients on other
+computers who want to get intermediate build files from the network instead of
+building them.")
+        )
+        .subcommand(
+            SubCommand::with_name("download")
+            .about("Downloads a file based on hash")
+            .help("
+Downloads a file based on hash
+")
+            .arg(Arg::with_name("hash")
+                .help("
+The base64-encoded hash of the required file
+")
+                .required(true)
+                .index(1)
+            )
+            .arg(Arg::with_name("path")
+                .help("
+The path to receive the download.  If we receive a file from the server, it
+goes here.
+")
+                .required(true)
+                .index(2)
+            )
+        )
         .setting(AppSettings::ArgRequiredElseHelp)
         .get_matches();
+
+
 
     if let Some(matches) = big_matches.subcommand_matches("again")
     {
@@ -435,8 +362,10 @@ SubCommand::with_name("serve")
                     }
                     None =>
                     {
-                        println!("Repeats the most recent `ruler build` invocation.  To get started, type `ruler build`.
-The next time you run `ruler again`, it will repeat that `ruler build` with the same options.");
+                        println!("
+Repeats the most recent `ruler build` invocation.  To get started, type
+`ruler build`.  The next time you run `ruler again`, it will repeat that
+`ruler build` with the same options.");
                     },
                 }
             Err(config_error) => println!("Error reading config: {}", config_error),
@@ -531,19 +460,50 @@ The next time you run `ruler again`, it will repeat that `ruler build` with the 
                 println!("Error writing config file: {}", error);
             }
         }
-
     }
 
-if let Some(matches) = big_matches.subcommand_matches("serve")
-{
-let listener = TcpListener::bind("0.0.0.0:7878").unwrap();
+    if let Some(matches) = big_matches.subcommand_matches("serve")
+    {
+        let directory =
+        match matches.value_of("directory")
+        {
+            Some(value) => value,
+            None => ".ruler",
+        };
 
-let file_system = OsFileSystem::new();
-for stream in listener.incoming()
-{
-let stream = stream.unwrap();
-handle_connection(&file_system, stream);
-}
-}
+        let rulefile =
+        match matches.value_of("rules")
+        {
+            Some(value) => value,
+            None => "build.rules",
+        };
+
+        let mut system = RealSystem::new();
+
+        println!("Serving...");
+        network::serve(&mut system, directory, rulefile);
+    }
+
+    if let Some(matches) = big_matches.subcommand_matches("download")
+    {
+        println!("Downloading...");
+
+        let download_path =
+        match matches.value_of("path")
+        {
+            Some(value) => value.to_string(),
+            None => panic!("No download path provided"),
+        };
+
+        let base64_ticket =
+        match matches.value_of("path")
+        {
+            Some(value) => value.to_string(),
+            None => panic!("No ticket provided"),
+        };
+
+        let mut system = RealSystem::new();
+        network::download(&mut system, base64_ticket, download_path);
+    }
 }
 
