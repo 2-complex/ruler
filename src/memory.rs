@@ -200,6 +200,8 @@ impl TargetHistory
 pub struct Memory
 {
     rule_histories : HashMap<Ticket, RuleHistory>,
+
+    /*  Map target path to target-history */
     target_histories : HashMap<String, TargetHistory>,
 }
 
