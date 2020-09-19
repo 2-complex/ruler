@@ -49,7 +49,7 @@ pub fn write_file
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct RuleHistory
 {
-    /*  Each rule history consists of a map.
+    /*  Each rule history consists of a map
             key = source-ticket
             value = a target ticket for each target */
     source_to_targets : HashMap<Ticket, Vec<Ticket>>,

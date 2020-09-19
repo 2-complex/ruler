@@ -62,6 +62,8 @@ impl LocalCache
         }
     }
 
+    /*  Creates a file with the given ticket (convertd to base64) as a name, and
+        moves the file into that place. */
     pub fn back_up_file_with_ticket<SystemType : System>
     (
         &self,
