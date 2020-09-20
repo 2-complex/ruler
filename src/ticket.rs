@@ -2,8 +2,8 @@ extern crate bincode;
 extern crate serde;
 
 use crypto::sha2::Sha512;
-use base64::encode_config;
 use crypto::digest::Digest;
+use base64::encode_config;
 use std::hash::{Hash, Hasher};
 use serde::{Serialize, Deserialize};
 use crate::system::

@@ -554,7 +554,7 @@ pub fn clean<SystemType : System + Clone + Send + 'static>
         }
 
         let mut system_clone = system.clone();
-        let local_cache_clone = cache.clone();
+        let mut local_cache_clone = cache.clone();
 
         match node.rule_ticket
         {
@@ -566,7 +566,7 @@ pub fn clean<SystemType : System + Clone + Send + 'static>
                             clean_targets(
                                 target_infos,
                                 &mut system_clone,
-                                &local_cache_clone)
+                                &mut local_cache_clone)
                         }
                     )
                 ),
@@ -871,8 +871,13 @@ poem.txt
             Err(_) => panic!("Poem failed to be utf8?"),
         }
 
-        let cache = LocalCache::new(".ruler/cache");
-        cache.restore_file(&mut system, &ticket, "temp-poem.txt");
+        let mut cache = LocalCache::new(".ruler/cache");
+
+        match cache.restore_file(&mut system, &ticket, "temp-poem.txt")
+        {
+            Ok(_) => {},
+            Err(error) => panic!("Restore should have succeeded, instead got error: {}", error),
+        }
 
         match read_file_to_string(&mut system, "temp-poem.txt")
         {
