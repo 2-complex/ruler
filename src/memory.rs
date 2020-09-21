@@ -179,7 +179,6 @@ impl TargetHistory
         }
     }
 
-    #[cfg(test)]
     pub fn new(
         ticket : Ticket,
         timestamp : u64) -> TargetHistory
@@ -356,8 +355,7 @@ impl Memory
         }
     }
 
-    /*  For testing it is useful to insert a mock TargetHistory. */
-    #[cfg(test)]
+    /*  Adds the given TargetHistory to the map for the given file-path. */
     pub fn insert_target_history(&mut self, target_path: String, target_history : TargetHistory)
     {
         self.target_histories.insert(target_path, target_history);

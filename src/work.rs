@@ -22,6 +22,10 @@ use crate::cache::{LocalCache, RestoreResult};
 
 use std::sync::mpsc::{Sender, Receiver, RecvError};
 use std::fmt;
+use std::time::
+{
+    SystemTimeError
+};
 
 pub struct TargetFileInfo
 {
@@ -30,7 +34,7 @@ pub struct TargetFileInfo
 }
 
 /*  Takes a system and a TargetFileInfo, and obtains a ticket for the file described.
-    If the modified date of the file matches the one in TargetHistory exactly,   */
+    If the modified date of the file matches the one in TargetHistory exactly. */
 pub fn get_file_ticket<SystemType: System>
 (
     system : &SystemType,
@@ -73,6 +77,49 @@ pub fn get_file_ticket<SystemType: System>
     }
 }
 
+/*  Takes a system and a TargetFileInfo, and obtains a ticket for the file described,
+    and also a timestamp.
+
+    If the modified date of the file matches the one in TargetHistory exactly, it
+    doesn't bother recomputing the ticket. */
+pub fn get_file_ticket_and_timestamp<SystemType: System>
+(
+    system : &SystemType,
+    target_info : &TargetFileInfo
+)
+-> Result<(Ticket, u64), WorkError>
+{
+    match system.get_modified(&target_info.path)
+    {
+        Ok(system_time) =>
+        {
+            match get_timestamp(system_time)
+            {
+                Ok(timestamp) =>
+                {
+                    if timestamp == target_info.history.timestamp
+                    {
+                        Ok((target_info.history.ticket.clone(), timestamp))
+                    }
+                    else
+                    {
+                        match TicketFactory::from_file(system, &target_info.path)
+                        {
+                            Ok(mut factory) => Ok((factory.result(), timestamp)),
+                            Err(error) => Err(WorkError::ReadWriteError(target_info.path.clone(), error)),
+                        }
+                    }
+                },
+                Err(error) => Err(WorkError::SystemTimeError(target_info.path.clone(), error)),
+            }
+        },
+
+        // Note: possibly there are other ways get_modified can fail than the file being absent.
+        // Maybe this logic should change.
+        Err(_error) => Err(WorkError::TargetFileNotGenerated(target_info.path.clone())),
+    }
+}
+
 pub enum FileResolution
 {
     AlreadyCorrect,
@@ -104,7 +151,8 @@ pub enum WorkError
     FileNotFound(String),
     TargetFileNotGenerated(String),
     FileNotAvailableToCache(String, ReadWriteError),
-    FileIoError(String, ReadWriteError),
+    ReadWriteError(String, ReadWriteError),
+    SystemTimeError(String, SystemTimeError),
     CommandExecutedButErrored(String),
     CommandFailedToExecute,
     Contradiction(Vec<String>),
@@ -141,8 +189,11 @@ impl fmt::Display for WorkError
             WorkError::FileNotAvailableToCache(path, error) =>
                 write!(formatter, "File not available to be cached: {} : {}", path, error),
 
-            WorkError::FileIoError(path, error) =>
+            WorkError::ReadWriteError(path, error) =>
                 write!(formatter, "Error reading file: {}: {}", path, error),
+
+            WorkError::SystemTimeError(path, error) =>
+                write!(formatter, "Error when getting modified timestamp: {}: {}", path, error),
 
             WorkError::CommandExecutedButErrored(message) =>
                 write!(formatter, "Command executed but errored: {}", message),
@@ -367,7 +418,7 @@ fn get_current_target_tickets<SystemType: System>
                     None => return Err(WorkError::FileNotFound(target_info.path.clone())),
                 }
             },
-            Err(error) => return Err(WorkError::FileIoError(target_info.path.clone(), error)),
+            Err(error) => return Err(WorkError::ReadWriteError(target_info.path.clone(), error)),
         }
     }
 
@@ -479,7 +530,7 @@ fn rebuild_node<SystemType : System>
     sources_ticket : Ticket,
     command : Vec<String>,
     senders : Vec<(usize, Sender<Packet>)>,
-    target_infos : Vec<TargetFileInfo>
+    mut target_infos : Vec<TargetFileInfo>
 )
 ->
 Result<WorkResult, WorkError>
@@ -494,30 +545,16 @@ Result<WorkResult, WorkError>
             }
 
             let mut post_command_target_tickets = Vec::new();
-            for target_info in target_infos.iter()
+            for target_info in target_infos.iter_mut()
             {
-                match get_file_ticket(
-                    system,
-                    &target_info)
+                match get_file_ticket_and_timestamp(system, &target_info)
                 {
-                    Ok(ticket_opt) =>
+                    Ok((ticket, timestamp)) =>
                     {
-                        match ticket_opt
-                        {
-                            Some(ticket) =>
-                            {
-                                post_command_target_tickets.push(ticket);
-                            }
-                            None =>
-                            {
-                                return Err(WorkError::TargetFileNotGenerated(target_info.path.clone()));
-                            }
-                        }
+                        target_info.history = TargetHistory::new(ticket.clone(), timestamp);
+                        post_command_target_tickets.push(ticket);
                     },
-                    Err(error) =>
-                    {
-                        return Err(WorkError::FileIoError(target_info.path.clone(), error));
-                    }
+                    Err(error) => return Err(error),
                 }
             }
 
@@ -596,7 +633,8 @@ Result<WorkResult, WorkError>
         Err(error) => return Err(error),
     };
 
-    /*  If there's a rule-history that means the node is rule, otherwise, it is a plain source file. */
+    /*  If there's a rule-history that means the node is rule,
+        otherwise, it is a plain source file. */
     match rule_history_opt
     {
         None => handle_source_only_node(
@@ -785,7 +823,7 @@ mod test
                                 Err(_error) => Err(WorkError::SenderError),
                             }
                         },
-                        Err(error) => Err(WorkError::FileIoError(path.to_string(), error)),
+                        Err(error) => Err(WorkError::ReadWriteError(path.to_string(), error)),
                     }
                 }
             ).join()
