@@ -154,7 +154,7 @@ pub enum WorkError
     ReadWriteError(String, ReadWriteError),
     SystemTimeError(String, SystemTimeError),
     CommandExecutedButErrored(String),
-    CommandFailedToExecute,
+    CommandFailedToExecute(SystemError),
     Contradiction(Vec<String>),
     CacheDirectoryMissing,
     CacheMalfunction(SystemError),
@@ -198,8 +198,8 @@ impl fmt::Display for WorkError
             WorkError::CommandExecutedButErrored(message) =>
                 write!(formatter, "Command executed but errored: {}", message),
 
-            WorkError::CommandFailedToExecute =>
-                write!(formatter, "Failed to execute command.  Not just the command returned a non-zero code, it did not even run."),
+            WorkError::CommandFailedToExecute(error) =>
+                write!(formatter, "Failed to execute command: {}", error),
 
             WorkError::Contradiction(contradicting_target_paths) =>
             {
@@ -603,9 +603,9 @@ Result<WorkResult, WorkError>
                 }
             )
         },
-        Err(_error) =>
+        Err(error) =>
         {
-            return Err(WorkError::CommandFailedToExecute)
+            return Err(WorkError::CommandFailedToExecute(error))
         },
     }
 }

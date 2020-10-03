@@ -124,6 +124,8 @@ impl System for RealSystem
         Result<CommandLineOutput, SystemError>
     {
         let mut command_opt : Option<Command> = None;
+        let mut starter_for_error_message = "".to_string();
+
         for line in command_lines.drain(..)
         {
             for element in line.split_whitespace()
@@ -144,7 +146,10 @@ impl System for RealSystem
                                         return Ok(CommandLineOutput::from_output(output))
                                     }
                                 },
-                                Err(_error) => return Err(SystemError::CommandExecutationFailed),
+                                Err(error) =>
+                                {
+                                    return Err(SystemError::CommandExecutationFailed(format!("{} error: {}", starter_for_error_message, error)));
+                                },
                             }
                         },
                         None => {},
@@ -154,7 +159,11 @@ impl System for RealSystem
                     command_opt = Some(
                         match command_opt
                         {
-                            None => Command::new(element),
+                            None =>
+                            {
+                                starter_for_error_message = element.to_string();
+                                Command::new(element)
+                            },
                             Some(mut command) =>
                             {
                                 command.arg(element);
@@ -173,7 +182,7 @@ impl System for RealSystem
                 match command.output()
                 {
                     Ok(out) => Ok(CommandLineOutput::from_output(out)),
-                    Err(_error) => Err(SystemError::CommandExecutationFailed),
+                    Err(error) => Err(SystemError::CommandExecutationFailed(format!("{} error: {}", starter_for_error_message, error))),
                 }
             },
             None => Ok(CommandLineOutput::new()),
