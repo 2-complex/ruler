@@ -172,7 +172,7 @@ impl fmt::Display for ParseError
         match self
         {
             ParseError::UnexpectedEmptyLine(line_number) =>
-                write!(formatter, "Unexpected emtpy line {}", line_number),
+                write!(formatter, "Unexpected empty line {}", line_number),
 
             ParseError::UnexpectedExtraColon(line_number) =>
                 write!(formatter, "Unexpected extra ':' on line {}", line_number),

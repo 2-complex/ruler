@@ -687,9 +687,9 @@ mod test
         memory.insert_target_history("src/meta.c".to_string(), target_history);
         let history = memory.take_target_history("src/math.cpp");
 
-        let emtpy_target_history = TargetHistory::empty();
+        let empty_target_history = TargetHistory::empty();
 
-        assert_eq!(history.ticket, emtpy_target_history.ticket);
-        assert_eq!(history.timestamp, emtpy_target_history.timestamp);
+        assert_eq!(history.ticket, empty_target_history.ticket);
+        assert_eq!(history.timestamp, empty_target_history.timestamp);
     }
 }

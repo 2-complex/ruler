@@ -196,7 +196,7 @@ impl fmt::Display for WorkError
                 write!(formatter, "Error when getting modified timestamp: {}: {}", path, error),
 
             WorkError::CommandExecutedButErrored(message) =>
-                write!(formatter, "Command executed but errored: {}", message),
+                write!(formatter, "Command executed but errored:\n{}", message),
 
             WorkError::CommandFailedToExecute(error) =>
                 write!(formatter, "Failed to execute command: {}", error),
