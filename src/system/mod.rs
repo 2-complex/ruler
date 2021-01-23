@@ -42,6 +42,7 @@ impl fmt::Display for ReadWriteError
 
 impl CommandLineOutput
 {
+    #[cfg(test)]
     pub fn new() -> CommandLineOutput
     {
         CommandLineOutput
