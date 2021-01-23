@@ -1,6 +1,7 @@
 extern crate clap;
 extern crate toml;
 extern crate serde;
+extern crate execute;
 
 use clap::
 {

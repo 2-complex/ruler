@@ -153,7 +153,7 @@ pub enum WorkError
     FileNotAvailableToCache(String, ReadWriteError),
     ReadWriteError(String, ReadWriteError),
     SystemTimeError(String, SystemTimeError),
-    CommandExecutedButErrored(String),
+    CommandExecutedButErrored,
     CommandFailedToExecute(SystemError),
     Contradiction(Vec<String>),
     CacheDirectoryMissing,
@@ -195,8 +195,8 @@ impl fmt::Display for WorkError
             WorkError::SystemTimeError(path, error) =>
                 write!(formatter, "Error when getting modified timestamp: {}: {}", path, error),
 
-            WorkError::CommandExecutedButErrored(message) =>
-                write!(formatter, "Command executed but errored:\n{}", message),
+            WorkError::CommandExecutedButErrored =>
+                write!(formatter, "Command executed but errored"),
 
             WorkError::CommandFailedToExecute(error) =>
                 write!(formatter, "Failed to execute command: {}", error),
@@ -541,7 +541,7 @@ Result<WorkResult, WorkError>
         {
             if ! command_result.success
             {
-                return Err(WorkError::CommandExecutedButErrored(command_result.err));
+                return Err(WorkError::CommandExecutedButErrored);
             }
 
             let mut post_command_target_tickets = Vec::new();
@@ -1236,15 +1236,13 @@ mod test
             LocalCache::new(".ruler-cache"))
         {
             Ok(_) => panic!("Unexpected command success"),
-            Err(WorkError::CommandExecutedButErrored(message)) =>
+            Err(WorkError::CommandExecutedButErrored) =>
             {
                 match receiver_c.recv()
                 {
                     Ok(_) => panic!("Unexpected successful receive"),
                     Err(_) => {}
                 }
-
-                assert_eq!(message, "Failed");
             },
             Err(error) => panic!("Wrong kind of error when command errors: {}", error),
         }
