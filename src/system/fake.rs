@@ -921,7 +921,7 @@ mod test
                 match error
                 {
                     NodeError::PathEmpty => {},
-                    _ => panic!("Unexpected error type.  Expected PathEmtpy"),
+                    _ => panic!("Unexpected error type.  Expected PathEmpty"),
                 },
         }
     }

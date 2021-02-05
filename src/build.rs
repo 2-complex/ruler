@@ -236,10 +236,12 @@ fn read_all_rules<SystemType : System>
     It opens the rulefile, parses it, and then either updates all targets in all rules
     or, if goal_target_opt is Some, only the targets that are ancstors of goal_target_opt
     in the dependence graph. */
-pub fn build<
+pub fn build
+<
     SystemType : System + Clone + Send + 'static,
     PrinterType : Printer,
->(
+>
+(
     mut system : SystemType,
     directory : &str,
     rulefile_path: &str,
@@ -366,7 +368,7 @@ pub fn build<
             {
                 match work_result_result
                 {
-                    Ok(work_result) =>
+                    Ok(mut work_result) =>
                     {
                         match work_result.work_option
                         {
@@ -443,6 +445,11 @@ pub fn build<
                             }
                             None => {},
                         }
+
+                        for target_info in work_result.target_infos.drain(..)
+                        {
+                            memory.insert_target_history(target_info.path, target_info.history);
+                        }
                     },
                     Err(work_error) =>
                     {
@@ -470,7 +477,6 @@ pub fn build<
 
     if work_errors.len() == 0
     {
-
         Ok(())
     }
     else
@@ -617,7 +623,8 @@ mod test
     use crate::build::
     {
         build,
-        BuildError
+        init_directory,
+        BuildError,
     };
     use crate::system::
     {
@@ -633,6 +640,10 @@ mod test
         read_file_to_string
     };
     use crate::printer::EmptyPrinter;
+    use crate::memory::
+    {
+        TargetHistory
+    };
 
     #[test]
     fn build_basic()
@@ -687,6 +698,10 @@ poem.txt
         }
     }
 
+    /*  Set up a filesystem and a .rules file with one real dependence missing
+        from the rules.  Build once, make sure it goes as planned, then change
+        the contents of the omitted source file.  Check that Building again produces
+        a particular error: a contradiction. */
     #[test]
     fn build_with_missing_source()
     {
@@ -737,6 +752,8 @@ poem.txt
             Ok(()) => {},
             Err(error) => panic!("Unexpected build error: {}", error),
         }
+
+        system.time_passes(1);
 
         match read_file_to_string(&mut system, "poem.txt")
         {
@@ -789,6 +806,7 @@ poem.txt
         }
     }
 
+    /*  Set up filesystem to build a poem with two verses.  */
     #[test]
     fn build_change_build_check_cache()
     {
@@ -834,6 +852,8 @@ poem.txt
             Ok(()) => {},
             Err(error) => panic!("Unexpected build error: {}", error),
         }
+
+        system.time_passes(1);
 
         match read_file_to_string(&mut system, "poem.txt")
         {
@@ -913,6 +933,91 @@ poem.txt
             Ok(text) => assert_eq!(text, "Roses are red.\nViolets are blue.\n"),
             Err(_) => panic!("Failed to read poem a second time."),
         }
+    }
+
+
+    #[test]
+    fn build_check_target_history()
+    {
+        let rules = "\
+poem.txt
+:
+verse1.txt
+verse2.txt
+:
+mycat
+verse1.txt
+verse2.txt
+poem.txt
+:
+";
+        let mut system = FakeSystem::new(17);
+
+        match write_str_to_file(&mut system, "verse1.txt", "Roses are red.\n")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File failed to write"),
+        }
+
+        match write_str_to_file(&mut system, "verse2.txt", "Violets are violet.\n")
+        {
+            Ok(_) => {},
+            Err(error) => panic!("File failed to write: {}", error),
+        }
+
+        match write_str_to_file(&mut system, "test.rules", rules)
+        {
+            Ok(_) => {},
+            Err(error) => panic!("File failed to write: {}", error),
+        }
+
+        {
+            let (mut memory, _cache, _memoryfile) =
+            match init_directory(&mut system, "ruler-directory")
+            {
+                Ok((memory, cache, memoryfile)) => (memory, cache, memoryfile),
+                Err(error) => panic!("Failed to init directory error: {}", error)
+            };
+
+            let target_history_before = memory.take_target_history("poem.txt");
+            assert_eq!(target_history_before, TargetHistory::empty());
+            memory.insert_target_history("poem.txt".to_string(), target_history_before);
+        }
+
+        match build(
+            system.clone(),
+            "ruler-directory",
+            "test.rules",
+            Some("poem.txt".to_string()),
+            &mut EmptyPrinter::new())
+        {
+            Ok(()) => {},
+            Err(error) => panic!("Unexpected build error: {}", error),
+        }
+
+        match read_file_to_string(&mut system, "poem.txt")
+        {
+            Ok(text) => assert_eq!(text, "Roses are red.\nViolets are violet.\n"),
+            Err(_) => panic!("Failed to read poem."),
+        }
+
+        {
+            let (mut memory, _cache, _memoryfile) =
+            match init_directory(&mut system, "ruler-directory")
+            {
+                Ok((memory, cache, memoryfile)) => (memory, cache, memoryfile),
+                Err(error) => panic!("Failed to init directory error: {}", error)
+            };
+
+            let target_history = memory.take_target_history("poem.txt");
+
+            let exemplar_target_history = TargetHistory::new(
+                TicketFactory::from_str("Roses are red.\nViolets are violet.\n").result(), 17);
+
+            assert_eq!(target_history, exemplar_target_history);
+            memory.insert_target_history("poem.txt".to_string(), target_history);
+        }
+
     }
 
 }

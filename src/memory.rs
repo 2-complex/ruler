@@ -179,7 +179,6 @@ impl TargetHistory
         }
     }
 
-    #[cfg(test)]
     pub fn new(
         ticket : Ticket,
         timestamp : u64) -> TargetHistory
@@ -356,8 +355,7 @@ impl Memory
         }
     }
 
-    /*  For testing it is useful to insert a mock TargetHistory. */
-    #[cfg(test)]
+    /*  Adds the given TargetHistory to the map for the given file-path. */
     pub fn insert_target_history(&mut self, target_path: String, target_history : TargetHistory)
     {
         self.target_histories.insert(target_path, target_history);
@@ -689,9 +687,9 @@ mod test
         memory.insert_target_history("src/meta.c".to_string(), target_history);
         let history = memory.take_target_history("src/math.cpp");
 
-        let emtpy_target_history = TargetHistory::empty();
+        let empty_target_history = TargetHistory::empty();
 
-        assert_eq!(history.ticket, emtpy_target_history.ticket);
-        assert_eq!(history.timestamp, emtpy_target_history.timestamp);
+        assert_eq!(history.ticket, empty_target_history.ticket);
+        assert_eq!(history.timestamp, empty_target_history.timestamp);
     }
 }

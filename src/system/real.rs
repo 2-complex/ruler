@@ -4,12 +4,12 @@ use crate::system::
     SystemError,
     CommandLineOutput
 };
-use std::process::Command;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
 use std::time::SystemTime;
 
+use execute::Execute;
 
 #[derive(Debug, Clone)]
 pub struct RealSystem
@@ -120,64 +120,52 @@ impl System for RealSystem
         }
     }
 
-    fn execute_command(&mut self, mut command_lines: Vec<String>) ->
+    fn execute_command(&mut self, mut all_lines: Vec<String>) ->
         Result<CommandLineOutput, SystemError>
     {
-        let mut command_opt : Option<Command> = None;
-        for line in command_lines.drain(..)
+        let mut command_lines = vec![];
+        let mut result = Err(SystemError::CommandExecutationFailed("".to_string()));
+
+        for line in all_lines.drain(..)
         {
-            for element in line.split_whitespace()
+            match line.as_ref()
             {
-                match element
+                ";" =>
                 {
-                    ";" =>
-                    match command_opt.take()
+                    let mut cmd = execute::shell(command_lines.join(" "));
+                    match cmd.execute_output()
                     {
-                        Some(mut command) =>
+                        Ok(output) =>
                         {
-                            match command.output()
-                            {
-                                Ok(output) =>
-                                {
-                                    if !output.status.success()
-                                    {
-                                        return Ok(CommandLineOutput::from_output(output))
-                                    }
-                                },
-                                Err(_error) => return Err(SystemError::CommandExecutationFailed),
-                            }
+                            result = Ok(CommandLineOutput::from_output(output))
                         },
-                        None => {},
-                    },
-                    
-                    _ =>
-                    command_opt = Some(
-                        match command_opt
-                        {
-                            None => Command::new(element),
-                            Some(mut command) =>
-                            {
-                                command.arg(element);
-                                command
-                            },
-                        }
-                    )
+
+                        Err(error) => return Err(SystemError::CommandExecutationFailed(format!("{}", error))),
+                    }
+                    command_lines = vec![];
+                }
+                _ =>
+                {
+                    command_lines.push(line);
                 }
             }
         }
 
-        match command_opt
+        if command_lines.len() != 0
         {
-            Some(mut command) =>
+            let mut cmd = execute::shell(command_lines.join(" "));
+            match cmd.execute_output()
             {
-                match command.output()
+                Ok(output) =>
                 {
-                    Ok(out) => Ok(CommandLineOutput::from_output(out)),
-                    Err(_error) => Err(SystemError::CommandExecutationFailed),
-                }
-            },
-            None => Ok(CommandLineOutput::new()),
+                    result = Ok(CommandLineOutput::from_output(output))
+                },
+
+                Err(error) => return Err(SystemError::CommandExecutationFailed(format!("{}", error))),
+            }
         }
+
+        result
     }
 }
 

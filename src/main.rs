@@ -1,6 +1,7 @@
 extern crate clap;
 extern crate toml;
 extern crate serde;
+extern crate execute;
 
 use clap::
 {
@@ -187,7 +188,7 @@ Result<(), ConfigError>
 fn main()
 {
     let big_matches = App::new("Ruler")
-        .version("0.1.0")
+        .version("0.1.5")
         .author("Peterson Trethewey <peterson@2-complex.com>")
         .about("
 Ruler is a tool for managing a dependence graph of files.  It works with a

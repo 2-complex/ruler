@@ -160,9 +160,9 @@ pub enum ParseError
     UnexpectedEmptyLine(usize),
     UnexpectedExtraColon(usize),
     UnexpectedContent(usize),
-    UnexpectedEndOfFileMidTargets,
-    UnexpectedEndOfFileMidSources,
-    UnexpectedEndOfFileMidCommand,
+    UnexpectedEndOfFileMidTargets(usize),
+    UnexpectedEndOfFileMidSources(usize),
+    UnexpectedEndOfFileMidCommand(usize),
 }
 
 impl fmt::Display for ParseError
@@ -172,7 +172,7 @@ impl fmt::Display for ParseError
         match self
         {
             ParseError::UnexpectedEmptyLine(line_number) =>
-                write!(formatter, "Unexpected emtpy line {}", line_number),
+                write!(formatter, "Unexpected empty line {}", line_number),
 
             ParseError::UnexpectedExtraColon(line_number) =>
                 write!(formatter, "Unexpected extra ':' on line {}", line_number),
@@ -180,14 +180,14 @@ impl fmt::Display for ParseError
             ParseError::UnexpectedContent(line_number) =>
                 write!(formatter, "Unexpected content on line {}", line_number),
 
-            ParseError::UnexpectedEndOfFileMidTargets =>
-                write!(formatter, "Unexpected end of file mid-targets"),
+            ParseError::UnexpectedEndOfFileMidTargets(line_number) =>
+                write!(formatter, "Unexpected end of file mid-targets line {}", line_number),
 
-            ParseError::UnexpectedEndOfFileMidSources =>
-                write!(formatter, "Unexpected end of file mid-sources"),
+            ParseError::UnexpectedEndOfFileMidSources(line_number) =>
+                write!(formatter, "Unexpected end of file mid-sources line {}", line_number),
 
-            ParseError::UnexpectedEndOfFileMidCommand =>
-                write!(formatter, "Unexpected end of file mid-command"),
+            ParseError::UnexpectedEndOfFileMidCommand(line_number) =>
+                write!(formatter, "Unexpected end of file mid-command line {}", line_number),
         }
     }
 }
@@ -266,9 +266,9 @@ pub fn parse(content: String) -> Result<Vec<Rule>, ParseError>
     match mode
     {
         Mode::NewLine => return Ok(rules),
-        Mode::Targets => return Err(ParseError::UnexpectedEndOfFileMidTargets),
-        Mode::Sources => return Err(ParseError::UnexpectedEndOfFileMidSources),
-        Mode::Command => return Err(ParseError::UnexpectedEndOfFileMidCommand),
+        Mode::Targets => return Err(ParseError::UnexpectedEndOfFileMidTargets(line_number)),
+        Mode::Sources => return Err(ParseError::UnexpectedEndOfFileMidSources(line_number)),
+        Mode::Command => return Err(ParseError::UnexpectedEndOfFileMidCommand(line_number)),
     }
 }
 
@@ -1646,7 +1646,10 @@ mod tests
             {
                 match error
                 {
-                    ParseError::UnexpectedEndOfFileMidTargets => {},
+                    ParseError::UnexpectedEndOfFileMidTargets(line_number) =>
+                    {
+                        assert_eq!(line_number, 1);
+                    },
                     _=> panic!("Expected unexpected end of file mid-targets error"),
                 }
             }
@@ -1704,7 +1707,7 @@ mod tests
                 match error
                 {
                     ParseError::UnexpectedEmptyLine(line_number) => assert_eq!(line_number, 1),
-                    _=>panic!("Expected unexpected empty line error"),
+                    error => panic!("Unexpected {}", error),
                 }
             }
         };
@@ -1722,7 +1725,7 @@ mod tests
                 match error
                 {
                     ParseError::UnexpectedEmptyLine(line_number) => assert_eq!(line_number, 4),
-                    _=>panic!("Expected unexpected empty line error"),
+                    error => panic!("Unexpected {}", error),
                 }
             }
         };
@@ -1740,7 +1743,7 @@ mod tests
                 match error
                 {
                     ParseError::UnexpectedEmptyLine(line_number) => assert_eq!(line_number, 8),
-                    _=>panic!("Expected unexpected empty line error"),
+                    error => panic!("Unexpected {}", error),
                 }
             }
         };
@@ -1757,8 +1760,11 @@ mod tests
             {
                 match error
                 {
-                    ParseError::UnexpectedEndOfFileMidTargets => {},
-                    _=>panic!("Expected unexpected end of file mid targets error"),
+                    ParseError::UnexpectedEndOfFileMidTargets(line_number) =>
+                    {
+                        assert_eq!(line_number, 15);
+                    },
+                    error => panic!("Unexpected {}", error),
                 }
             }
         };
@@ -1775,8 +1781,11 @@ mod tests
             {
                 match error
                 {
-                    ParseError::UnexpectedEndOfFileMidTargets => {},
-                    _=>panic!("Expected unexpected end of file mid targets error"),
+                    ParseError::UnexpectedEndOfFileMidTargets(line_number) =>
+                    {
+                        assert_eq!(line_number, 16);
+                    },
+                    error => panic!("Unexpected {}", error),
                 }
             }
         };
@@ -1793,8 +1802,11 @@ mod tests
             {
                 match error
                 {
-                    ParseError::UnexpectedEndOfFileMidTargets => {},
-                    _=>panic!("Expected unexpected end of file mid targets error"),
+                    ParseError::UnexpectedEndOfFileMidTargets(line_number) =>
+                    {
+                        assert_eq!(line_number, 16);
+                    },
+                    error => panic!("Unexpected {}", error),
                 }
             }
         };
@@ -1811,8 +1823,11 @@ mod tests
             {
                 match error
                 {
-                    ParseError::UnexpectedEndOfFileMidSources => {},
-                    _=>panic!("Expected unexpected end of file mid sources error"),
+                    ParseError::UnexpectedEndOfFileMidSources(line_number) =>
+                    {
+                        assert_eq!(line_number, 10);
+                    },
+                    error => panic!("Unexpected {}", error),
                 }
             }
         };
@@ -1829,8 +1844,11 @@ mod tests
             {
                 match error
                 {
-                    ParseError::UnexpectedEndOfFileMidSources => {},
-                    _=>panic!("Expected unexpected end of file mid sources error"),
+                    ParseError::UnexpectedEndOfFileMidSources(line_number) =>
+                    {
+                        assert_eq!(line_number, 11);
+                    },
+                    error => panic!("Unexpected {}", error),
                 }
             }
         };
@@ -1847,8 +1865,11 @@ mod tests
             {
                 match error
                 {
-                    ParseError::UnexpectedEndOfFileMidSources => {},
-                    _=>panic!("Expected unexpected end of file mid sources error"),
+                    ParseError::UnexpectedEndOfFileMidSources(line_number) =>
+                    {
+                        assert_eq!(line_number, 11);
+                    },
+                    error => panic!("Unexpected {}", error),
                 }
             }
         };
@@ -1865,8 +1886,11 @@ mod tests
             {
                 match error
                 {
-                    ParseError::UnexpectedEndOfFileMidCommand => {},
-                    _=>panic!("Expected unexpected end of file mid command error"),
+                    ParseError::UnexpectedEndOfFileMidCommand(line_number) =>
+                    {
+                        assert_eq!(line_number, 12);
+                    },
+                    error => panic!("Unexpected {}", error),
                 }
             }
         };
@@ -1883,8 +1907,11 @@ mod tests
             {
                 match error
                 {
-                    ParseError::UnexpectedEndOfFileMidCommand => {},
-                    _=>panic!("Expected unexpected end of file mid command error"),
+                    ParseError::UnexpectedEndOfFileMidCommand(line_number) =>
+                    {
+                        assert_eq!(line_number, 12);
+                    },
+                    error => panic!("Unexpected {}", error),
                 }
             }
         };
@@ -1901,8 +1928,11 @@ mod tests
             {
                 match error
                 {
-                    ParseError::UnexpectedEndOfFileMidCommand => {},
-                    _=>panic!("Expected unexpected end of file mid command error"),
+                    ParseError::UnexpectedEndOfFileMidCommand(line_number) =>
+                    {
+                        assert_eq!(line_number, 13);
+                    },
+                    error => panic!("Unexpected {}", error),
                 }
             }
         };

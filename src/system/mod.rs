@@ -42,6 +42,7 @@ impl fmt::Display for ReadWriteError
 
 impl CommandLineOutput
 {
+    #[cfg(test)]
     pub fn new() -> CommandLineOutput
     {
         CommandLineOutput
@@ -106,7 +107,7 @@ pub enum SystemError
     RenameToNonExistent,
     MetadataNotFound,
     ModifiedNotFound,
-    CommandExecutationFailed,
+    CommandExecutationFailed(String),
     NotImplemented,
     Weird,
 }
@@ -153,8 +154,8 @@ impl fmt::Display for SystemError
             SystemError::MetadataNotFound
                 => write!(formatter, "Attempt to access metadate failed"),
 
-            SystemError::CommandExecutationFailed
-                => write!(formatter, "Underlying OS failed to execute command"),
+            SystemError::CommandExecutationFailed(message)
+                => write!(formatter, "{}", message),
 
             SystemError::NotImplemented
                 => write!(formatter, "Attempt to perform an operation not currently implemented by fake system"),
