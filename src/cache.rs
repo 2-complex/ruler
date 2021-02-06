@@ -401,6 +401,16 @@ mod test
         }
     }
 
+    /*  Create a cache in a fake file-system.  Then create a file, and call
+        cache.back_up_file().  Construct a ticket based on the known contents
+        of the file, and use that ticket as the argument to cache.open().
+        Check that the contents read from open() are euqal to the original
+        file contents.  Then try calling open() with a phony, nonsense ticket,
+        and check that it fails.
+
+        Restore the file and then use cache.open() again with the same ticket.
+        Check that open reveals the same data even though the file is now in
+        the file system. */
     #[test]
     fn back_up_restore_and_open()
     {
@@ -421,6 +431,13 @@ mod test
         }
 
         assert!(system.is_file("apples.txt"));
+
+        match cache.open(&mut system, &TicketFactory::from_str("apples\n").result())
+        {
+            Ok(mut _file) => panic!("cache open unexpected success"),
+            Err(CacheError::NotThere) => {},
+            Err(cache_error) => panic!("Expeced file not there, got : {}", cache_error),
+        }
 
         match cache.back_up_file(&mut system, "apples.txt")
         {
