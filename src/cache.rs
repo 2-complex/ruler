@@ -13,7 +13,7 @@ use std::fmt;
 
 pub enum CacheError
 {
-    NotThere, // Arguably NotThere is not an error
+    NotThere,
     CacheDirectoryMissing,
     SystemError(SystemError)
 }
@@ -60,7 +60,8 @@ impl LocalCache
         }
     }
 
-    pub fn restore_file<SystemType : System>(
+    pub fn restore_file<SystemType : System>
+    (
         &mut self,
         system : &mut SystemType,
         ticket : &Ticket,
