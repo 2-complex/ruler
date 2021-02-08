@@ -40,6 +40,7 @@ mod memory;
 mod packet;
 mod printer;
 mod system;
+mod piecemeal;
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 struct BuildInvocation
