@@ -273,8 +273,10 @@ Result<FileResolution, WorkError>
                     Ok(FileResolution::Recovered),
 
                 RestoreResult::NotThere =>
-                    Ok(FileResolution::NeedsRebuild),
+                {
                     // TODO: attempt a download here
+                    Ok(FileResolution::NeedsRebuild)
+                },
 
                 RestoreResult::CacheDirectoryMissing =>
                     Err(WorkError::CacheDirectoryMissing),
@@ -296,8 +298,10 @@ Result<FileResolution, WorkError>
                     Ok(FileResolution::Recovered),
 
                 RestoreResult::NotThere =>
-                    Ok(FileResolution::NeedsRebuild),
+                {
                     // TODO: attempt a download here
+                    Ok(FileResolution::NeedsRebuild)
+                },
 
                 RestoreResult::CacheDirectoryMissing =>
                     Err(WorkError::CacheDirectoryMissing),

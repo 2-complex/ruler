@@ -7,11 +7,11 @@ use crate::system::
 use std::io::Write;
 use std::cmp::max;
 
-/*  Helper object for accumulating pieces of data (a series of Vec<u8>'s) which
-    might arrive out-of-order.  Caller uses the function create_file to create
-    a file, and at the same time, a PiecemealFileWriter.  When new data arrives,
-    give the new data to the PiecemealFileWriter using obtain(), when the total
-    number of pieces is known, use limit() to inform the writer of the total.
+/*  For accumulating pieces of data (a series of Vec<u8>'s) which might arrive
+    out-of-order.  Caller uses the function create_file to create a file, and
+    at the same time, a PiecemealFileWriter.  When new data arrives, give the
+    new data to the PiecemealFileWriter using obtain(), when the total number
+    of pieces is known, use limit() to inform the writer of the total.
 
     Once all the pieces have been delivered to the file, a call to obtain() or
     limit returns Done. */
@@ -218,6 +218,7 @@ mod test
             PiecemealFileWriterResult::Continue => {},
             _ => panic!("After setting limit to 1, wrong return"),
         }
+
         match writer.obtain("jeff".as_bytes().to_vec(), 0, &mut file)
         {
             PiecemealFileWriterResult::Done => {},
