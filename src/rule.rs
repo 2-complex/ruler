@@ -192,6 +192,19 @@ impl fmt::Display for ParseError
     }
 }
 
+pub fn parse_all(mut contents : Vec<(String, String)>)
+-> Result<Vec<Rule>, ParseError>
+{
+    let mut result : Vec<Rule> = vec![];
+    for (_filename, content) in contents.drain(..)
+    {
+        let single_parse_result = parse(content)?;
+        result.extend(single_parse_result);
+    }
+
+    Ok(result)
+}
+
 /*  Reads in a .rules file content as a String, and creates a vector of Rule objects. */
 pub fn parse(content: String) -> Result<Vec<Rule>, ParseError>
 {
@@ -662,6 +675,7 @@ mod tests
         EndpointPair,
         split_along_endpoints,
         parse,
+        parse_all,
         ParseError,
         get_line_endpoints,
     };
@@ -1680,6 +1694,59 @@ mod tests
     fn parse_two()
     {
         match parse("a\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\nf\n:\n".to_string())
+        {
+            Ok(v) =>
+            {
+                assert_eq!(v.len(), 2);
+                assert_eq!(v[0].targets, vec!["a".to_string()]);
+                assert_eq!(v[0].sources, vec!["b".to_string()]);
+                assert_eq!(v[0].command, vec!["c".to_string()]);
+                assert_eq!(v[1].targets, vec!["d".to_string()]);
+                assert_eq!(v[1].sources, vec!["e".to_string()]);
+                assert_eq!(v[1].command, vec!["f".to_string()]);
+            },
+            Err(why) => panic!(format!("Expected success, got: {}", why)),
+        };
+    }
+
+    #[test]
+    fn parse_all_empty()
+    {
+        match parse_all(
+            vec![])
+        {
+            Ok(v) =>
+            {
+                assert_eq!(v.len(), 0);
+            },
+            Err(why) => panic!(format!("Expected success, got: {}", why)),
+        };
+    }
+
+    #[test]
+    fn parse_all_one()
+    {
+        match parse_all(vec![("rulesfile1".to_string(), "a\n:\nb\n:\nc\n:\n".to_string())])
+        {
+            Ok(v) =>
+            {
+                assert_eq!(v.len(), 1);
+                assert_eq!(v[0].targets, vec!["a".to_string()]);
+                assert_eq!(v[0].sources, vec!["b".to_string()]);
+                assert_eq!(v[0].command, vec!["c".to_string()]);
+            },
+            Err(why) => panic!(format!("Expected success, got: {}", why)),
+        };
+    }
+
+    #[test]
+    fn parse_all_two()
+    {
+        match parse_all(
+            vec![
+                ("rulesfile1".to_string(), "a\n:\nb\n:\nc\n:\n".to_string()),
+                ("rulesfile2".to_string(), "d\n:\ne\n:\nf\n:\n".to_string())
+                ])
         {
             Ok(v) =>
             {

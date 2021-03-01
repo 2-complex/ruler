@@ -44,7 +44,7 @@ mod system;
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 struct BuildInvocation
 {
-    rules: Option<String>,
+    rules: Option<Vec<String>>,
     target: Option<String>,
 }
 
@@ -301,7 +301,7 @@ Path to a specific build-target to build.  Ruler will only build this target, an
                         match again.rules
                         {
                             Some(value) => value.clone(),
-                            None => "build.rules".to_string(),
+                            None => vec!["build.rules".to_string()],
                         };
 
                         let target =
@@ -315,7 +315,7 @@ Path to a specific build-target to build.  Ruler will only build this target, an
                         match build::build(
                             system,
                             directory,
-                            &rules,
+                            rules,
                             target,
                             &mut printer)
                         {
@@ -342,11 +342,11 @@ The next time you run `ruler again`, it will repeat that `ruler build` with the 
             None => ".ruler",
         };
 
-        let rulefile =
-        match matches.value_of("rules")
+        let rulefiles =
+        match matches.values_of("rules")
         {
-            Some(value) => value,
-            None => "build.rules",
+            Some(values) => values.map(|s| s.to_string()).collect(),
+            None => vec!("build.rules".to_string()),
         };
 
         let target =
@@ -357,7 +357,7 @@ The next time you run `ruler again`, it will repeat that `ruler build` with the 
         };
 
         match build::clean(
-            RealSystem::new(), directory, rulefile, target)
+            RealSystem::new(), directory, rulefiles, target)
         {
             Ok(()) => {},
             Err(error) => eprintln!("{}", error),
@@ -366,11 +366,11 @@ The next time you run `ruler again`, it will repeat that `ruler build` with the 
 
     if let Some(matches) = big_matches.subcommand_matches("build")
     {
-        let rulefile =
-        match matches.value_of("rules")
+        let rulefiles =
+        match matches.values_of("rules")
         {
-            Some(value) => value,
-            None => "build.rules",
+            Some(values) => values.map(|s| s.to_string()).collect(),
+            None => vec!("build.rules".to_string()),
         };
 
         let directory =
@@ -393,7 +393,7 @@ The next time you run `ruler again`, it will repeat that `ruler build` with the 
                 BuildInvocation
                 {
                     target : target.clone(),
-                    rules : Some(rulefile.to_string()),
+                    rules : Some(rulefiles.clone()),
                 }
             )
         };
@@ -408,7 +408,7 @@ The next time you run `ruler again`, it will repeat that `ruler build` with the 
                 match build::build(
                     system,
                     directory,
-                    rulefile,
+                    rulefiles,
                     target,
                     &mut printer)
                 {
