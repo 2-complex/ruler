@@ -157,12 +157,12 @@ fn split_along_endpoints(
 
 pub enum ParseError
 {
-    UnexpectedEmptyLine(usize),
-    UnexpectedExtraColon(usize),
-    UnexpectedContent(usize),
-    UnexpectedEndOfFileMidTargets(usize),
-    UnexpectedEndOfFileMidSources(usize),
-    UnexpectedEndOfFileMidCommand(usize),
+    UnexpectedEmptyLine(String, usize),
+    UnexpectedExtraColon(String, usize),
+    UnexpectedContent(String, usize),
+    UnexpectedEndOfFileMidTargets(String, usize),
+    UnexpectedEndOfFileMidSources(String, usize),
+    UnexpectedEndOfFileMidCommand(String, usize),
 }
 
 impl fmt::Display for ParseError
@@ -171,42 +171,51 @@ impl fmt::Display for ParseError
     {
         match self
         {
-            ParseError::UnexpectedEmptyLine(line_number) =>
-                write!(formatter, "Unexpected empty line {}", line_number),
+            ParseError::UnexpectedEmptyLine(filename, line_number) =>
+                write!(formatter, "Unexpected empty line {}:{}", filename, line_number),
 
-            ParseError::UnexpectedExtraColon(line_number) =>
-                write!(formatter, "Unexpected extra ':' on line {}", line_number),
+            ParseError::UnexpectedExtraColon(filename, line_number) =>
+                write!(formatter, "Unexpected extra ':' on line {}:{}", filename, line_number),
 
-            ParseError::UnexpectedContent(line_number) =>
-                write!(formatter, "Unexpected content on line {}", line_number),
+            ParseError::UnexpectedContent(filename, line_number) =>
+                write!(formatter, "Unexpected content on line {}:{}", filename, line_number),
 
-            ParseError::UnexpectedEndOfFileMidTargets(line_number) =>
-                write!(formatter, "Unexpected end of file mid-targets line {}", line_number),
+            ParseError::UnexpectedEndOfFileMidTargets(filename, line_number) =>
+                write!(formatter, "Unexpected end of file mid-targets line {}:{}", filename, line_number),
 
-            ParseError::UnexpectedEndOfFileMidSources(line_number) =>
-                write!(formatter, "Unexpected end of file mid-sources line {}", line_number),
+            ParseError::UnexpectedEndOfFileMidSources(filename, line_number) =>
+                write!(formatter, "Unexpected end of file mid-sources line {}:{}", filename, line_number),
 
-            ParseError::UnexpectedEndOfFileMidCommand(line_number) =>
-                write!(formatter, "Unexpected end of file mid-command line {}", line_number),
+            ParseError::UnexpectedEndOfFileMidCommand(filename, line_number) =>
+                write!(formatter, "Unexpected end of file mid-command line {}:{}", filename, line_number),
         }
     }
 }
 
+/*  Takes a vector of string-pairs representing (filename, content).  Parses
+    each file's contents as rules and returns one big vector full of Rule objects.
+
+    If the aprsing of any one file presents an error, this function returns the
+    ParseError object for the first error, and does not bother parsing the
+    rest.
+*/
 pub fn parse_all(mut contents : Vec<(String, String)>)
 -> Result<Vec<Rule>, ParseError>
 {
     let mut result : Vec<Rule> = vec![];
-    for (_filename, content) in contents.drain(..)
+    for (filename, content) in contents.drain(..)
     {
-        let single_parse_result = parse(content)?;
+        let single_parse_result = parse(filename, content)?;
         result.extend(single_parse_result);
     }
 
     Ok(result)
 }
 
-/*  Reads in a .rules file content as a String, and creates a vector of Rule objects. */
-pub fn parse(content: String) -> Result<Vec<Rule>, ParseError>
+/*  Reads in a .rules file content as a String, and creates a vector of Rule
+    objects. */
+pub fn parse(filename : String, content : String)
+-> Result<Vec<Rule>, ParseError>
 {
     enum Mode
     {
@@ -232,7 +241,7 @@ pub fn parse(content: String) -> Result<Vec<Rule>, ParseError>
             {
                 match line.as_ref()
                 {
-                    "" => return Err(ParseError::UnexpectedEmptyLine(line_number)),
+                    "" => return Err(ParseError::UnexpectedEmptyLine(filename, line_number)),
                     ":" => mode = Mode::Sources,
                     _ => targets.push(line),
                 }
@@ -241,7 +250,7 @@ pub fn parse(content: String) -> Result<Vec<Rule>, ParseError>
             {
                 match line.as_ref()
                 {
-                    "" => return Err(ParseError::UnexpectedEmptyLine(line_number)),
+                    "" => return Err(ParseError::UnexpectedEmptyLine(filename, line_number)),
                     ":" => mode = Mode::Command,
                     _ => sources.push(line),
                 }
@@ -250,7 +259,7 @@ pub fn parse(content: String) -> Result<Vec<Rule>, ParseError>
             {
                 match line.as_ref()
                 {
-                    "" => return Err(ParseError::UnexpectedEmptyLine(line_number)),
+                    "" => return Err(ParseError::UnexpectedEmptyLine(filename, line_number)),
                     ":" =>
                     {
                         mode = Mode::NewLine;
@@ -267,8 +276,8 @@ pub fn parse(content: String) -> Result<Vec<Rule>, ParseError>
                 match line.as_ref()
                 {
                     "" => mode = Mode::Targets,
-                    ":" => return Err(ParseError::UnexpectedExtraColon(line_number)),
-                    _ => return Err(ParseError::UnexpectedContent(line_number)),
+                    ":" => return Err(ParseError::UnexpectedExtraColon(filename, line_number)),
+                    _ => return Err(ParseError::UnexpectedContent(filename, line_number)),
                 }
             },
         }
@@ -279,9 +288,9 @@ pub fn parse(content: String) -> Result<Vec<Rule>, ParseError>
     match mode
     {
         Mode::NewLine => return Ok(rules),
-        Mode::Targets => return Err(ParseError::UnexpectedEndOfFileMidTargets(line_number)),
-        Mode::Sources => return Err(ParseError::UnexpectedEndOfFileMidSources(line_number)),
-        Mode::Command => return Err(ParseError::UnexpectedEndOfFileMidCommand(line_number)),
+        Mode::Targets => return Err(ParseError::UnexpectedEndOfFileMidTargets(filename, line_number)),
+        Mode::Sources => return Err(ParseError::UnexpectedEndOfFileMidSources(filename, line_number)),
+        Mode::Command => return Err(ParseError::UnexpectedEndOfFileMidCommand(filename, line_number)),
     }
 }
 
@@ -1650,7 +1659,7 @@ mod tests
     #[test]
     fn parse_empty()
     {
-        match parse("".to_string())
+        match parse("spool.rules".to_string(), "".to_string())
         {
             Ok(_) =>
             {
@@ -1660,8 +1669,9 @@ mod tests
             {
                 match error
                 {
-                    ParseError::UnexpectedEndOfFileMidTargets(line_number) =>
+                    ParseError::UnexpectedEndOfFileMidTargets(filename, line_number) =>
                     {
+                        assert_eq!(filename, "spool.rules".to_string());
                         assert_eq!(line_number, 1);
                     },
                     _=> panic!("Expected unexpected end of file mid-targets error"),
@@ -1675,7 +1685,9 @@ mod tests
     #[test]
     fn parse_one()
     {
-        match parse("a\n:\nb\n:\nc\n:\n".to_string())
+        match parse(
+            "seven.rules".to_string(),
+            "a\n:\nb\n:\nc\n:\n".to_string())
         {
             Ok(v) =>
             {
@@ -1693,7 +1705,9 @@ mod tests
     #[test]
     fn parse_two()
     {
-        match parse("a\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\nf\n:\n".to_string())
+        match parse(
+            "paper.rules".to_string(),
+            "a\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\nf\n:\n".to_string())
         {
             Ok(v) =>
             {
@@ -1766,14 +1780,20 @@ mod tests
     #[test]
     fn parse_extra_newline_error1()
     {
-        match parse("\na\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\nf\n:\n".to_string())
+        match parse(
+            "banana.rules".to_string(),
+            "\na\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\nf\n:\n".to_string())
         {
             Ok(_) => panic!(format!("Unexpected success")),
             Err(error) =>
             {
                 match error
                 {
-                    ParseError::UnexpectedEmptyLine(line_number) => assert_eq!(line_number, 1),
+                    ParseError::UnexpectedEmptyLine(filename, line_number) => 
+                    {
+                        assert_eq!(filename, "banana.rules".to_string());
+                        assert_eq!(line_number, 1);
+                    },
                     error => panic!("Unexpected {}", error),
                 }
             }
@@ -1784,14 +1804,20 @@ mod tests
     #[test]
     fn parse_extra_newline_error2()
     {
-        match parse("a\n:\nb\n\n:\nc\n:\n\nd\n:\ne\n:\nf\n:\n".to_string())
+        match parse(
+            "fruit.rules".to_string(),
+            "a\n:\nb\n\n:\nc\n:\n\nd\n:\ne\n:\nf\n:\n".to_string())
         {
             Ok(_) => panic!(format!("Unexpected success")),
             Err(error) =>
             {
                 match error
                 {
-                    ParseError::UnexpectedEmptyLine(line_number) => assert_eq!(line_number, 4),
+                    ParseError::UnexpectedEmptyLine(filename, line_number) =>
+                    {
+                        assert_eq!(filename, "fruit.rules".to_string());
+                        assert_eq!(line_number, 4);
+                    }
                     error => panic!("Unexpected {}", error),
                 }
             }
@@ -1802,14 +1828,20 @@ mod tests
     #[test]
     fn parse_extra_newline_error3()
     {
-        match parse("a\n:\nb\n:\nc\n:\n\n\nd\n:\ne\n:\nf\n:\n".to_string())
+        match parse(
+            "well.rules".to_string(),
+            "a\n:\nb\n:\nc\n:\n\n\nd\n:\ne\n:\nf\n:\n".to_string())
         {
             Ok(_) => panic!(format!("Unexpected success")),
             Err(error) =>
             {
                 match error
                 {
-                    ParseError::UnexpectedEmptyLine(line_number) => assert_eq!(line_number, 8),
+                    ParseError::UnexpectedEmptyLine(filename, line_number) =>
+                    {
+                        assert_eq!(filename, "well.rules".to_string());
+                        assert_eq!(line_number, 8);
+                    }
                     error => panic!("Unexpected {}", error),
                 }
             }
@@ -1820,15 +1852,18 @@ mod tests
     #[test]
     fn parse_unexpected_eof_mid_targets1()
     {
-        match parse("a\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\nf\n:\n\n".to_string())
+        match parse(
+            "glass.rules".to_string(),
+            "a\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\nf\n:\n\n".to_string())
         {
             Ok(_) => panic!(format!("Unexpected success")),
             Err(error) =>
             {
                 match error
                 {
-                    ParseError::UnexpectedEndOfFileMidTargets(line_number) =>
+                    ParseError::UnexpectedEndOfFileMidTargets(filename, line_number) =>
                     {
+                        assert_eq!(filename, "glass.rules".to_string());
                         assert_eq!(line_number, 15);
                     },
                     error => panic!("Unexpected {}", error),
@@ -1841,15 +1876,18 @@ mod tests
     #[test]
     fn parse_unexpected_eof_mid_targets2()
     {
-        match parse("a\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\nf\n:\n\nt".to_string())
+        match parse(
+            "spider.rules".to_string(),
+            "a\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\nf\n:\n\nt".to_string())
         {
             Ok(_) => panic!(format!("Unexpected success")),
             Err(error) =>
             {
                 match error
                 {
-                    ParseError::UnexpectedEndOfFileMidTargets(line_number) =>
+                    ParseError::UnexpectedEndOfFileMidTargets(filename, line_number) =>
                     {
+                        assert_eq!(filename, "spider.rules".to_string());
                         assert_eq!(line_number, 16);
                     },
                     error => panic!("Unexpected {}", error),
@@ -1862,15 +1900,18 @@ mod tests
     #[test]
     fn parse_unexpected_eof_mid_targets3()
     {
-        match parse("a\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\nf\n:\n\nt\n".to_string())
+        match parse(
+            "movie.rules".to_string(),
+            "a\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\nf\n:\n\nt\n".to_string())
         {
             Ok(_) => panic!(format!("Unexpected success")),
             Err(error) =>
             {
                 match error
                 {
-                    ParseError::UnexpectedEndOfFileMidTargets(line_number) =>
+                    ParseError::UnexpectedEndOfFileMidTargets(filename, line_number) =>
                     {
+                        assert_eq!(filename, "movie.rules".to_string());
                         assert_eq!(line_number, 16);
                     },
                     error => panic!("Unexpected {}", error),
@@ -1883,15 +1924,18 @@ mod tests
     #[test]
     fn parse_unexpected_eof_mid_sources1()
     {
-        match parse("a\n:\nb\n:\nc\n:\n\nd\n:\n".to_string())
+        match parse(
+            "box.rules".to_string(),
+            "a\n:\nb\n:\nc\n:\n\nd\n:\n".to_string())
         {
             Ok(_) => panic!(format!("Unexpected success")),
             Err(error) =>
             {
                 match error
                 {
-                    ParseError::UnexpectedEndOfFileMidSources(line_number) =>
+                    ParseError::UnexpectedEndOfFileMidSources(filename, line_number) =>
                     {
+                        assert_eq!(filename, "box.rules".to_string());
                         assert_eq!(line_number, 10);
                     },
                     error => panic!("Unexpected {}", error),
@@ -1904,15 +1948,18 @@ mod tests
     #[test]
     fn parse_unexpected_eof_mid_sources2()
     {
-        match parse("a\n:\nb\n:\nc\n:\n\nd\n:\ns".to_string())
+        match parse(
+            "house".to_string(),
+            "a\n:\nb\n:\nc\n:\n\nd\n:\ns".to_string())
         {
             Ok(_) => panic!(format!("Unexpected success")),
             Err(error) =>
             {
                 match error
                 {
-                    ParseError::UnexpectedEndOfFileMidSources(line_number) =>
+                    ParseError::UnexpectedEndOfFileMidSources(filename, line_number) =>
                     {
+                        assert_eq!(filename, "house".to_string());
                         assert_eq!(line_number, 11);
                     },
                     error => panic!("Unexpected {}", error),
@@ -1925,15 +1972,18 @@ mod tests
     #[test]
     fn parse_unexpected_eof_mid_sources3()
     {
-        match parse("a\n:\nb\n:\nc\n:\n\nd\n:\ns\n".to_string())
+        match parse(
+            "pi.rules".to_string(),
+            "a\n:\nb\n:\nc\n:\n\nd\n:\ns\n".to_string())
         {
             Ok(_) => panic!(format!("Unexpected success")),
             Err(error) =>
             {
                 match error
                 {
-                    ParseError::UnexpectedEndOfFileMidSources(line_number) =>
+                    ParseError::UnexpectedEndOfFileMidSources(filename, line_number) =>
                     {
+                        assert_eq!(filename, "pi.rules".to_string());
                         assert_eq!(line_number, 11);
                     },
                     error => panic!("Unexpected {}", error),
@@ -1946,15 +1996,18 @@ mod tests
     #[test]
     fn parse_unexpected_eof_mid_command1()
     {
-        match parse("a\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\n".to_string())
+        match parse(
+            "green.rules".to_string(),
+            "a\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\n".to_string())
         {
             Ok(_) => panic!(format!("Unexpected success")),
             Err(error) =>
             {
                 match error
                 {
-                    ParseError::UnexpectedEndOfFileMidCommand(line_number) =>
+                    ParseError::UnexpectedEndOfFileMidCommand(filename, line_number) =>
                     {
+                        assert_eq!(filename, "green.rules".to_string());
                         assert_eq!(line_number, 12);
                     },
                     error => panic!("Unexpected {}", error),
@@ -1967,15 +2020,18 @@ mod tests
     #[test]
     fn parse_unexpected_eof_mid_command2()
     {
-        match parse("a\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\n".to_string())
+        match parse(
+            "sunset.rules".to_string(),
+            "a\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\n".to_string())
         {
             Ok(_) => panic!(format!("Unexpected success")),
             Err(error) =>
             {
                 match error
                 {
-                    ParseError::UnexpectedEndOfFileMidCommand(line_number) =>
+                    ParseError::UnexpectedEndOfFileMidCommand(filename, line_number) =>
                     {
+                        assert_eq!(filename, "sunset.rules".to_string());
                         assert_eq!(line_number, 12);
                     },
                     error => panic!("Unexpected {}", error),
@@ -1988,15 +2044,18 @@ mod tests
     #[test]
     fn parse_unexpected_eof_mid_command3()
     {
-        match parse("a\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\nf".to_string())
+        match parse(
+            "tape.rules".to_string(),
+            "a\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\nf".to_string())
         {
             Ok(_) => panic!(format!("Unexpected success")),
             Err(error) =>
             {
                 match error
                 {
-                    ParseError::UnexpectedEndOfFileMidCommand(line_number) =>
+                    ParseError::UnexpectedEndOfFileMidCommand(filename, line_number) =>
                     {
+                        assert_eq!(filename, "tape.rules".to_string());
                         assert_eq!(line_number, 13);
                     },
                     error => panic!("Unexpected {}", error),
