@@ -239,6 +239,13 @@ specified, the clean command removes all files listed as targets in any rule.
                 .required(false)
                 .index(1)
             )
+            .arg(Arg::with_name("rules")
+                .short("r")
+                .long("rules")
+                .value_name("rules")
+                .multiple(true)
+                .help("Path to a custom rules file (default: build.rules)")
+                .takes_value(true))
         )
         .subcommand(
             SubCommand::with_name("build")
@@ -256,27 +263,37 @@ and its ancestors, as needed.")
                 .required(false)
                 .index(1)
             )
+            .arg(Arg::with_name("rules")
+                .short("r")
+                .long("rules")
+                .value_name("rules")
+                .multiple(true)
+                .help("Path to a custom rules file (default: build.rules)")
+                .takes_value(true))
         )
         .subcommand(
             SubCommand::with_name("again")
             .about("Repeats the most recent build command")
             .help("
-Repeats the most recent `ruler build` invocation.  To get started, type `ruler build`.
-The next time you run `ruler again`, it will repeat that `ruler build` with the same options.
+Repeats the most recent `ruler build` invocation.  To get started, type
+`ruler build`.  The next time you run `ruler again`, it will repeat that
+`ruler build` with the same options.
 ")
             .arg(Arg::with_name("target")
                 .help("
-Path to a specific build-target to build.  Ruler will only build this target, and its ancestors, as needed.")
+Path to a specific build-target to build.  Ruler will only build this target,
+and its ancestors, as needed.")
                 .required(false)
                 .index(1)
             )
+            .arg(Arg::with_name("rules")
+                .short("r")
+                .long("rules")
+                .value_name("rules")
+                .multiple(true)
+                .help("Path to a custom rules file (default: build.rules)")
+                .takes_value(true))
         )
-        .arg(Arg::with_name("rules")
-            .short("r")
-            .long("rules")
-            .value_name("rules")
-            .help("Path to a custom rules file (default: build.rules)")
-            .takes_value(true))
         .setting(AppSettings::ArgRequiredElseHelp)
         .get_matches();
 
@@ -369,9 +386,20 @@ The next time you run `ruler again`, it will repeat that `ruler build` with the 
         let rulefiles =
         match matches.values_of("rules")
         {
-            Some(values) => values.map(|s| s.to_string()).collect(),
-            None => vec!("build.rules".to_string()),
+            Some(values) =>
+            {
+                values.map(|s| s.to_string()).collect()
+            },
+            None =>
+            {
+                vec!("build.rules".to_string())
+            },
         };
+
+        for f in rulefiles.iter()
+        {
+            println!("{}", f);
+        }
 
         let directory =
         match matches.value_of("directory")
