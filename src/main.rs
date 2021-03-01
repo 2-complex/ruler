@@ -188,7 +188,7 @@ Result<(), ConfigError>
 fn main()
 {
     let big_matches = App::new("Ruler")
-        .version("0.1.5")
+        .version("0.1.6")
         .author("Peterson Trethewey <peterson@2-complex.com>")
         .about("
 Ruler is a tool for managing a dependence graph of files.  It works with a
