@@ -15,7 +15,7 @@ use std::io::
 
 use crate::rule::
 {
-    parse,
+    parse_all,
     ParseError,
     Node,
     topological_sort,
@@ -201,40 +201,46 @@ Result<(Memory, LocalCache, String), InitDirectoryError>
 fn read_all_rules<SystemType : System>
 (
     system : &SystemType,
-    rulefile_path : &str
+    mut rulefile_paths : Vec<String>
 )
--> Result<String, BuildError>
+-> Result<Vec<(String, String)>, BuildError>
 {
-    match system.open(rulefile_path)
+    let mut result : Vec<(String, String)> = vec![];
+    for rulefile_path in rulefile_paths.drain(..)
     {
-        Ok(mut file) =>
+        match system.open(&rulefile_path)
         {
-            let mut rule_content = Vec::new();
-            match file.read_to_end(&mut rule_content)
+            Ok(mut file) =>
             {
-                Ok(_size) =>
+                let mut rule_content = Vec::new();
+                match file.read_to_end(&mut rule_content)
                 {
-                    match from_utf8(&rule_content)
+                    Ok(_size) =>
                     {
-                        Ok(rule_text) => Ok(rule_text.to_owned()),
-                        Err(_) => return Err(BuildError::RuleFileNotUTF8),
-                    }
-                },
-                Err(error) => return Err(
-                    BuildError::RuleFileFailedToRead(
-                        rulefile_path.to_string(), error)),
-            }
-        },
-        Err(error) => return Err(
-            BuildError::RuleFileFailedToOpen(
-                rulefile_path.to_string(), error)),
+                        match from_utf8(&rule_content)
+                        {
+                            Ok(rule_text) => result.push((rulefile_path, rule_text.to_string())),
+                            Err(_) => return Err(BuildError::RuleFileNotUTF8),
+                        }
+                    },
+                    Err(error) => return Err(
+                        BuildError::RuleFileFailedToRead(
+                            rulefile_path.to_string(), error)),
+                }
+            },
+            Err(error) => return Err(
+                BuildError::RuleFileFailedToOpen(
+                    rulefile_path.to_string(), error)),
+        }
     }
+
+    Ok(result)
 }
 
 
 /*  This is the function that runs when you type "ruler build" at the commandline.
     It opens the rulefile, parses it, and then either updates all targets in all rules
-    or, if goal_target_opt is Some, only the targets that are ancstors of goal_target_opt
+    or, if goal_target_opt is Some, only the targets that are ancestors of goal_target_opt
     in the dependence graph. */
 pub fn build
 <
@@ -244,7 +250,7 @@ pub fn build
 (
     mut system : SystemType,
     directory : &str,
-    rulefile_path: &str,
+    rulefile_paths : Vec<String>,
     goal_target_opt: Option<String>,
     printer: &mut PrinterType,
 )
@@ -265,10 +271,10 @@ pub fn build
         }
     };
 
-    let rule_text = read_all_rules(&system, rulefile_path)?;
+    let all_rule_text = read_all_rules(&system, rulefile_paths)?;
 
     let rules =
-    match parse(rule_text)
+    match parse_all(all_rule_text)
     {
         Ok(rules) => rules,
         Err(error) => return Err(BuildError::RuleFileFailedToParse(error)),
@@ -493,7 +499,7 @@ pub fn clean<SystemType : System + Clone + Send + 'static>
 (
     mut system : SystemType,
     directory : &str,
-    rulefile_path: &str,
+    rulefile_paths: Vec<String>,
     goal_target_opt: Option<String>
 )
 -> Result<(), BuildError>
@@ -513,10 +519,8 @@ pub fn clean<SystemType : System + Clone + Send + 'static>
         }
     };
 
-    let rule_text = read_all_rules(&system, rulefile_path)?;
-
     let rules =
-    match parse(rule_text)
+    match parse_all(read_all_rules(&system, rulefile_paths)?)
     {
         Ok(rules) => rules,
         Err(error) => return Err(BuildError::RuleFileFailedToParse(error)),
@@ -683,7 +687,7 @@ poem.txt
         match build(
             system.clone(),
             "test.directory",
-            "test.rules",
+            vec!["test.rules".to_string()],
             Some("poem.txt".to_string()),
             &mut EmptyPrinter::new())
         {
@@ -745,7 +749,7 @@ poem.txt
         match build(
             system.clone(),
             "test.directory",
-            "test.rules",
+            vec!["test.rules".to_string()],
             Some("poem.txt".to_string()),
             &mut EmptyPrinter::new())
         {
@@ -776,7 +780,7 @@ poem.txt
         match build(
             system.clone(),
             "test.directory",
-            "test.rules",
+            vec!["test.rules".to_string()],
             Some("poem.txt".to_string()),
             &mut EmptyPrinter::new())
         {
@@ -845,7 +849,7 @@ poem.txt
         match build(
             system.clone(),
             ".ruler",
-            "test.rules",
+            vec!["test.rules".to_string()],
             Some("poem.txt".to_string()),
             &mut EmptyPrinter::new())
         {
@@ -877,7 +881,7 @@ poem.txt
         match build(
             system.clone(),
             ".ruler",
-            "test.rules",
+            vec!["test.rules".to_string()],
             Some("poem.txt".to_string()),
             &mut EmptyPrinter::new())
         {
@@ -915,7 +919,7 @@ poem.txt
         match build(
             system.clone(),
             ".ruler",
-            "test.rules",
+            vec!["test.rules".to_string()],
             Some("poem.txt".to_string()),
             &mut EmptyPrinter::new())
         {
@@ -982,7 +986,7 @@ poem.txt
         match build(
             system.clone(),
             "ruler-directory",
-            "test.rules",
+            vec!["test.rules".to_string()],
             Some("poem.txt".to_string()),
             &mut EmptyPrinter::new())
         {
