@@ -40,6 +40,7 @@ mod memory;
 mod packet;
 mod printer;
 mod system;
+mod network;
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 struct BuildInvocation
@@ -272,6 +273,33 @@ and its ancestors, as needed.")
                 .takes_value(true))
         )
         .subcommand(
+            SubCommand::with_name("serve")
+            .about("Starts a server to provide other instances of ruler on the
+network access to the files in the current filesystem and ruler cache.")
+            .help("Starts a server to provide other instances of ruler on the
+network access to the files in the current filesystem and ruler cache.")
+            .arg(Arg::with_name("rules")
+                .short("r")
+                .long("rules")
+                .value_name("rules")
+                .multiple(true)
+                .help("Path to a custom rules file (default: build.rules)")
+                .takes_value(true))
+        )
+        .subcommand(
+            SubCommand::with_name("download")
+            .about("Download a file from a Ruler server")
+            .help("Takes the address of a server and a rule hash, downloads
+the target files in question and writes them to the paths where they belong.")
+            .arg(Arg::with_name("hash")
+                .short("h")
+                .long("hash")
+                .value_name("hash")
+                .multiple(true)
+                .help("The url-safe-base64-encoded hash of a rule")
+                .takes_value(true))
+        )
+        .subcommand(
             SubCommand::with_name("again")
             .about("Repeats the most recent build command")
             .help("
@@ -449,6 +477,44 @@ The next time you run `ruler again`, it will repeat that `ruler build` with the 
                 println!("Error writing config file: {}", error);
             }
         }
+    }
 
+    if let Some(matches) = big_matches.subcommand_matches("serve")
+    {
+        let directory =
+        match matches.value_of("directory")
+        {
+            Some(value) => value,
+            None => ".ruler",
+        };
+
+        let rulefiles =
+        match matches.values_of("rules")
+        {
+            Some(values) => values.map(|s| s.to_string()).collect(),
+            None => vec!("build.rules".to_string()),
+        };
+
+        let mut system = RealSystem::new();
+        let mut printer = StandardPrinter::new();
+
+        network::serve(
+            system,
+            directory,
+            rulefiles,
+            &mut printer);
+    }
+
+
+    if let Some(matches) = big_matches.subcommand_matches("download")
+    {
+        let hash =
+        match matches.values_of("hash")
+        {
+            Some(values) => values.map(|s| s.to_string()).collect(),
+            None => vec!("build.rules".to_string()),
+        };
+
+        network::download();
     }
 }
