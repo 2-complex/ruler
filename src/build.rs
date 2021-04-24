@@ -15,6 +15,7 @@ use std::io::
 
 use crate::rule::
 {
+    Rule,
     parse_all,
     ParseError,
     Node,
@@ -238,6 +239,43 @@ fn read_all_rules<SystemType : System>
 }
 
 
+/*  Make the directory if it's not already there.
+    Read all rules files.
+    Return an unsorted list of rules */
+pub fn get_all_rules
+<
+    SystemType : System + Clone + Send + 'static,
+>
+(
+    mut system : SystemType,
+    directory : &str,
+    rulefile_paths : Vec<String>,
+)
+-> Result<Vec<Rule>, BuildError>
+{
+    let (mut memory, cache, memoryfile) =
+    match init_directory(&mut system, directory)
+    {
+        Ok((memory, cache, memoryfile)) => (memory, cache, memoryfile),
+        Err(error) =>
+        {
+            return match error
+            {
+                InitDirectoryError::FailedToReadMemoryFile(memory_error) =>
+                    Err(BuildError::MemoryFileFailedToRead(memory_error)),
+                _ => Err(BuildError::DirectoryMalfunction),
+            }
+        }
+    };
+
+    match parse_all(read_all_rules(&system, rulefile_paths)?)
+    {
+        Ok(rules) => Ok(rules),
+        Err(error) => return Err(BuildError::RuleFileFailedToParse(error)),
+    }
+}
+
+
 /*  This is the function that runs when you type "ruler build" at the commandline.
     It opens the rulefile, parses it, and then either updates all targets in all rules
     or, if goal_target_opt is Some, only the targets that are ancestors of goal_target_opt
@@ -256,6 +294,8 @@ pub fn build
 )
 -> Result<(), BuildError>
 {
+    let rules = get_all_rules(system, directory, rulefile_paths)?;
+
     let (mut memory, cache, memoryfile) =
     match init_directory(&mut system, directory)
     {

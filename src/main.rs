@@ -285,6 +285,12 @@ network access to the files in the current filesystem and ruler cache.")
                 .multiple(true)
                 .help("Path to a custom rules file (default: build.rules)")
                 .takes_value(true))
+            .arg(Arg::with_name("address")
+                .short("a")
+                .long("address")
+                .value_name("address")
+                .help("The address upon which to serve")
+                .takes_value(true))
         )
         .subcommand(
             SubCommand::with_name("download")
@@ -495,6 +501,13 @@ The next time you run `ruler again`, it will repeat that `ruler build` with the 
             None => vec!("build.rules".to_string()),
         };
 
+        let address_str =
+        match matches.value_of("address")
+        {
+            Some(value) => value,
+            None => "127.0.0.1:34254",
+        };
+
         let mut system = RealSystem::new();
         let mut printer = StandardPrinter::new();
 
@@ -502,7 +515,8 @@ The next time you run `ruler again`, it will repeat that `ruler build` with the 
             system,
             directory,
             rulefiles,
-            &mut printer);
+            &mut printer,
+            address_str);
     }
 
 
