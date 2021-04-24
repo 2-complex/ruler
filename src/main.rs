@@ -44,7 +44,7 @@ mod system;
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 struct BuildInvocation
 {
-    rules: Option<String>,
+    rules: Option<Vec<String>>,
     target: Option<String>,
 }
 
@@ -188,7 +188,7 @@ Result<(), ConfigError>
 fn main()
 {
     let big_matches = App::new("Ruler")
-        .version("0.1.5")
+        .version("0.1.6")
         .author("Peterson Trethewey <peterson@2-complex.com>")
         .about("
 Ruler is a tool for managing a dependence graph of files.  It works with a
@@ -239,6 +239,13 @@ specified, the clean command removes all files listed as targets in any rule.
                 .required(false)
                 .index(1)
             )
+            .arg(Arg::with_name("rules")
+                .short("r")
+                .long("rules")
+                .value_name("rules")
+                .multiple(true)
+                .help("Path to a custom rules file (default: build.rules)")
+                .takes_value(true))
         )
         .subcommand(
             SubCommand::with_name("build")
@@ -256,27 +263,37 @@ and its ancestors, as needed.")
                 .required(false)
                 .index(1)
             )
+            .arg(Arg::with_name("rules")
+                .short("r")
+                .long("rules")
+                .value_name("rules")
+                .multiple(true)
+                .help("Path to a custom rules file (default: build.rules)")
+                .takes_value(true))
         )
         .subcommand(
             SubCommand::with_name("again")
             .about("Repeats the most recent build command")
             .help("
-Repeats the most recent `ruler build` invocation.  To get started, type `ruler build`.
-The next time you run `ruler again`, it will repeat that `ruler build` with the same options.
+Repeats the most recent `ruler build` invocation.  To get started, type
+`ruler build`.  The next time you run `ruler again`, it will repeat that
+`ruler build` with the same options.
 ")
             .arg(Arg::with_name("target")
                 .help("
-Path to a specific build-target to build.  Ruler will only build this target, and its ancestors, as needed.")
+Path to a specific build-target to build.  Ruler will only build this target,
+and its ancestors, as needed.")
                 .required(false)
                 .index(1)
             )
+            .arg(Arg::with_name("rules")
+                .short("r")
+                .long("rules")
+                .value_name("rules")
+                .multiple(true)
+                .help("Path to a custom rules file (default: build.rules)")
+                .takes_value(true))
         )
-        .arg(Arg::with_name("rules")
-            .short("r")
-            .long("rules")
-            .value_name("rules")
-            .help("Path to a custom rules file (default: build.rules)")
-            .takes_value(true))
         .setting(AppSettings::ArgRequiredElseHelp)
         .get_matches();
 
@@ -301,7 +318,7 @@ Path to a specific build-target to build.  Ruler will only build this target, an
                         match again.rules
                         {
                             Some(value) => value.clone(),
-                            None => "build.rules".to_string(),
+                            None => vec!["build.rules".to_string()],
                         };
 
                         let target =
@@ -315,7 +332,7 @@ Path to a specific build-target to build.  Ruler will only build this target, an
                         match build::build(
                             system,
                             directory,
-                            &rules,
+                            rules,
                             target,
                             &mut printer)
                         {
@@ -342,11 +359,11 @@ The next time you run `ruler again`, it will repeat that `ruler build` with the 
             None => ".ruler",
         };
 
-        let rulefile =
-        match matches.value_of("rules")
+        let rulefiles =
+        match matches.values_of("rules")
         {
-            Some(value) => value,
-            None => "build.rules",
+            Some(values) => values.map(|s| s.to_string()).collect(),
+            None => vec!("build.rules".to_string()),
         };
 
         let target =
@@ -357,7 +374,7 @@ The next time you run `ruler again`, it will repeat that `ruler build` with the 
         };
 
         match build::clean(
-            RealSystem::new(), directory, rulefile, target)
+            RealSystem::new(), directory, rulefiles, target)
         {
             Ok(()) => {},
             Err(error) => eprintln!("{}", error),
@@ -366,12 +383,23 @@ The next time you run `ruler again`, it will repeat that `ruler build` with the 
 
     if let Some(matches) = big_matches.subcommand_matches("build")
     {
-        let rulefile =
-        match matches.value_of("rules")
+        let rulefiles =
+        match matches.values_of("rules")
         {
-            Some(value) => value,
-            None => "build.rules",
+            Some(values) =>
+            {
+                values.map(|s| s.to_string()).collect()
+            },
+            None =>
+            {
+                vec!("build.rules".to_string())
+            },
         };
+
+        for f in rulefiles.iter()
+        {
+            println!("{}", f);
+        }
 
         let directory =
         match matches.value_of("directory")
@@ -393,7 +421,7 @@ The next time you run `ruler again`, it will repeat that `ruler build` with the 
                 BuildInvocation
                 {
                     target : target.clone(),
-                    rules : Some(rulefile.to_string()),
+                    rules : Some(rulefiles.clone()),
                 }
             )
         };
@@ -408,7 +436,7 @@ The next time you run `ruler again`, it will repeat that `ruler build` with the 
                 match build::build(
                     system,
                     directory,
-                    rulefile,
+                    rulefiles,
                     target,
                     &mut printer)
                 {
