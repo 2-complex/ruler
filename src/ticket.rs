@@ -206,8 +206,7 @@ mod test
     }
 
     /*  Constructs two tickets for the same string, A: by calling input_str with pieces of the string,
-        and B: by taking the whole string at once in from_str().  Checks that the tickets are the same,
-        and equal to an exemplar. */
+        and B: by taking the whole string at once in from_str().  Checks that the tickets are equal. */
     #[test]
     fn ticket_from_string_from_new()
     {
@@ -219,13 +218,10 @@ mod test
         let ticket_a = factory.result();
         let ticket_b = TicketFactory::from_str("Time wounds all heels.\n").result();
 
-        assert_eq!(ticket_a.base64(),
-            "QgK1Pzhosm-r264m3GkGT-dRWMz8Ls8ZobarSV0MwvU=");
-
         assert_eq!(ticket_a.base64(), ticket_b.base64());
     }
 
-    /*  Using a fake file system, create a file, populate with some known text, use TicketFactory::from_file
+    /*  Using a fake file-system, create a file, populate with some known text, use TicketFactory::from_file
         to get a hash and compare with an exemplar.  */
     #[test]
     fn ticket_factory_file()
