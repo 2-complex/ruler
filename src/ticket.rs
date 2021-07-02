@@ -1,7 +1,7 @@
 extern crate bincode;
 extern crate serde;
 
-use crypto::sha2::Sha512;
+use crypto::sha2::Sha256;
 use base64::encode_config;
 use crypto::digest::Digest;
 use std::hash::{Hash, Hasher};
@@ -19,7 +19,7 @@ use std::io::Read;
     hash, using functions that start with "input_" then get the ticket using result(). */
 pub struct TicketFactory
 {
-    dig : Sha512
+    dig : Sha256
 }
 
 impl TicketFactory
@@ -27,7 +27,7 @@ impl TicketFactory
     /*  Create an empty TicketFactory initialized with no bytes. */
     pub fn new() -> TicketFactory
     {
-        TicketFactory{ dig : Sha512::new() }
+        TicketFactory{ dig : Sha256::new() }
     }
 
     /*  Construct a TicketFactory immediately reading in
@@ -35,7 +35,7 @@ impl TicketFactory
     #[cfg(test)]
     pub fn from_str(first_input: &str) -> TicketFactory
     {
-        let mut d = Sha512::new();
+        let mut d = Sha256::new();
         d.input(first_input.as_bytes());
         TicketFactory{ dig : d }
     }
@@ -57,7 +57,7 @@ impl TicketFactory
     /*  Create a ticket from the bytes incorporated so far. */
     pub fn result(&mut self) -> Ticket
     {
-        let mut out_sha = vec![0u8; 64];
+        let mut out_sha = vec![0u8; 32];
         self.dig.result(&mut out_sha);
         Ticket
         {
@@ -79,7 +79,7 @@ impl TicketFactory
             Ok(mut reader) =>
             {
                 let mut buffer = [0u8; 256];
-                let mut dig = Sha512::new();
+                let mut dig = Sha256::new();
                 loop
                 {
                     match reader.read(&mut buffer)
@@ -190,9 +190,9 @@ mod test
     fn ticket_factory_string()
     {
         let ticket = TicketFactory::from_str("b").result();
-        assert_eq!(ticket.sha.len(), 64);
+        assert_eq!(ticket.sha.len(), 32);
         assert_eq!(ticket.base64(),
-            "Umd2iCLuYk1I_OFexcp5y9YCy39MIVelFlVpkfIu-Me173sY0f9BxZNw77CFhlHUSpNsEbexRMSP4E3zxqPo2g==");
+            "PiPoFgA5WUoziU9lZOGxNIu9egCI1CxKy3PurtWcAJ0=");
     }
 
     /*  Uses a TicketFactory to construct a Ticket based on a single string with more than one character,
@@ -202,7 +202,7 @@ mod test
     {
         let ticket = TicketFactory::from_str("Time wounds all heels.\n").result();
         assert_eq!(ticket.base64(),
-            "PRemaMHXvOuGAx87EOGZY1_cGUv4udBiqVmgP8nwVX93njjGOdE41zf4rV9PAbiJp_i6ucukKrvFp3zldP42wA==");
+            "QgK1Pzhosm-r264m3GkGT-dRWMz8Ls8ZobarSV0MwvU=");
     }
 
     /*  Constructs two tickets for the same string, A: by calling input_str with pieces of the string,
@@ -220,7 +220,7 @@ mod test
         let ticket_b = TicketFactory::from_str("Time wounds all heels.\n").result();
 
         assert_eq!(ticket_a.base64(),
-            "PRemaMHXvOuGAx87EOGZY1_cGUv4udBiqVmgP8nwVX93njjGOdE41zf4rV9PAbiJp_i6ucukKrvFp3zldP42wA==");
+            "QgK1Pzhosm-r264m3GkGT-dRWMz8Ls8ZobarSV0MwvU=");
 
         assert_eq!(ticket_a.base64(), ticket_b.base64());
     }
@@ -242,7 +242,7 @@ mod test
             Ok(mut factory) =>
             {
                 assert_eq!(factory.result().base64(),
-                    "PRemaMHXvOuGAx87EOGZY1_cGUv4udBiqVmgP8nwVX93njjGOdE41zf4rV9PAbiJp_i6ucukKrvFp3zldP42wA==");
+                    "QgK1Pzhosm-r264m3GkGT-dRWMz8Ls8ZobarSV0MwvU=");
             },
             Err(why) => panic!("Failed to open test file time.txt: {}", why),
         }
@@ -267,7 +267,7 @@ mod test
                 let mut new_factory = TicketFactory::from_str("time1.txt\n:\n:\n:\n");
                 new_factory.input_ticket(factory.result());
                 assert_eq!(new_factory.result().base64(),
-                    "CcCQWumbtg7N3xkZEAv-GlmKKe5XRJGzz-0fbdeG5poAnHSTVTjM2jCo5xu7_9r4GiYcevWaG2mesTMoB6NK6g==");
+                    "k4eqylqAAMXeFu_O8Gigms5bM9n9iFwFznBDRojDO8o=");
             },
             Err(why) => panic!("Failed to open test file time1.txt: {}", why),
         }
@@ -293,7 +293,7 @@ mod test
             Ok(mut factory) =>
             {
                 assert_eq!(factory.result().base64(),
-                    "UUIguBwMxofHdUKdfRVzVpLkqPRwg5IISF49Wc2jVd6-pmF9lxunRtP26JDPNlAgX3MoUrJEfrQ9nVKFJly8Og==");
+                    "1-TbmtqWEoNv0OQQLb3OkYE2-f1LUOIH0SU71FP7Qo0=");
             },
             Err(why) => panic!("Failed to open test file good_and_evil.txt: {}", why),
         }
