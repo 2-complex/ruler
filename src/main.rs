@@ -273,7 +273,7 @@ and its ancestors, as needed.")
         )
         .subcommand(
             SubCommand::with_name("hash")
-            .about("")
+            .about("Outputs the hash of a file")
             .help("
 Takes a path to a file, returns the url-safe-base64-encoded sha256 of the file.
 ")
