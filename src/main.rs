@@ -287,6 +287,18 @@ Path to any file.
         )
         .setting(AppSettings::ArgRequiredElseHelp)
         .subcommand(
+            SubCommand::with_name("nodes")
+            .about("Displays info on current build-nodes along with their
+current rule-hash")
+            .help("
+Reads the rules files the same way as when invoking ruler build, except instead
+of running the build process, prints information about each node.  This command
+is read only.  It is useful for troubleshooting and understanding how ruler
+works.
+")
+        )
+        .setting(AppSettings::ArgRequiredElseHelp)
+        .subcommand(
             SubCommand::with_name("again")
             .about("Repeats the most recent build command")
             .help("
@@ -487,6 +499,46 @@ The next time you run `ruler again`, it will repeat that `ruler build` with the 
             {
                 eprintln!("Internal error");
             }
+        }
+    }
+
+    if let Some(matches) = big_matches.subcommand_matches("nodes")
+    {
+        let rulefiles =
+        match matches.values_of("rules")
+        {
+            Some(values) =>
+            {
+                values.map(|s| s.to_string()).collect()
+            },
+            None =>
+            {
+                vec!("build.rules".to_string())
+            },
+        };
+
+        let target =
+        match matches.value_of("target")
+        {
+            Some(value) => Some(value.to_string()),
+            None => None,
+        };
+
+        let system = RealSystem::new();
+
+        match build::get_nodes(
+            &system,
+            rulefiles,
+            target)
+        {
+            Ok(nodes) =>
+            {
+                for node in nodes.iter()
+                {
+                    print!("{}", node);
+                }
+            },
+            Err(error) => eprintln!("{}", error),
         }
     }
 }
