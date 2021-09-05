@@ -18,7 +18,11 @@ use crate::memory::
     TargetHistory,
     RuleHistoryInsertError
 };
-use crate::cache::{LocalCache, RestoreResult};
+use crate::cache::
+{
+    LocalCache,
+    CacheError
+};
 
 use std::sync::mpsc::{Sender, Receiver, RecvError};
 use std::fmt;
@@ -235,7 +239,7 @@ impl fmt::Display for WorkError
 fn resolve_single_target<SystemType : System>
 (
     system : &mut SystemType,
-    cache : &LocalCache,
+    cache : &mut LocalCache,
     remembered_ticket : &Ticket,
     target_info : &TargetFileInfo
 )
@@ -269,17 +273,19 @@ Result<FileResolution, WorkError>
                 &remembered_ticket,
                 &target_info.path)
             {
-                RestoreResult::Done =>
+                Ok(()) =>
                     Ok(FileResolution::Recovered),
 
-                RestoreResult::NotThere =>
-                    Ok(FileResolution::NeedsRebuild),
-                    // TODO: attempt a download here
+                Err(CacheError::NotThere) =>
+                {
+                    // TODO: attempt a download first when this happens
+                    Ok(FileResolution::NeedsRebuild)
+                },
 
-                RestoreResult::CacheDirectoryMissing =>
+                Err(CacheError::CacheDirectoryMissing) =>
                     Err(WorkError::CacheDirectoryMissing),
 
-                RestoreResult::SystemError(error) =>
+                Err(CacheError::SystemError(error)) =>
                     Err(WorkError::CacheMalfunction(error)),
             }
         },
@@ -292,17 +298,19 @@ Result<FileResolution, WorkError>
                 &remembered_ticket,
                 &target_info.path)
             {
-                RestoreResult::Done =>
+                Ok(()) =>
                     Ok(FileResolution::Recovered),
 
-                RestoreResult::NotThere =>
-                    Ok(FileResolution::NeedsRebuild),
+                Err(CacheError::NotThere) =>
+                {
                     // TODO: attempt a download here
+                    Ok(FileResolution::NeedsRebuild)
+                },
 
-                RestoreResult::CacheDirectoryMissing =>
+                Err(CacheError::CacheDirectoryMissing) =>
                     Err(WorkError::CacheDirectoryMissing),
 
-                RestoreResult::SystemError(error) =>
+                Err(CacheError::SystemError(error)) =>
                     Err(WorkError::CacheMalfunction(error)),
             }
         },
@@ -323,7 +331,7 @@ Result<FileResolution, WorkError>
 fn resolve_with_cache<SystemType : System>
 (
     system : &mut SystemType,
-    cache : &LocalCache,
+    cache : &mut LocalCache,
     rule_history : &RuleHistory,
     sources_ticket : &Ticket,
     target_infos : &Vec<TargetFileInfo>,
@@ -624,7 +632,7 @@ pub fn handle_node<SystemType: System>
     mut system : SystemType,
     senders : Vec<(usize, Sender<Packet>)>,
     receivers : Vec<Receiver<Packet>>,
-    cache : LocalCache
+    mut cache : LocalCache
 )
 ->
 Result<WorkResult, WorkError>
@@ -649,7 +657,7 @@ Result<WorkResult, WorkError>
         {
             match resolve_with_cache(
                 &mut system,
-                &cache,
+                &mut cache,
                 &rule_history,
                 &sources_ticket,
                 &target_infos)
@@ -709,7 +717,7 @@ pub fn clean_targets<SystemType: System>
 (
     target_infos : Vec<TargetFileInfo>,
     system : &mut SystemType,
-    cache : &LocalCache
+    cache : &mut LocalCache
 )
 -> Result<(), WorkError>
 {

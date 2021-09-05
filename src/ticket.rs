@@ -2,8 +2,8 @@ extern crate bincode;
 extern crate serde;
 
 use crypto::sha2::Sha512;
-use base64::encode_config;
 use crypto::digest::Digest;
+use base64::encode_config;
 use std::hash::{Hash, Hasher};
 use serde::{Serialize, Deserialize};
 use crate::system::
@@ -66,15 +66,15 @@ impl TicketFactory
     }
 
     /*  Construct a TicketFactory, initialized with the contents of a file from a System. */
-    pub fn from_file<FSType: System>
+    pub fn from_file<SystemType: System>
     (
-        file_system: &FSType,
+        system: &SystemType,
         path : &str
     )
     ->
     Result<TicketFactory, ReadWriteError>
     {
-        match file_system.open(path)
+        match system.open(path)
         {
             Ok(mut reader) =>
             {
@@ -230,14 +230,14 @@ mod test
     #[test]
     fn ticket_factory_file()
     {
-        let mut file_system = FakeSystem::new(10);
-        match write_str_to_file(&mut file_system, "time0.txt", "Time wounds all heels.\n")
+        let mut system = FakeSystem::new(10);
+        match write_str_to_file(&mut system, "time0.txt", "Time wounds all heels.\n")
         {
             Ok(_) => {},
             Err(why) => panic!("Failed to create temp file: {}", why),
         }
 
-        match TicketFactory::from_file(&file_system, "time0.txt")
+        match TicketFactory::from_file(&system, "time0.txt")
         {
             Ok(mut factory) =>
             {
@@ -253,14 +253,14 @@ mod test
     #[test]
     fn ticket_factory_hashes()
     {
-        let mut file_system = FakeSystem::new(10);
-        match write_str_to_file(&mut file_system, "time1.txt", "Time wounds all heels.\n")
+        let mut system = FakeSystem::new(10);
+        match write_str_to_file(&mut system, "time1.txt", "Time wounds all heels.\n")
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
         }
 
-        match TicketFactory::from_file(&file_system, "time1.txt")
+        match TicketFactory::from_file(&system, "time1.txt")
         {
             Ok(mut factory) =>
             {
@@ -278,17 +278,17 @@ mod test
     #[test]
     fn ticket_factory_hashes_bigger_file()
     {
-        let mut file_system = FakeSystem::new(10);
+        let mut system = FakeSystem::new(10);
 
         println!("{} {}\n", LOREM_IPSUM.len(), LOREM_IPSUM);
 
-        match write_str_to_file(&mut file_system, "good_and_evil.txt", LOREM_IPSUM)
+        match write_str_to_file(&mut system, "good_and_evil.txt", LOREM_IPSUM)
         {
             Ok(_) => {},
             Err(_) => panic!("File write operation failed"),
         }
 
-        match TicketFactory::from_file(&file_system, "good_and_evil.txt")
+        match TicketFactory::from_file(&system, "good_and_evil.txt")
         {
             Ok(mut factory) =>
             {

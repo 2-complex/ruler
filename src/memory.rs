@@ -5,7 +5,11 @@ use crate::system::
     ReadWriteError,
 };
 use std::collections::HashMap;
-use serde::{Serialize, Deserialize};
+use serde::
+{
+    Serialize,
+    Deserialize,
+};
 use std::fmt;
 use std::io::
 {
