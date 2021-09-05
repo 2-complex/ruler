@@ -610,10 +610,12 @@ Result<WorkResult, WorkError>
     }
 }
 
-/*  This is a central, public function for handling a node in the depednece graph.
-    It is meant to be called by a dedicated thread, and as such, it eats all its arguments.
+/*  This is a central, public function for handling a node in the depednece
+    graph.  It is meant to be called by a dedicated thread, and as such, it
+    eats all its arguments.
 
-    The RuleHistory gets modified when appropriate, and gets returned as part of the result. */
+    The RuleHistory gets modified when appropriate, and gets returned as part
+    of the result. */
 pub fn handle_node<SystemType: System>
 (
     target_infos : Vec<TargetFileInfo>,

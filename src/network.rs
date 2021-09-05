@@ -19,11 +19,19 @@ use crate::ticket::
 {
     Ticket,
 };
+use crate::rule::
+{
+    Rule,
+    parse_all,
+};
 use crate::build::
 {
-    get_all_rules,
+    init_directory,
+    read_all_rules,
+    InitDirectoryError,
     BuildError
 };
+use crate::memory::{Memory, MemoryError};
 
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
@@ -41,6 +49,7 @@ enum SendPacket
 
 pub enum NetworkError
 {
+    InitDirectoryError(InitDirectoryError),
     SocketBindFailed,
     SendFailed,
     BuildErrorReadingRules(BuildError),
@@ -53,7 +62,7 @@ pub fn serve
 >
 (
     mut system : SystemType,
-    directory : &str,
+    directory_path : &str,
     rulefile_paths : Vec<String>,
     printer : &mut PrinterType,
     address : &str,
@@ -61,6 +70,16 @@ pub fn serve
 ->
 Result<(), NetworkError>
 {
+    let (mut memory, _cache, _memoryfile) =
+    match init_directory(&mut system, directory_path)
+    {
+        Ok((memory, cache, memoryfile)) => (memory, cache, memoryfile),
+        Err(error) =>
+        {
+            return Err(NetworkError::InitDirectoryError(error));
+        },
+    };
+
     {
         let socket =
         match UdpSocket::bind(address)
@@ -72,7 +91,7 @@ Result<(), NetworkError>
             Err(_) =>
             {
                 return Err(NetworkError::SocketBindFailed);
-            }
+            },
         };
 
         /*  Receives a single datagram message on the socket. If `buf` is too small to hold
@@ -93,22 +112,23 @@ Result<(), NetworkError>
                     {
                         SendPacket::WantRule(rule_ticket, sources_ticket) =>
                         {
-                            printer.print(&format!("Want: rule: {} sources: {}", rule_ticket, source_ticket));
+                            printer.print(&format!("Want: rule: {} sources: {}", rule_ticket, sources_ticket));
 
+                            let all_rule_text = read_all_rules(&system, rulefile_paths)?;
                             let rules =
-                            match get_all_rules(system, directory, rulefile_paths)
+                            match parse_all(all_rule_text)
                             {
                                 Ok(rules) => rules,
-                                Err(build_error) => return Err(NetworkError::BuildErrorReadingRules(build_error)),
+                                Err(error) => return Err(BuildError::RuleFileFailedToParse(error)),
                             };
 
-                            let rule_history =  match &node.rule_ticket
+                            let rule_history =  match &rule_ticket
                             {
-                                Some(ticket) => Some(memory.take_rule_history(&ticket)),
+                                Some(ticket) => Some(memory.take_rule_history(ticket)),
                                 None => None,
                             };
 
-                            match rule_history.get_target_tickets(source_ticket)
+                            match rule_history.get_target_tickets(sources_ticket)
                             {
                                 Some(target_tickets) =>
                                 {
@@ -167,6 +187,7 @@ Result<(), NetworkError>
                                     printer.print(&format!("Not found"));
                                     continue;
                                 }
+                            }
                         },
                     }
                 },
@@ -186,3 +207,4 @@ pub fn download()
 {
     println!("download\n");
 }
+

@@ -157,6 +157,9 @@ impl fmt::Display for InitDirectoryError
     }
 }
 
+/*  Ruler saves all its persistent data, file history, etc in an invisible
+    directory.  It's handy to have an accessor function for that directory that
+    generates it if it does not exist. */
 pub fn init_directory<SystemType : System + Clone + Send + 'static>
 (
     system : &mut SystemType,
@@ -198,8 +201,11 @@ Result<(Memory, LocalCache, String), InitDirectoryError>
     ))
 }
 
+/*  Takes a vector of Strings that are paths to .rules files.  Opens each file,
+    and returns a vector of string-pairs:
 
-fn read_all_rules<SystemType : System>
+    (file-path, file-contents) */
+pub fn read_all_rules<SystemType : System>
 (
     system : &SystemType,
     mut rulefile_paths : Vec<String>
@@ -239,43 +245,6 @@ fn read_all_rules<SystemType : System>
 }
 
 
-/*  Make the directory if it's not already there.
-    Read all rules files.
-    Return an unsorted list of rules */
-pub fn get_all_rules
-<
-    SystemType : System + Clone + Send + 'static,
->
-(
-    mut system : SystemType,
-    directory : &str,
-    rulefile_paths : Vec<String>,
-)
--> Result<Vec<Rule>, BuildError>
-{
-    let (mut memory, cache, memoryfile) =
-    match init_directory(&mut system, directory)
-    {
-        Ok((memory, cache, memoryfile)) => (memory, cache, memoryfile),
-        Err(error) =>
-        {
-            return match error
-            {
-                InitDirectoryError::FailedToReadMemoryFile(memory_error) =>
-                    Err(BuildError::MemoryFileFailedToRead(memory_error)),
-                _ => Err(BuildError::DirectoryMalfunction),
-            }
-        }
-    };
-
-    match parse_all(read_all_rules(&system, rulefile_paths)?)
-    {
-        Ok(rules) => Ok(rules),
-        Err(error) => return Err(BuildError::RuleFileFailedToParse(error)),
-    }
-}
-
-
 /*  This is the function that runs when you type "ruler build" at the commandline.
     It opens the rulefile, parses it, and then either updates all targets in all rules
     or, if goal_target_opt is Some, only the targets that are ancestors of goal_target_opt
@@ -294,8 +263,6 @@ pub fn build
 )
 -> Result<(), BuildError>
 {
-    let rules = get_all_rules(system, directory, rulefile_paths)?;
-
     let (mut memory, cache, memoryfile) =
     match init_directory(&mut system, directory)
     {
@@ -374,7 +341,7 @@ pub fn build
         let local_cache_clone = cache.clone();
 
         let command = node.command;
-        let rule_history =  match &node.rule_ticket
+        let rule_history = match &node.rule_ticket
         {
             Some(ticket) => Some(memory.take_rule_history(&ticket)),
             None => None,
