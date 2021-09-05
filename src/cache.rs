@@ -96,7 +96,6 @@ impl LocalCache
         }
     }
 
-    #[cfg(test)]
     pub fn open<SystemType : System>(
         &self,
         system : &mut SystemType,

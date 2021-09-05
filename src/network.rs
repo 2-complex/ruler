@@ -37,14 +37,14 @@ use crate::memory::{Memory, MemoryError};
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 enum ReceivePacket
 {
-    FileData(String, usize, Vec<u8>),
-    FileIndexCount(String, usize),
+    FileData(u32, usize, Vec<u8>),
+    FileIndexCount(u32, usize),
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 enum SendPacket
 {
-    WantRule(Ticket, Ticket),
+    WantRule(u32, Ticket, Ticket),
 }
 
 pub enum NetworkError
@@ -53,6 +53,7 @@ pub enum NetworkError
     SocketBindFailed,
     SendFailed,
     BuildErrorReadingRules(BuildError),
+    RulesError,
 }
 
 pub fn serve
@@ -70,7 +71,7 @@ pub fn serve
 ->
 Result<(), NetworkError>
 {
-    let (mut memory, _cache, _memoryfile) =
+    let (mut memory, cache, _memoryfile) =
     match init_directory(&mut system, directory_path)
     {
         Ok((memory, cache, memoryfile)) => (memory, cache, memoryfile),
@@ -94,6 +95,34 @@ Result<(), NetworkError>
             },
         };
 
+        println!("PATHS:");
+        for p in rulefile_paths.iter()
+        {
+            println!("{}", p);
+        }
+
+        let all_rule_text =
+        match read_all_rules(&mut system, rulefile_paths)
+        {
+            Ok(rule_text) => rule_text,
+            Err(_) =>
+            {
+                printer.print(&format!("Not all rules read"));
+                return Err(NetworkError::RulesError);
+            },
+        };
+
+        let rules =
+        match parse_all(all_rule_text)
+        {
+            Ok(rules) => rules,
+            Err(error) => 
+            {
+                printer.print(&format!("Not all rules parsed"));
+                return Err(NetworkError::RulesError);
+            }
+        };
+
         /*  Receives a single datagram message on the socket. If `buf` is too small to hold
             the message, it will be cut off. */
         let mut buf = [0; 256];
@@ -110,31 +139,20 @@ Result<(), NetworkError>
 
                     match decoded_packet
                     {
-                        SendPacket::WantRule(rule_ticket, sources_ticket) =>
+                        SendPacket::WantRule(fetch_id, rule_ticket, sources_ticket) =>
                         {
                             printer.print(&format!("Want: rule: {} sources: {}", rule_ticket, sources_ticket));
 
-                            let all_rule_text = read_all_rules(&system, rulefile_paths)?;
-                            let rules =
-                            match parse_all(all_rule_text)
-                            {
-                                Ok(rules) => rules,
-                                Err(error) => return Err(BuildError::RuleFileFailedToParse(error)),
-                            };
 
-                            let rule_history =  match &rule_ticket
-                            {
-                                Some(ticket) => Some(memory.take_rule_history(ticket)),
-                                None => None,
-                            };
+                            let rule_history = memory.take_rule_history(&rule_ticket);
 
-                            match rule_history.get_target_tickets(sources_ticket)
+                            match rule_history.get_target_tickets(&sources_ticket)
                             {
                                 Some(target_tickets) =>
                                 {
                                     for target_ticket in target_tickets.iter()
                                     {
-                                        match system.open(&path_str)
+                                        match cache.open(&mut system, target_ticket)
                                         {
                                             Ok(mut reader) =>
                                             {
@@ -151,7 +169,7 @@ Result<(), NetworkError>
                                                         }
                                                         Ok(size) =>
                                                         {
-                                                            let packet = ReceivePacket::FileData(path_str.clone(), i, in_buffer[..size].to_vec());
+                                                            let packet = ReceivePacket::FileData(fetch_id, i, in_buffer[..size].to_vec());
                                                             i+=1;
                                                             let encoded = bincode::serialize(&packet).unwrap();
                                                             match socket.send_to(&encoded, &src)
@@ -167,7 +185,7 @@ Result<(), NetworkError>
                                                     }
                                                 }
 
-                                                let packet = ReceivePacket::FileIndexCount(path_str.clone(), i);
+                                                let packet = ReceivePacket::FileIndexCount(fetch_id, i);
                                                 let encoded = bincode::serialize(&packet).unwrap();
                                                 match socket.send_to(&encoded, &src)
                                                 {
