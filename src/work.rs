@@ -799,7 +799,7 @@ mod test
     use std::sync::mpsc::{self, Sender, Receiver};
     use std::thread::{self, JoinHandle};
 
-    /*  For testing, it's useful to be able to check the ticket of a list of source files.
+    /*  It's useful to be able to check the ticket of a list of source files.
         So, this function creates a bunch of channels just for the purpose of sending source files
         through and getting a source ticket using wait_for_sources_ticket */
     fn current_sources_ticket

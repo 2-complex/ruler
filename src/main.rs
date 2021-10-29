@@ -295,14 +295,21 @@ network access to the files in the current filesystem and ruler cache.")
         .subcommand(
             SubCommand::with_name("download")
             .about("Download a file from a Ruler server")
-            .help("Takes the address of a server and a rule hash, downloads
-the target files in question and writes them to the paths where they belong.")
-            .arg(Arg::with_name("hash")
-                .short("h")
-                .long("hash")
-                .value_name("hash")
-                .multiple(true)
-                .help("The url-safe-base64-encoded hash of a rule")
+            .help("
+Path to a specific build-target to download.  Ruler will download this target
+only.")
+            .arg(Arg::with_name("target")
+                .help("
+Path to a specific build-target to download.  Ruler will only download this
+target.")
+                .required(false)
+                .index(1)
+            )
+            .arg(Arg::with_name("address")
+                .short("a")
+                .long("address")
+                .value_name("address")
+                .help("The address of the server from which to download")
                 .takes_value(true))
         )
         .subcommand(
@@ -522,13 +529,45 @@ The next time you run `ruler again`, it will repeat that `ruler build` with the 
 
     if let Some(matches) = big_matches.subcommand_matches("download")
     {
-        let hash =
-        match matches.values_of("hash")
+        let directory =
+        match matches.value_of("directory")
+        {
+            Some(value) => value,
+            None => ".ruler",
+        };
+
+        let rulefiles =
+        match matches.values_of("rules")
         {
             Some(values) => values.map(|s| s.to_string()).collect(),
             None => vec!("build.rules".to_string()),
         };
 
-        network::download();
+        let address_str =
+        match matches.value_of("address")
+        {
+            Some(value) => value,
+            None => "127.0.0.1:34254",
+        };
+
+        match matches.value_of("target")
+        {
+            Some(target) =>
+            {
+                let mut system = RealSystem::new();
+                let mut printer = StandardPrinter::new();
+                network::download(
+                    system,
+                    directory,
+                    rulefiles,
+                    &mut printer,
+                    address_str,
+                    target);
+            },
+            None =>
+            {
+                println!("specify a target to download");
+            },
+        }
     }
 }

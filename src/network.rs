@@ -1,6 +1,8 @@
 use std::net::
 {
-    UdpSocket
+    UdpSocket,
+    Ipv4Addr,
+    SocketAddrV4
 };
 use serde::
 {
@@ -44,7 +46,7 @@ enum ReceivePacket
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 enum SendPacket
 {
-    WantRule(u32, Ticket, Ticket),
+    WantRule(u32, Ticket, Ticket), // index, rule-ticket, sources-ticket
 }
 
 pub enum NetworkError
@@ -54,6 +56,7 @@ pub enum NetworkError
     SendFailed,
     BuildErrorReadingRules(BuildError),
     RulesError,
+    RuleNotFound,
 }
 
 pub fn serve
@@ -94,12 +97,6 @@ Result<(), NetworkError>
                 return Err(NetworkError::SocketBindFailed);
             },
         };
-
-        println!("PATHS:");
-        for p in rulefile_paths.iter()
-        {
-            println!("{}", p);
-        }
 
         let all_rule_text =
         match read_all_rules(&mut system, rulefile_paths)
@@ -142,7 +139,6 @@ Result<(), NetworkError>
                         SendPacket::WantRule(fetch_id, rule_ticket, sources_ticket) =>
                         {
                             printer.print(&format!("Want: rule: {} sources: {}", rule_ticket, sources_ticket));
-
 
                             let rule_history = memory.take_rule_history(&rule_ticket);
 
@@ -221,8 +217,104 @@ Result<(), NetworkError>
     Ok(())
 }
 
-pub fn download()
+fn find_rule_ticket_with_target(rules : Vec<Rule>, target : &str)
+-> Result<Ticket, ()>
 {
-    println!("download\n");
+    for rule in rules.iter()
+    {
+        for t in rule.targets.iter()
+        {
+            if target == t
+            {
+                return Ok(Ticket::from_strings(
+                    &rule.targets,
+                    &rule.sources,
+                    &rule.command));
+            }
+        }
+    }
+
+    Err(())
+}
+
+pub fn download
+<
+    SystemType : System + Clone + Send + 'static,
+    PrinterType : Printer,
+>
+(
+    mut system : SystemType,
+    directory_path : &str,
+    rulefile_paths : Vec<String>,
+    printer : &mut PrinterType,
+    address : &str,
+    target : &str
+)
+-> Result<(), NetworkError>
+{
+    let (mut memory, cache, _memoryfile) =
+    match init_directory(&mut system, directory_path)
+    {
+        Ok((memory, cache, memoryfile)) => (memory, cache, memoryfile),
+        Err(error) =>
+        {
+            return Err(NetworkError::InitDirectoryError(error));
+        },
+    };
+
+    let socket =
+    match UdpSocket::bind("127.0.0.1:34255")
+    {
+        Ok(socket) =>
+        {
+            socket
+        },
+        Err(_) =>
+        {
+            return Err(NetworkError::SocketBindFailed);
+        },
+    };
+
+    let all_rule_text =
+    match read_all_rules(&mut system, rulefile_paths)
+    {
+        Ok(rule_text) => rule_text,
+        Err(_) =>
+        {
+            printer.print(&format!("Not all rules read"));
+            return Err(NetworkError::RulesError);
+        },
+    };
+
+    let rules =
+    match parse_all(all_rule_text)
+    {
+        Ok(rules) => rules,
+        Err(error) => 
+        {
+            printer.print(&format!("Not all rules parsed"));
+            return Err(NetworkError::RulesError);
+        }
+    };
+
+    let rule_ticket =
+    match find_rule_ticket_with_target(rules, target)
+    {
+        Ok(ticket) => ticket,
+        Err(_) =>
+        {
+            return Err(NetworkError::RuleNotFound);
+        }
+    };
+
+    // TODO: should get this address from the address parameter
+    let addr = SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 34254);
+
+    let packet = SendPacket::WantRule(1, rule_ticket, );
+    let encoded = bincode::serialize(&packet).unwrap();
+    socket.send_to(&encoded, &addr)?;
+    socket.set_read_timeout(Some(Duration::from_millis(1000)));
+
+    Ok(())
 }
 
