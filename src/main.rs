@@ -294,6 +294,28 @@ and its ancestors, as needed.")
                 .help("Path to a custom rules file (default: build.rules)")
                 .takes_value(true))
         )
+        .subcommand(
+            SubCommand::with_name("one")
+            .about("Rebuilds one rule, not its dependencies")
+            .help("
+Takes a target file, rebuilds the rule for that target only.  Fails if its
+ancestors are not up-to-date.
+")
+            .arg(Arg::with_name("target")
+                .help("
+Path to a specific build-target to build.  Ruler will only build this target,
+not its ancestors.")
+                .required(true)
+                .index(1)
+            )
+            .arg(Arg::with_name("rules")
+                .short("r")
+                .long("rules")
+                .value_name("rules")
+                .multiple(true)
+                .help("Path to a custom rules file (default: build.rules)")
+                .takes_value(true))
+        )
         .setting(AppSettings::ArgRequiredElseHelp)
         .get_matches();
 
@@ -450,5 +472,55 @@ The next time you run `ruler again`, it will repeat that `ruler build` with the 
             }
         }
 
+    }
+
+
+    if let Some(matches) = big_matches.subcommand_matches("one")
+    {
+        let rulefiles =
+        match matches.values_of("rules")
+        {
+            Some(values) =>
+            {
+                values.map(|s| s.to_string()).collect()
+            },
+            None =>
+            {
+                vec!("build.rules".to_string())
+            },
+        };
+
+        for f in rulefiles.iter()
+        {
+            println!("{}", f);
+        }
+
+        let directory =
+        match matches.value_of("directory")
+        {
+            Some(value) => value,
+            None => ".ruler",
+        };
+
+        let target =
+        match matches.value_of("target")
+        {
+            Some(value) => value.to_string(),
+            None => panic!("Required argument not there, should have failed earlier"),
+        };
+
+        let system = RealSystem::new();
+        let mut printer = StandardPrinter::new();
+
+        match build::one(
+            system,
+            directory,
+            rulefiles,
+            target,
+            &mut printer)
+        {
+            Ok(()) => {},
+            Err(error) => eprintln!("{}", error),
+        }
     }
 }

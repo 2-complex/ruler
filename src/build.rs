@@ -491,6 +491,242 @@ pub fn build
     }
 }
 
+/*  This is the function that runs when you type "ruler one <target>" at the commandline.
+    It opens the rulefile, parses it, and builds only the rule for the target specified */
+pub fn one
+<
+    SystemType : System + Clone + Send + 'static,
+    PrinterType : Printer,
+>
+(
+    mut system : SystemType,
+    directory : &str,
+    rulefile_paths : Vec<String>,
+    goal_target: String,
+    printer: &mut PrinterType,
+)
+-> Result<(), BuildError>
+{
+    let (mut memory, cache, memoryfile) =
+    match init_directory(&mut system, directory)
+    {
+        Ok((memory, cache, memoryfile)) => (memory, cache, memoryfile),
+        Err(error) =>
+        {
+            return match error
+            {
+                InitDirectoryError::FailedToReadMemoryFile(memory_error) =>
+                    Err(BuildError::MemoryFileFailedToRead(memory_error)),
+                _ => Err(BuildError::DirectoryMalfunction),
+            }
+        }
+    };
+
+    let all_rule_text = read_all_rules(&system, rulefile_paths)?;
+
+    let rules =
+    match parse_all(all_rule_text)
+    {
+        Ok(rules) => rules,
+        Err(error) => return Err(BuildError::RuleFileFailedToParse(error)),
+    };
+
+    let mut nodes = match topological_sort(rules, &goal_target)
+    {
+        Ok(nodes) => nodes,
+        Err(error) => return Err(BuildError::TopologicalSortFailed(error)),
+    };
+
+    let (mut senders, mut receivers) = make_multimaps(&nodes);
+    let mut handles = Vec::new();
+    let mut index : usize = 0;
+
+    for mut node in nodes.drain(..)
+    {
+        let sender_vec = match senders.remove(&index)
+        {
+            Some(v) => v,
+            None => vec![],
+        };
+
+        let receiver_vec = match receivers.remove(&index)
+        {
+            Some(v) => v,
+            None => vec![],
+        };
+
+        let mut target_infos = Vec::new();
+        for target_path in node.targets.drain(..)
+        {
+            target_infos.push(
+                TargetFileInfo
+                {
+                    history : memory.take_target_history(&target_path),
+                    path : target_path,
+                }
+            );
+        }
+
+        let local_cache_clone = cache.clone();
+
+        let command = node.command;
+        let rule_history =  match &node.rule_ticket
+        {
+            Some(ticket) => Some(memory.take_rule_history(&ticket)),
+            None => None,
+        };
+        let system_clone = system.clone();
+
+        handles.push(
+            (
+                node.rule_ticket,
+                thread::spawn(
+                    move || -> Result<WorkResult, WorkError>
+                    {
+                        handle_node(
+                            target_infos,
+                            command,
+                            rule_history,
+                            system_clone,
+                            sender_vec,
+                            receiver_vec,
+                            local_cache_clone)
+                    }
+                )
+            )
+        );
+
+        index+=1;
+    }
+
+    let mut work_errors = Vec::new();
+
+    for (node_ticket, handle) in handles
+    {
+        match handle.join()
+        {
+            Err(_error) => return Err(BuildError::Weird),
+            Ok(work_result_result) =>
+            {
+                match work_result_result
+                {
+                    Ok(mut work_result) =>
+                    {
+                        match work_result.work_option
+                        {
+                            WorkOption::SourceOnly =>
+                            {
+                            },
+
+                            WorkOption::Resolutions(resolutions) =>
+                            {
+                                for (i, target_info) in work_result.target_infos.iter().enumerate()
+                                {
+                                    let (banner_text, banner_color) =
+                                        match resolutions[i]
+                                        {
+                                            FileResolution::Recovered =>
+                                                (" Recovered", Color::Green),
+
+                                            FileResolution::Downloaded =>
+                                                ("Downloaded", Color::Yellow),
+
+                                            FileResolution::AlreadyCorrect =>
+                                                ("Up-to-date", Color::Cyan),
+
+                                            FileResolution::NeedsRebuild =>
+                                                ("  Outdated", Color::Red),
+                                        };
+
+                                    printer.print_single_banner_line(banner_text, banner_color, &target_info.path);
+                                }
+                            },
+
+                            WorkOption::CommandExecuted(output) =>
+                            {
+                                for target_info in work_result.target_infos.iter()
+                                {
+                                    printer.print_single_banner_line("     Built", Color::Magenta, &target_info.path);  
+                                }
+
+                                if output.out != ""
+                                {
+                                    printer.print(&output.out);
+                                }
+
+                                if output.err != ""
+                                {
+                                    printer.error(&output.err);
+                                }
+
+                                if !output.success
+                                {
+                                    printer.error(
+                                        &format!("RESULT: {}", 
+                                            match output.code
+                                            {
+                                                Some(code) => format!("{}", code),
+                                                None => "None".to_string(),
+                                            }
+                                        )
+                                    );
+                                }
+
+                            },
+                        }
+
+                        match node_ticket
+                        {
+                            Some(ticket) =>
+                            {
+                                match work_result.rule_history
+                                {
+                                    Some(history) => memory.insert_rule_history(ticket, history),
+                                    None => {},
+                                }
+                            }
+                            None => {},
+                        }
+
+                        for target_info in work_result.target_infos.drain(..)
+                        {
+                            memory.insert_target_history(target_info.path, target_info.history);
+                        }
+                    },
+                    Err(work_error) =>
+                    {
+                        match work_error
+                        {
+                            WorkError::ReceiverError(_error) => {},
+                            WorkError::SenderError => {},
+
+                            _ =>
+                            {
+                                work_errors.push(work_error);
+                            }
+                        }
+                    },
+                }
+            }
+        }
+    }
+
+    match memory.to_file(&mut system, &memoryfile)
+    {
+        Ok(_) => {},
+        Err(_) => printer.error("Error writing history"),
+    }
+
+    if work_errors.len() == 0
+    {
+        Ok(())
+    }
+    else
+    {
+        Err(BuildError::WorkErrors(work_errors))
+    }
+}
+
 /*  This is the function that runs when you type "ruler clean" at the command-line.
     It takes a rulefile, parses it and either removes all targets to the cache,
     or, if goal_target_opt is Some, removes only those targets that are acnestors
