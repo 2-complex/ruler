@@ -610,6 +610,74 @@ Result<WorkResult, WorkError>
     }
 }
 
+pub fn handle_target_node<SystemType: System>
+(
+    target_infos : Vec<TargetFileInfo>,
+    command : Vec<String>,
+    rule_history : RuleHistory,
+    mut system : SystemType,
+    senders : Vec<(usize, Sender<Packet>)>,
+    sources_ticket : Ticket,
+    cache : LocalCache
+)
+->
+Result<WorkResult, WorkError>
+{
+    match resolve_with_cache(
+        &mut system,
+        &cache,
+        &rule_history,
+        &sources_ticket,
+        &target_infos)
+    {
+        Ok(resolutions) =>
+        {
+            if needs_rebuild(&resolutions)
+            {
+                rebuild_node(
+                    &mut system,
+                    rule_history,
+                    sources_ticket,
+                    command,
+                    senders,
+                    target_infos
+                )
+            }
+            else
+            {
+                let target_tickets = match get_current_target_tickets(
+                    &system,
+                    &target_infos)
+                {
+                    Ok(target_tickets) => target_tickets,
+                    Err(error) => return Err(error),
+                };
+
+                for (sub_index, sender) in senders
+                {
+                    match sender.send(
+                        Packet::from_ticket(target_tickets[sub_index].clone()))
+                    {
+                        Ok(_) => {},
+                        Err(_error) => return Err(WorkError::SenderError),
+                    }
+                }
+
+                Ok(
+                    WorkResult
+                    {
+                        target_infos : target_infos,
+                        work_option : WorkOption::Resolutions(resolutions),
+                        rule_history : Some(rule_history),
+                    }
+                )
+            }
+        },
+
+        Err(error) => Err(error),
+    }
+}
+
 /*  This is a central, public function for handling a node in the depednece graph.
     It is meant to be called by a dedicated thread, and as such, it eats all its arguments.
 
@@ -643,62 +711,15 @@ Result<WorkResult, WorkError>
             system,
             senders),
 
-        Some(rule_history) =>
-        {
-            match resolve_with_cache(
-                &mut system,
-                &cache,
-                &rule_history,
-                &sources_ticket,
-                &target_infos)
-            {
-                Ok(resolutions) =>
-                {
-                    if needs_rebuild(&resolutions)
-                    {
-                        rebuild_node(
-                            &mut system,
-                            rule_history,
-                            sources_ticket,
-                            command,
-                            senders,
-                            target_infos
-                        )
-                    }
-                    else
-                    {
-                        let target_tickets = match get_current_target_tickets(
-                            &system,
-                            &target_infos)
-                        {
-                            Ok(target_tickets) => target_tickets,
-                            Err(error) => return Err(error),
-                        };
-
-                        for (sub_index, sender) in senders
-                        {
-                            match sender.send(
-                                Packet::from_ticket(target_tickets[sub_index].clone()))
-                            {
-                                Ok(_) => {},
-                                Err(_error) => return Err(WorkError::SenderError),
-                            }
-                        }
-
-                        Ok(
-                            WorkResult
-                            {
-                                target_infos : target_infos,
-                                work_option : WorkOption::Resolutions(resolutions),
-                                rule_history : Some(rule_history),
-                            }
-                        )
-                    }
-                },
-
-                Err(error) => Err(error),
-            }
-        },
+        Some(rule_history) => handle_target_node(
+            target_infos,
+            command,
+            rule_history,
+            system,
+            senders,
+            sources_ticket,
+            cache
+        ),
     }
 }
 
