@@ -139,6 +139,7 @@ pub struct WorkResult
 {
     pub target_infos : Vec<TargetFileInfo>,
     pub work_option : WorkOption,
+    pub post_command_target_tickets : Vec<Ticket>,
     pub rule_history : Option<RuleHistory>,
 }
 
@@ -465,6 +466,7 @@ Result<WorkResult, WorkError>
         {
             target_infos : target_infos,
             work_option : WorkOption::SourceOnly,
+            post_command_target_tickets : current_target_tickets, // Not sure if this makes sense
             rule_history : None
         }
     )
@@ -520,10 +522,12 @@ fn needs_rebuild(resolutions : &Vec<FileResolution>) -> bool
     false
 }
 
+
+
 /*  Handles the case where at least one target is irrecoverable and therefore the command
     needs to execute to rebuild the node.  When successful, returns a WorkResult with option
     indicating that the command executed (WorkResult contains the commandline result) */
-fn rebuild_node<SystemType : System>
+fn rebuild_node_and_send<SystemType : System>
 (
     system : &mut SystemType,
     mut rule_history : RuleHistory,
@@ -558,20 +562,7 @@ Result<WorkResult, WorkError>
                 }
             }
 
-            for (sub_index, sender) in senders
-            {
-                match sender.send(Packet::from_ticket(
-                    post_command_target_tickets[sub_index].clone()))
-                {
-                    Ok(_) => {},
-                    Err(_error) =>
-                    {
-                        return Err(WorkError::SenderError);
-                    },
-                }
-            }
-
-            match rule_history.insert(sources_ticket, post_command_target_tickets)
+            match rule_history.insert(sources_ticket, post_command_target_tickets.clone())
             {
                 Ok(_) => {},
                 Err(error) =>
@@ -594,11 +585,25 @@ Result<WorkResult, WorkError>
                 },
             }
 
+            for (sub_index, sender) in senders
+            {
+                match sender.send(Packet::from_ticket(
+                    post_command_target_tickets[sub_index].clone()))
+                {
+                    Ok(_) => {},
+                    Err(_error) =>
+                    {
+                        return Err(WorkError::SenderError);
+                    },
+                }
+            }
+
             Ok(
                 WorkResult
                 {
                     target_infos : target_infos,
                     work_option : WorkOption::CommandExecuted(command_result),
+                    post_command_target_tickets : post_command_target_tickets,
                     rule_history : Some(rule_history),
                 }
             )
@@ -634,7 +639,7 @@ Result<WorkResult, WorkError>
         {
             if needs_rebuild(&resolutions)
             {
-                rebuild_node(
+                rebuild_node_and_send(
                     &mut system,
                     rule_history,
                     sources_ticket,
@@ -668,6 +673,7 @@ Result<WorkResult, WorkError>
                     {
                         target_infos : target_infos,
                         work_option : WorkOption::Resolutions(resolutions),
+                        post_command_target_tickets : target_tickets,
                         rule_history : Some(rule_history),
                     }
                 )
