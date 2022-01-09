@@ -16,6 +16,7 @@ use std::io::
 use crate::rule::
 {
     parse_all,
+    get_node_for_one_target,
     ParseError,
     Node,
     topological_sort,
@@ -531,185 +532,30 @@ pub fn one
         Err(error) => return Err(BuildError::RuleFileFailedToParse(error)),
     };
 
-    let mut nodes = match topological_sort(rules, &goal_target)
+    let node =
+    match get_node_for_one_target(rules, &goal_target)
     {
-        Ok(nodes) => nodes,
+        Ok(node) => node,
         Err(error) => return Err(BuildError::TopologicalSortFailed(error)),
     };
 
-    let (mut senders, mut receivers) = make_multimaps(&nodes);
-    let mut handles = Vec::new();
-    let mut index : usize = 0;
+    println!("{}", node);
 
-    for mut node in nodes.drain(..)
-    {
-        let sender_vec = match senders.remove(&index)
+/*
+    thread::spawn(
+        move || -> Result<WorkResult, WorkError>
         {
-            Some(v) => v,
-            None => vec![],
-        };
-
-        let receiver_vec = match receivers.remove(&index)
-        {
-            Some(v) => v,
-            None => vec![],
-        };
-
-        let mut target_infos = Vec::new();
-        for target_path in node.targets.drain(..)
-        {
-            target_infos.push(
-                TargetFileInfo
-                {
-                    history : memory.take_target_history(&target_path),
-                    path : target_path,
-                }
-            );
+            handle_node(
+                target_infos,
+                command,
+                rule_history,
+                system_clone,
+                sender_vec,
+                receiver_vec,
+                local_cache_clone)
         }
-
-        let local_cache_clone = cache.clone();
-
-        let command = node.command;
-        let rule_history =  match &node.rule_ticket
-        {
-            Some(ticket) => Some(memory.take_rule_history(&ticket)),
-            None => None,
-        };
-        let system_clone = system.clone();
-
-        handles.push(
-            (
-                node.rule_ticket,
-                thread::spawn(
-                    move || -> Result<WorkResult, WorkError>
-                    {
-                        handle_node(
-                            target_infos,
-                            command,
-                            rule_history,
-                            system_clone,
-                            sender_vec,
-                            receiver_vec,
-                            local_cache_clone)
-                    }
-                )
-            )
-        );
-
-        index+=1;
-    }
-
-    let mut work_errors = Vec::new();
-
-    for (node_ticket, handle) in handles
-    {
-        match handle.join()
-        {
-            Err(_error) => return Err(BuildError::Weird),
-            Ok(work_result_result) =>
-            {
-                match work_result_result
-                {
-                    Ok(mut work_result) =>
-                    {
-                        match work_result.work_option
-                        {
-                            WorkOption::SourceOnly =>
-                            {
-                            },
-
-                            WorkOption::Resolutions(resolutions) =>
-                            {
-                                for (i, target_info) in work_result.target_infos.iter().enumerate()
-                                {
-                                    let (banner_text, banner_color) =
-                                        match resolutions[i]
-                                        {
-                                            FileResolution::Recovered =>
-                                                (" Recovered", Color::Green),
-
-                                            FileResolution::Downloaded =>
-                                                ("Downloaded", Color::Yellow),
-
-                                            FileResolution::AlreadyCorrect =>
-                                                ("Up-to-date", Color::Cyan),
-
-                                            FileResolution::NeedsRebuild =>
-                                                ("  Outdated", Color::Red),
-                                        };
-
-                                    printer.print_single_banner_line(banner_text, banner_color, &target_info.path);
-                                }
-                            },
-
-                            WorkOption::CommandExecuted(output) =>
-                            {
-                                for target_info in work_result.target_infos.iter()
-                                {
-                                    printer.print_single_banner_line("     Built", Color::Magenta, &target_info.path);  
-                                }
-
-                                if output.out != ""
-                                {
-                                    printer.print(&output.out);
-                                }
-
-                                if output.err != ""
-                                {
-                                    printer.error(&output.err);
-                                }
-
-                                if !output.success
-                                {
-                                    printer.error(
-                                        &format!("RESULT: {}", 
-                                            match output.code
-                                            {
-                                                Some(code) => format!("{}", code),
-                                                None => "None".to_string(),
-                                            }
-                                        )
-                                    );
-                                }
-
-                            },
-                        }
-
-                        match node_ticket
-                        {
-                            Some(ticket) =>
-                            {
-                                match work_result.rule_history
-                                {
-                                    Some(history) => memory.insert_rule_history(ticket, history),
-                                    None => {},
-                                }
-                            }
-                            None => {},
-                        }
-
-                        for target_info in work_result.target_infos.drain(..)
-                        {
-                            memory.insert_target_history(target_info.path, target_info.history);
-                        }
-                    },
-                    Err(work_error) =>
-                    {
-                        match work_error
-                        {
-                            WorkError::ReceiverError(_error) => {},
-                            WorkError::SenderError => {},
-
-                            _ =>
-                            {
-                                work_errors.push(work_error);
-                            }
-                        }
-                    },
-                }
-            }
-        }
-    }
+    )
+*/
 
     match memory.to_file(&mut system, &memoryfile)
     {
@@ -717,14 +563,7 @@ pub fn one
         Err(_) => printer.error("Error writing history"),
     }
 
-    if work_errors.len() == 0
-    {
-        Ok(())
-    }
-    else
-    {
-        Err(BuildError::WorkErrors(work_errors))
-    }
+    return Ok(());
 }
 
 /*  This is the function that runs when you type "ruler clean" at the command-line.
@@ -863,6 +702,7 @@ mod test
     use crate::build::
     {
         build,
+        one,
         init_directory,
         BuildError,
     };
@@ -925,6 +765,120 @@ poem.txt
             "test.directory",
             vec!["test.rules".to_string()],
             Some("poem.txt".to_string()),
+            &mut EmptyPrinter::new())
+        {
+            Ok(()) => {},
+            Err(error) => panic!("Unexpected build error: {}", error),
+        }
+
+        match read_file_to_string(&mut system, "poem.txt")
+        {
+            Ok(text) => assert_eq!(text, "Roses are red.\nViolets are violet.\n"),
+            Err(_) => panic!("Failed to read poem."),
+        }
+    }
+
+    /*  Create a .rules file with one rule (poem depends on verses)
+        Use one() to build the one rule instead of build().  With only one dependence,
+        the result should be the same. */
+    #[test]
+    fn one_basic()
+    {
+        let rules = "\
+poem.txt
+:
+verse1.txt
+verse2.txt
+:
+mycat
+verse1.txt
+verse2.txt
+poem.txt
+:
+";
+        let mut system = FakeSystem::new(10);
+
+        match write_str_to_file(&mut system, "verse1.txt", "Roses are red.\n")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File failed to write"),
+        }
+
+        match write_str_to_file(&mut system, "verse2.txt", "Violets are violet.\n")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File failed to write"),
+        }
+
+        match write_str_to_file(&mut system, "test.rules", rules)
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File failed to write"),
+        }
+
+        match one(
+            system.clone(),
+            "test.directory",
+            vec!["test.rules".to_string()],
+            "poem.txt".to_string(),
+            &mut EmptyPrinter::new())
+        {
+            Ok(()) => {},
+            Err(error) => panic!("Unexpected build error: {}", error),
+        }
+
+        match read_file_to_string(&mut system, "poem.txt")
+        {
+            Ok(text) => assert_eq!(text, "Roses are red.\nViolets are violet.\n"),
+            Err(_) => panic!("Failed to read poem."),
+        }
+    }
+
+        /*  Create a .rules file with one rule (poem depends on verses)
+        Use one() to build the one rule instead of build().  With only one dependence,
+        the result should be the same. */
+    #[test]
+    fn one_with_one_dependence()
+    {
+        let rules = "\
+
+
+poem.txt
+:
+verse1.txt
+verse2.txt
+:
+mycat
+verse1.txt
+verse2.txt
+poem.txt
+:
+";
+        let mut system = FakeSystem::new(10);
+
+        match write_str_to_file(&mut system, "verse1.txt", "Roses are red.\n")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File failed to write"),
+        }
+
+        match write_str_to_file(&mut system, "verse2.txt", "Violets are violet.\n")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File failed to write"),
+        }
+
+        match write_str_to_file(&mut system, "test.rules", rules)
+        {
+            Ok(_) => {},
+            Err(_) => panic!("File failed to write"),
+        }
+
+        match one(
+            system.clone(),
+            "test.directory",
+            vec!["test.rules".to_string()],
+            "poem.txt".to_string(),
             &mut EmptyPrinter::new())
         {
             Ok(()) => {},
