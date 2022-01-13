@@ -52,7 +52,8 @@ use termcolor::
 use crate::system::
 {
     System,
-    SystemError
+    SystemError,
+    ReadWriteError,
 };
 
 /*  Takes a vector of Nodes, iterates through them, and creates two multimaps, one for
@@ -144,8 +145,9 @@ pub enum OneError
     RuleFileFailedToRead(String, io::Error),
     RuleFileFailedToOpen(String, SystemError),
     RuleFileFailedToParse(ParseError),
-    SourceFileFailedToRead(String),
-    RuleNotFound,
+    SourceFileFailedToRead(String, ReadWriteError),
+    RuleNotFound(String, TopologicalSortError),
+    WorkError(WorkError),
     Weird,
 }
 
@@ -161,9 +163,6 @@ impl fmt::Display for OneError
             OneError::DirectoryMalfunction =>
                 write!(formatter, "Error while managing ruler directory."),
 
-            OneError::DirectoryMalfunction =>
-                write!(formatter, "Error file not available."),
-
             OneError::RuleFileNotUTF8 =>
                 write!(formatter, "Rule file not valid UTF8."),
 
@@ -176,11 +175,14 @@ impl fmt::Display for OneError
             OneError::RuleFileFailedToRead(path, error) =>
                 write!(formatter, "Rule file {} failed to read with error: {}", path, error),
 
-            OneError::SourceFileFailedToRead(path) =>
-                write!(formatter, "Source file {} failed to read", path),
+            OneError::SourceFileFailedToRead(path, error) =>
+                write!(formatter, "Source file {} failed to read with error: {}", path, error),
 
-            OneError::RuleNotFound =>
-                write!(formatter, "No rule found that matches the given target"),
+            OneError::RuleNotFound(goal_target_path, error) =>
+                write!(formatter, "No rule found that matches the given target: {}.  Error: {}", goal_target_path, error),
+
+            OneError::WorkError(work_error) =>
+                write!(formatter, "{}", work_error),
 
             OneError::Weird =>
                 write!(formatter, "Oops, shoudln't be possible to get here.  Weird"),
@@ -563,7 +565,7 @@ pub fn one
 )
 -> Result<(), OneError>
 {
-    let (mut memory, cache, memoryfile) =
+    let (mut memory, _cache, memoryfile) =
     match init_directory(&mut system, directory)
     {
         Ok((memory, cache, memoryfile)) => (memory, cache, memoryfile),
@@ -585,6 +587,7 @@ pub fn one
         Err(BuildError::RuleFileNotUTF8) => return Err(OneError::RuleFileNotUTF8),
         Err(BuildError::RuleFileFailedToParse(error)) => return Err(OneError::RuleFileFailedToParse(error)),
         Err(BuildError::RuleFileFailedToRead(path, error)) => return Err(OneError::RuleFileFailedToRead(path, error)),
+        Err(BuildError::RuleFileFailedToOpen(path, error)) => return Err(OneError::RuleFileFailedToOpen(path, error)),
         Err(_) => return Err(OneError::Weird),
     };
 
@@ -599,7 +602,7 @@ pub fn one
     match get_rule_for_one_target(rules, &goal_target)
     {
         Ok(rule) => rule,
-        Err(error) => return Err(OneError::RuleNotFound),
+        Err(error) => return Err(OneError::RuleNotFound(goal_target, error)),
     };
 
     let rule_ticket = Ticket::from_strings(
@@ -615,7 +618,7 @@ pub fn one
         match TicketFactory::from_file(&system, &source)
         {
             Ok(mut f) => factory.input_ticket(f.result()),
-            Err(error) => return Err(OneError::SourceFileFailedToRead(source)),
+            Err(error) => return Err(OneError::SourceFileFailedToRead(source, error)),
         }
     }
 
@@ -631,13 +634,16 @@ pub fn one
         );
     }
 
-    rebuild_node(
+    match rebuild_node(
         &mut system,
         rule_history,
         factory.result(),
         rule.command,
-        target_infos
-    );
+        target_infos)
+    {
+        Ok(_) => {},
+        Err(work_error) => return Err(OneError::WorkError(work_error)),
+    }
 
     match memory.to_file(&mut system, &memoryfile)
     {

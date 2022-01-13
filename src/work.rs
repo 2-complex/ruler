@@ -698,7 +698,7 @@ pub fn handle_node<SystemType: System>
     target_infos : Vec<TargetFileInfo>,
     command : Vec<String>,
     rule_history_opt : Option<RuleHistory>,
-    mut system : SystemType,
+    system : SystemType,
     senders : Vec<(usize, Sender<Packet>)>,
     receivers : Vec<Receiver<Packet>>,
     cache : LocalCache

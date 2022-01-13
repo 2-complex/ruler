@@ -682,7 +682,7 @@ Result<Rule, TopologicalSortError>
 {
     let mut opt_node = None;
 
-    for mut rule in rules.drain(..)
+    for rule in rules.drain(..)
     {
         let mut count = 0;
         for target in &rule.targets
@@ -693,18 +693,13 @@ Result<Rule, TopologicalSortError>
             }
         }
 
-        if( count > 1 )
+        if count > 1
         {
             return Err(TopologicalSortError::TargetInMultipleRules(goal_target.to_string()));
         }
 
-        if( count == 1 )
+        if count == 1
         {
-            let rule_ticket = Some(Ticket::from_strings(
-                &rule.targets,
-                &rule.sources,
-                &rule.command));
-
             opt_node = match opt_node
             {
                 None => Some(rule),
