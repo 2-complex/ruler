@@ -33,8 +33,9 @@ pub struct TargetFileInfo
     pub history : TargetHistory,
 }
 
-/*  Takes a system and a TargetFileInfo, and obtains a ticket for the file described.
-    If the modified date of the file matches the one in TargetHistory exactly. */
+/*  Takes a system and a TargetFileInfo, and obtains a ticket for the file
+    described.  If the modified date of the file matches the one in
+    TargetHistory exactly. */
 pub fn get_file_ticket<SystemType: System>
 (
     system : &SystemType,
@@ -42,8 +43,9 @@ pub fn get_file_ticket<SystemType: System>
 )
 -> Result<Option<Ticket>, ReadWriteError>
 {
-    /*  The body of this match looks like it has unhandled errors.  What's happening is:
-        if any error occurs with the timestamp optimization, we skip the optimization. */
+    /*  The body of this match looks like it has unhandled errors.  What's
+        happening is: if any error occurs with the timestamp optimization, we
+        skip the optimization. */
     match system.get_modified(&target_info.path)
     {
         Ok(system_time) =>
@@ -522,18 +524,15 @@ fn needs_rebuild(resolutions : &Vec<FileResolution>) -> bool
     false
 }
 
-
-
 /*  Handles the case where at least one target is irrecoverable and therefore the command
     needs to execute to rebuild the node.  When successful, returns a WorkResult with option
     indicating that the command executed (WorkResult contains the commandline result) */
-fn rebuild_node_and_send<SystemType : System>
+pub fn rebuild_node<SystemType : System>
 (
     system : &mut SystemType,
     mut rule_history : RuleHistory,
     sources_ticket : Ticket,
     command : Vec<String>,
-    senders : Vec<(usize, Sender<Packet>)>,
     mut target_infos : Vec<TargetFileInfo>
 )
 ->
@@ -585,19 +584,6 @@ Result<WorkResult, WorkError>
                 },
             }
 
-            for (sub_index, sender) in senders
-            {
-                match sender.send(Packet::from_ticket(
-                    post_command_target_tickets[sub_index].clone()))
-                {
-                    Ok(_) => {},
-                    Err(_error) =>
-                    {
-                        return Err(WorkError::SenderError);
-                    },
-                }
-            }
-
             Ok(
                 WorkResult
                 {
@@ -639,14 +625,33 @@ Result<WorkResult, WorkError>
         {
             if needs_rebuild(&resolutions)
             {
-                rebuild_node_and_send(
+                match rebuild_node(
                     &mut system,
                     rule_history,
                     sources_ticket,
                     command,
-                    senders,
-                    target_infos
-                )
+                    target_infos)
+                {
+                    Ok(work_result) => 
+                    {
+                        for (sub_index, sender) in senders
+                        {
+                            match sender.send(Packet::from_ticket(
+                                work_result.post_command_target_tickets[sub_index].clone()))
+                            {
+                                Ok(_) => {},
+                                Err(_error) =>
+                                {
+                                    return Err(WorkError::SenderError);
+                                },
+                            }
+                        }
+
+                        return Ok(work_result);
+                    },
+
+                    Err(error) => return Err(error),
+                }
             }
             else
             {

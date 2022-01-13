@@ -16,7 +16,7 @@ use std::io::
 use crate::rule::
 {
     parse_all,
-    get_node_for_one_target,
+    get_rule_for_one_target,
     ParseError,
     Node,
     topological_sort,
@@ -32,9 +32,14 @@ use crate::work::
     WorkError,
     FileResolution,
     handle_node,
+    rebuild_node,
     clean_targets,
 };
-
+use crate::ticket::
+{
+    Ticket,
+    TicketFactory,
+};
 use crate::memory::{Memory, MemoryError};
 use crate::cache::LocalCache;
 use crate::printer::Printer;
@@ -88,7 +93,6 @@ pub enum BuildError
     Weird,
 }
 
-
 impl fmt::Display for BuildError
 {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
@@ -108,10 +112,10 @@ impl fmt::Display for BuildError
                 write!(formatter, "Dependence search failed: {}", error),
 
             BuildError::RuleFileFailedToRead(path, error) =>
-                write!(formatter, "Build file {} failed to read with error: {}", path, error),
+                write!(formatter, "Rule file {} failed to read with error: {}", path, error),
 
             BuildError::RuleFileFailedToOpen(path, error) =>
-                write!(formatter, "Build file {} failed to open with error: {}", path, error),
+                write!(formatter, "Rule file {} failed to open with error: {}", path, error),
 
             BuildError::WorkErrors(work_errors) =>
             {
@@ -128,6 +132,58 @@ impl fmt::Display for BuildError
 
             BuildError::Weird =>
                 write!(formatter, "Weird! How did you do that!"),
+        }
+    }
+}
+
+pub enum OneError
+{
+    MemoryFileFailedToRead(MemoryError),
+    DirectoryMalfunction,
+    RuleFileNotUTF8,
+    RuleFileFailedToRead(String, io::Error),
+    RuleFileFailedToOpen(String, SystemError),
+    RuleFileFailedToParse(ParseError),
+    SourceFileFailedToRead(String),
+    RuleNotFound,
+    Weird,
+}
+
+impl fmt::Display for OneError
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
+    {
+        match self
+        {
+            OneError::MemoryFileFailedToRead(error) =>
+                write!(formatter, "Error history file not found: {}", error),
+
+            OneError::DirectoryMalfunction =>
+                write!(formatter, "Error while managing ruler directory."),
+
+            OneError::DirectoryMalfunction =>
+                write!(formatter, "Error file not available."),
+
+            OneError::RuleFileNotUTF8 =>
+                write!(formatter, "Rule file not valid UTF8."),
+
+            OneError::RuleFileFailedToParse(error) =>
+                write!(formatter, "{}", error),
+
+            OneError::RuleFileFailedToOpen(path, error) =>
+                write!(formatter, "Rule file {} failed to open with error: {}", path, error),
+
+            OneError::RuleFileFailedToRead(path, error) =>
+                write!(formatter, "Rule file {} failed to read with error: {}", path, error),
+
+            OneError::SourceFileFailedToRead(path) =>
+                write!(formatter, "Source file {} failed to read", path),
+
+            OneError::RuleNotFound =>
+                write!(formatter, "No rule found that matches the given target"),
+
+            OneError::Weird =>
+                write!(formatter, "Oops, shoudln't be possible to get here.  Weird"),
         }
     }
 }
@@ -197,7 +253,6 @@ Result<(Memory, LocalCache, String), InitDirectoryError>
         memoryfile
     ))
 }
-
 
 fn read_all_rules<SystemType : System>
 (
@@ -506,7 +561,7 @@ pub fn one
     goal_target: String,
     printer: &mut PrinterType,
 )
--> Result<(), BuildError>
+-> Result<(), OneError>
 {
     let (mut memory, cache, memoryfile) =
     match init_directory(&mut system, directory)
@@ -517,45 +572,72 @@ pub fn one
             return match error
             {
                 InitDirectoryError::FailedToReadMemoryFile(memory_error) =>
-                    Err(BuildError::MemoryFileFailedToRead(memory_error)),
-                _ => Err(BuildError::DirectoryMalfunction),
+                    Err(OneError::MemoryFileFailedToRead(memory_error)),
+                _ => Err(OneError::DirectoryMalfunction),
             }
         }
     };
 
-    let all_rule_text = read_all_rules(&system, rulefile_paths)?;
+    let all_rule_text =
+    match read_all_rules(&system, rulefile_paths)
+    {
+        Ok(all_rule_text) => all_rule_text,
+        Err(BuildError::RuleFileNotUTF8) => return Err(OneError::RuleFileNotUTF8),
+        Err(BuildError::RuleFileFailedToParse(error)) => return Err(OneError::RuleFileFailedToParse(error)),
+        Err(BuildError::RuleFileFailedToRead(path, error)) => return Err(OneError::RuleFileFailedToRead(path, error)),
+        Err(_) => return Err(OneError::Weird),
+    };
 
     let rules =
     match parse_all(all_rule_text)
     {
         Ok(rules) => rules,
-        Err(error) => return Err(BuildError::RuleFileFailedToParse(error)),
+        Err(error) => return Err(OneError::RuleFileFailedToParse(error)),
     };
 
-    let node =
-    match get_node_for_one_target(rules, &goal_target)
+    let mut rule =
+    match get_rule_for_one_target(rules, &goal_target)
     {
-        Ok(node) => node,
-        Err(error) => return Err(BuildError::TopologicalSortFailed(error)),
+        Ok(rule) => rule,
+        Err(error) => return Err(OneError::RuleNotFound),
     };
 
-    println!("{}", node);
+    let rule_ticket = Ticket::from_strings(
+        &rule.targets,
+        &rule.sources,
+        &rule.command);
 
-/*
-    thread::spawn(
-        move || -> Result<WorkResult, WorkError>
+    let rule_history =  memory.take_rule_history(&rule_ticket);
+
+    let mut factory = TicketFactory::new();
+    for source in rule.sources
+    {
+        match TicketFactory::from_file(&system, &source)
         {
-            handle_node(
-                target_infos,
-                command,
-                rule_history,
-                system_clone,
-                sender_vec,
-                receiver_vec,
-                local_cache_clone)
+            Ok(mut f) => factory.input_ticket(f.result()),
+            Err(error) => return Err(OneError::SourceFileFailedToRead(source)),
         }
-    )
-*/
+    }
+
+    let mut target_infos = Vec::new();
+    for target_path in rule.targets.drain(..)
+    {
+        target_infos.push(
+            TargetFileInfo
+            {
+                history : memory.take_target_history(&target_path),
+                path : target_path,
+            }
+        );
+    }
+
+    rebuild_node(
+        &mut system,
+        rule_history,
+        factory.result(),
+        rule.command,
+        target_infos
+    );
 
     match memory.to_file(&mut system, &memoryfile)
     {

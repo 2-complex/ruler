@@ -41,8 +41,8 @@ impl Rule
     that's the hash of the rule itself (not file content). */
 pub struct Node
 {
-    pub targets: Vec<String>,
-    pub source_indices: Vec<(usize, usize)>,
+    pub targets : Vec<String>,
+    pub source_indices : Vec<(usize, usize)>,
     pub command : Vec<String>,
     pub rule_ticket : Option<Ticket>,
 }
@@ -674,7 +674,11 @@ pub fn topological_sort_all(
 
     Unlike topological sort functions, the order of the vector of Nodes
     is simply a repeat of the rules that are passed in. */
-pub fn get_node_for_one_target(mut rules : Vec<Rule>, goal_target : &str) -> Result<Node, TopologicalSortError>
+pub fn get_rule_for_one_target(
+    mut rules : Vec<Rule>,
+    goal_target : &str)
+->
+Result<Rule, TopologicalSortError>
 {
     let mut opt_node = None;
 
@@ -703,15 +707,7 @@ pub fn get_node_for_one_target(mut rules : Vec<Rule>, goal_target : &str) -> Res
 
             opt_node = match opt_node
             {
-                None => Some(
-                    Node
-                    {
-                        targets: rule.targets,
-                        source_indices: vec![],
-                        command: rule.command,
-                        rule_ticket: rule_ticket,
-                    }
-                ),
+                None => Some(rule),
                 Some(_) => return Err(TopologicalSortError::TargetInMultipleRules(goal_target.to_string())),
             }
         }
