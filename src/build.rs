@@ -653,7 +653,10 @@ pub fn one
         rule.command,
         target_infos)
     {
-        Ok(_) => {},
+        Ok(work_result) =>
+        {
+            print_work_result(printer, &work_result);
+        },
         Err(work_error) => return Err(OneError::WorkError(work_error)),
     }
 
