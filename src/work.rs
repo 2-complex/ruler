@@ -434,8 +434,7 @@ fn handle_source_only_node<SystemType: System>
 (
     target_infos : Vec<TargetFileInfo>,
     command : Vec<String>,
-    system : SystemType,
-    senders : Vec<(usize, Sender<Packet>)>
+    system : SystemType
 )
 ->
 Result<WorkResult, WorkError>
@@ -452,16 +451,6 @@ Result<WorkResult, WorkError>
         Ok(target_tickets) => target_tickets,
         Err(error) => return Err(error),
     };
-
-    for (sub_index, sender) in senders
-    {
-        match sender.send(Packet::from_ticket(
-            current_target_tickets[sub_index].clone()))
-        {
-            Ok(_) => {},
-            Err(_error) => return Err(WorkError::SenderError),
-        }
-    }
 
     Ok(
         WorkResult
@@ -607,7 +596,6 @@ fn handle_target_node<SystemType: System>
     command : Vec<String>,
     rule_history : RuleHistory,
     mut system : SystemType,
-    senders : Vec<(usize, Sender<Packet>)>,
     sources_ticket : Ticket,
     cache : LocalCache
 )
@@ -634,19 +622,6 @@ Result<WorkResult, WorkError>
                 {
                     Ok(work_result) => 
                     {
-                        for (sub_index, sender) in senders
-                        {
-                            match sender.send(Packet::from_ticket(
-                                work_result.post_command_target_tickets[sub_index].clone()))
-                            {
-                                Ok(_) => {},
-                                Err(_error) =>
-                                {
-                                    return Err(WorkError::SenderError);
-                                },
-                            }
-                        }
-
                         return Ok(work_result);
                     },
 
@@ -663,16 +638,6 @@ Result<WorkResult, WorkError>
                     Err(error) => return Err(error),
                 };
 
-                for (sub_index, sender) in senders
-                {
-                    match sender.send(
-                        Packet::from_ticket(target_tickets[sub_index].clone()))
-                    {
-                        Ok(_) => {},
-                        Err(_error) => return Err(WorkError::SenderError),
-                    }
-                }
-
                 Ok(
                     WorkResult
                     {
@@ -687,6 +652,29 @@ Result<WorkResult, WorkError>
 
         Err(error) => Err(error),
     }
+}
+
+/*  Takes a vector of sendsrs and a work-result.  Sends the post-command target tickets
+    to the senders.  Returns the same work-result unless one of the sends fails, in which
+    case, it returns a WorkError indidating the send-failure. */
+fn send_work_result(senders : Vec<(usize, Sender<Packet>)>, work_result : WorkResult)
+->
+Result<WorkResult, WorkError>
+{
+    for (sub_index, sender) in senders
+    {
+        match sender.send(Packet::from_ticket(
+            work_result.post_command_target_tickets[sub_index].clone()))
+        {
+            Ok(_) => {},
+            Err(_error) =>
+            {
+                return Err(WorkError::SenderError);
+            },
+        }
+    }
+
+    return Ok(work_result)
 }
 
 /*  This is a central, public function for handling a node in the depednece graph.
@@ -716,21 +704,20 @@ Result<WorkResult, WorkError>
         otherwise, it is a plain source file. */
     match rule_history_opt
     {
-        None => handle_source_only_node(
-            target_infos,
-            command,
-            system,
-            senders),
+        None =>
+            send_work_result(senders, handle_source_only_node(
+                target_infos,
+                command,
+                system)?),
 
-        Some(rule_history) => handle_target_node(
-            target_infos,
-            command,
-            rule_history,
-            system,
-            senders,
-            sources_ticket,
-            cache
-        ),
+        Some(rule_history) =>
+            send_work_result(senders, handle_target_node(
+                target_infos,
+                command,
+                rule_history,
+                system,
+                sources_ticket,
+                cache)?),
     }
 }
 
