@@ -516,7 +516,7 @@ fn needs_rebuild(resolutions : &Vec<FileResolution>) -> bool
 /*  Handles the case where at least one target is irrecoverable and therefore the command
     needs to execute to rebuild the node.  When successful, returns a WorkResult with option
     indicating that the command executed (WorkResult contains the commandline result) */
-pub fn rebuild_node<SystemType : System>
+fn rebuild_node<SystemType : System>
 (
     system : &mut SystemType,
     mut rule_history : RuleHistory,
@@ -590,12 +590,12 @@ Result<WorkResult, WorkError>
     }
 }
 
-fn handle_target_node<SystemType: System>
+pub fn handle_target_node<SystemType: System>
 (
+    system : &mut SystemType,
     target_infos : Vec<TargetFileInfo>,
     command : Vec<String>,
     rule_history : RuleHistory,
-    mut system : SystemType,
     sources_ticket : Ticket,
     cache : LocalCache
 )
@@ -603,7 +603,7 @@ fn handle_target_node<SystemType: System>
 Result<WorkResult, WorkError>
 {
     match resolve_with_cache(
-        &mut system,
+        system,
         &cache,
         &rule_history,
         &sources_ticket,
@@ -614,7 +614,7 @@ Result<WorkResult, WorkError>
             if needs_rebuild(&resolutions)
             {
                 match rebuild_node(
-                    &mut system,
+                    system,
                     rule_history,
                     sources_ticket,
                     command,
@@ -631,7 +631,7 @@ Result<WorkResult, WorkError>
             else
             {
                 let target_tickets = match get_current_target_tickets(
-                    &system,
+                    system,
                     &target_infos)
                 {
                     Ok(target_tickets) => target_tickets,
@@ -686,7 +686,7 @@ pub fn handle_node<SystemType: System>
     target_infos : Vec<TargetFileInfo>,
     command : Vec<String>,
     rule_history_opt : Option<RuleHistory>,
-    system : SystemType,
+    mut system : SystemType,
     senders : Vec<(usize, Sender<Packet>)>,
     receivers : Vec<Receiver<Packet>>,
     cache : LocalCache
@@ -712,10 +712,10 @@ Result<WorkResult, WorkError>
 
         Some(rule_history) =>
             send_work_result(senders, handle_target_node(
+                &mut system,
                 target_infos,
                 command,
                 rule_history,
-                system,
                 sources_ticket,
                 cache)?),
     }

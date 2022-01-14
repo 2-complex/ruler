@@ -31,8 +31,8 @@ use crate::work::
     WorkResult,
     WorkError,
     FileResolution,
+    handle_target_node,
     handle_node,
-    rebuild_node,
     clean_targets,
 };
 use crate::ticket::
@@ -577,7 +577,7 @@ pub fn one
 )
 -> Result<(), OneError>
 {
-    let (mut memory, _cache, memoryfile) =
+    let (mut memory, cache, memoryfile) =
     match init_directory(&mut system, directory)
     {
         Ok((memory, cache, memoryfile)) => (memory, cache, memoryfile),
@@ -624,12 +624,12 @@ pub fn one
 
     let rule_history =  memory.take_rule_history(&rule_ticket);
 
-    let mut factory = TicketFactory::new();
+    let mut sources_factory = TicketFactory::new();
     for source in rule.sources
     {
         match TicketFactory::from_file(&system, &source)
         {
-            Ok(mut f) => factory.input_ticket(f.result()),
+            Ok(mut f) => sources_factory.input_ticket(f.result()),
             Err(error) => return Err(OneError::SourceFileFailedToRead(source, error)),
         }
     }
@@ -646,12 +646,13 @@ pub fn one
         );
     }
 
-    match rebuild_node(
+    match handle_target_node(
         &mut system,
-        rule_history,
-        factory.result(),
+        target_infos,
         rule.command,
-        target_infos)
+        rule_history,
+        sources_factory.result(),
+        cache)
     {
         Ok(work_result) =>
         {
