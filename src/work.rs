@@ -601,7 +601,7 @@ Result<WorkResult, WorkError>
     }
 }
 
-pub fn handle_target_node<SystemType: System>
+fn handle_target_node<SystemType: System>
 (
     target_infos : Vec<TargetFileInfo>,
     command : Vec<String>,
