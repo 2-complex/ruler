@@ -295,6 +295,79 @@ fn read_all_rules<SystemType : System>
     Ok(result)
 }
 
+fn print_work_result
+<
+    PrinterType : Printer
+>
+(
+    printer : &mut PrinterType,
+    work_result : &WorkResult
+)
+{
+    match &work_result.work_option
+    {
+        WorkOption::SourceOnly =>
+        {
+        },
+
+        WorkOption::Resolutions(resolutions) =>
+        {
+            for (i, target_info) in work_result.target_infos.iter().enumerate()
+            {
+                let (banner_text, banner_color) =
+                    match resolutions[i]
+                    {
+                        FileResolution::Recovered =>
+                            (" Recovered", Color::Green),
+
+                        FileResolution::Downloaded =>
+                            ("Downloaded", Color::Yellow),
+
+                        FileResolution::AlreadyCorrect =>
+                            ("Up-to-date", Color::Cyan),
+
+                        FileResolution::NeedsRebuild =>
+                            ("  Outdated", Color::Red),
+                    };
+
+                printer.print_single_banner_line(banner_text, banner_color, &target_info.path);
+            }
+        },
+
+        WorkOption::CommandExecuted(output) =>
+        {
+            for target_info in work_result.target_infos.iter()
+            {
+                printer.print_single_banner_line("     Built", Color::Magenta, &target_info.path);  
+            }
+
+            if output.out != ""
+            {
+                printer.print(&output.out);
+            }
+
+            if output.err != ""
+            {
+                printer.error(&output.err);
+            }
+
+            if !output.success
+            {
+                printer.error(
+                    &format!("RESULT: {}", 
+                        match output.code
+                        {
+                            Some(code) => format!("{}", code),
+                            None => "None".to_string(),
+                        }
+                    )
+                );
+            }
+
+        },
+    }
+}
+
 
 /*  This is the function that runs when you type "ruler build" at the commandline.
     It opens the rulefile, parses it, and then either updates all targets in all rules
@@ -310,7 +383,7 @@ pub fn build
     directory : &str,
     rulefile_paths : Vec<String>,
     goal_target_opt: Option<String>,
-    printer: &mut PrinterType,
+    printer : &mut PrinterType,
 )
 -> Result<(), BuildError>
 {
@@ -434,68 +507,7 @@ pub fn build
                 {
                     Ok(mut work_result) =>
                     {
-                        match work_result.work_option
-                        {
-                            WorkOption::SourceOnly =>
-                            {
-                            },
-
-                            WorkOption::Resolutions(resolutions) =>
-                            {
-                                for (i, target_info) in work_result.target_infos.iter().enumerate()
-                                {
-                                    let (banner_text, banner_color) =
-                                        match resolutions[i]
-                                        {
-                                            FileResolution::Recovered =>
-                                                (" Recovered", Color::Green),
-
-                                            FileResolution::Downloaded =>
-                                                ("Downloaded", Color::Yellow),
-
-                                            FileResolution::AlreadyCorrect =>
-                                                ("Up-to-date", Color::Cyan),
-
-                                            FileResolution::NeedsRebuild =>
-                                                ("  Outdated", Color::Red),
-                                        };
-
-                                    printer.print_single_banner_line(banner_text, banner_color, &target_info.path);
-                                }
-                            },
-
-                            WorkOption::CommandExecuted(output) =>
-                            {
-                                for target_info in work_result.target_infos.iter()
-                                {
-                                    printer.print_single_banner_line("     Built", Color::Magenta, &target_info.path);  
-                                }
-
-                                if output.out != ""
-                                {
-                                    printer.print(&output.out);
-                                }
-
-                                if output.err != ""
-                                {
-                                    printer.error(&output.err);
-                                }
-
-                                if !output.success
-                                {
-                                    printer.error(
-                                        &format!("RESULT: {}", 
-                                            match output.code
-                                            {
-                                                Some(code) => format!("{}", code),
-                                                None => "None".to_string(),
-                                            }
-                                        )
-                                    );
-                                }
-
-                            },
-                        }
+                        print_work_result(printer, &work_result);
 
                         match node_ticket
                         {
@@ -1294,7 +1306,5 @@ poem.txt
             assert_eq!(target_history, exemplar_target_history);
             memory.insert_target_history("poem.txt".to_string(), target_history);
         }
-
     }
-
 }
