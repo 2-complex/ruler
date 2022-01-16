@@ -629,7 +629,7 @@ pub fn one
     {
         match TicketFactory::from_file(&system, &source)
         {
-            Ok(mut f) => sources_factory.input_ticket(f.result()),
+            Ok(mut file_factory) => sources_factory.input_ticket(file_factory.result()),
             Err(error) => return Err(OneError::SourceFileFailedToRead(source, error)),
         }
     }
@@ -657,6 +657,12 @@ pub fn one
         Ok(work_result) =>
         {
             print_work_result(printer, &work_result);
+
+            match work_result.rule_history
+            {
+                Some(history) => memory.insert_rule_history(rule_ticket, history),
+                None => {},
+            }
         },
         Err(work_error) => return Err(OneError::WorkError(work_error)),
     }

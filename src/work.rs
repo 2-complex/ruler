@@ -130,6 +130,27 @@ pub enum FileResolution
     NeedsRebuild,
 }
 
+impl fmt::Display for FileResolution
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
+    {
+        match self
+        {
+            FileResolution::Recovered =>
+                write!(formatter, " Recovered"),
+
+            FileResolution::Downloaded =>
+                write!(formatter, "Downloaded"),
+
+            FileResolution::AlreadyCorrect =>
+                write!(formatter, "Up-to-date"),
+
+            FileResolution::NeedsRebuild =>
+                write!(formatter, "  Outdated"),
+        }
+    }
+}
+
 pub enum WorkOption
 {
     SourceOnly,
@@ -613,20 +634,12 @@ Result<WorkResult, WorkError>
         {
             if needs_rebuild(&resolutions)
             {
-                match rebuild_node(
+                rebuild_node(
                     system,
                     rule_history,
                     sources_ticket,
                     command,
                     target_infos)
-                {
-                    Ok(work_result) => 
-                    {
-                        return Ok(work_result);
-                    },
-
-                    Err(error) => return Err(error),
-                }
             }
             else
             {
