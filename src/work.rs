@@ -11,6 +11,10 @@ use crate::system::
     System,
     SystemError,
 };
+use crate::downloader::
+{
+    Downloader
+};
 use crate::system::util::get_timestamp;
 use crate::memory::
 {
@@ -335,7 +339,35 @@ Result<FileResolution, WorkError>
     }
 }
 
-/*  Takes a vector of target_infos and attempts to resolve the targets using cache or download urls.
+fn get_target_tickets_with_downloader
+<
+    DownloaderType : Downloader
+>
+(
+    rule_history : &mut RuleHistory,
+    downloader : &DownloaderType,
+    sources_ticket : &Ticket,
+)
+-> Option<&Vec<Ticket>>
+{
+    match rule_history.get_target_tickets(sources_ticket)
+    {
+        Some(target_tickets) => Some(target_tickets),
+        None => {},
+    }
+
+    match downloader.get_target_tickets(sources_ticket)
+    {
+        Some(target_tickets) =>
+        {
+            rule_history.insert(sources_ticket, target_tickets);
+        },
+
+        None => None
+    }
+}
+
+/*  Takes a vector of target_infos and attempts to resolve the targets using cache.
 
     If there are remembered tickets, then this function appeals to resolve_single_target
     to try to retrieve a backup copy either from the cache or from the internet (backing up the current copy
@@ -344,11 +376,16 @@ Result<FileResolution, WorkError>
     If there are no remembered tickets, then this function goes through each target, backs up the current version
     if it's there, and returns a vector full of NeedsRebuild
 */
-fn resolve_with_cache<SystemType : System>
+fn resolve_with_cache
+<
+    SystemType : System,
+    DownloaderType : Downloader,
+>
 (
     system : &mut SystemType,
     cache : &LocalCache,
-    rule_history : &RuleHistory,
+    downloader : &DownloaderType,
+    rule_history : &mut RuleHistory,
     sources_ticket : &Ticket,
     target_infos : &Vec<TargetFileInfo>,
 )
@@ -357,7 +394,10 @@ Result<Vec<FileResolution>, WorkError>
 {
     let mut resolutions = Vec::new();
 
-    match rule_history.get_target_tickets(sources_ticket)
+    match get_target_tickets_with_downloader(
+        &rule_history,
+        &downloader,
+        sources_ticket)
     {
         Some(remembered_target_tickets) =>
         {

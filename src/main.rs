@@ -29,6 +29,7 @@ use crate::system::util::
     ReadFileToStringError,
 };
 use crate::system::real::RealSystem;
+use crate::downloader::fake::FakeDownloader;
 use crate::printer::StandardPrinter;
 
 mod cache;
@@ -40,6 +41,7 @@ mod memory;
 mod packet;
 mod printer;
 mod system;
+mod downloader;
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 struct BuildInvocation
