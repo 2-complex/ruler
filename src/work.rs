@@ -1070,7 +1070,7 @@ mod test
                             vec![
                                 TicketFactory::from_str(target_content).result()
                             ],
-                            *target_tickets
+                            target_tickets
                         );
                     },
                     None => panic!("No ticket found where expected"),
@@ -1687,10 +1687,10 @@ mod test
                     {
                         let target_tickets = rule_history.get_target_tickets(&source_ticket).unwrap();
                         assert_eq!(
-                            *target_tickets,
                             vec![
                                 TicketFactory::from_str("Roses are red\nViolets are violet\n").result()
-                            ]
+                            ],
+                            target_tickets,
                         );
                     },
                     None => panic!("Expected RuleHistory, got none"),

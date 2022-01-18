@@ -123,9 +123,13 @@ impl RuleHistory
 
     }
 
-    pub fn get_target_tickets(&self, source_ticket: &Ticket) -> Option<&Vec<Ticket>>
+    pub fn get_target_tickets(&self, source_ticket: &Ticket) -> Option<Vec<Ticket>>
     {
-        self.source_to_targets.get(source_ticket)
+        match self.source_to_targets.get(source_ticket)
+        {
+            Some(target_tickets) => Some(target_tickets.clone()),
+            None => None,
+        }
     }
 }
 
