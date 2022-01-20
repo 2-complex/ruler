@@ -1108,7 +1108,7 @@ mod test
         // Make rule history remembering that the source c++ code built
         // to the target executable.
         match rule_history.insert(
-            source_factory.result(),
+            &source_factory.result(),
             vec![TicketFactory::from_str(target_content).result()])
         {
             Ok(_) => {},
@@ -1247,10 +1247,10 @@ mod test
         }
 
         match handle_node(
+            system.clone(),
             to_info(vec!["A.txt".to_string()]),
             vec!["mycat".to_string(), "A-source.txt".to_string(), "A.txt".to_string()],
             Some(RuleHistory::new()),
-            system.clone(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
             LocalCache::new(".ruler-cache"))
@@ -1321,10 +1321,10 @@ mod test
         }
 
         match handle_node(
+            system.clone(),
             to_info(vec!["poem.txt".to_string()]),
             vec!["error".to_string()],
             Some(RuleHistory::new()),
-            system.clone(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
             LocalCache::new(".ruler-cache"))
@@ -1377,6 +1377,7 @@ mod test
         }
 
         match handle_node(
+            system.clone(),
             to_info(vec!["poem.txt".to_string()]),
             vec![
                 "mycat".to_string(),
@@ -1385,7 +1386,6 @@ mod test
                 "wrong.txt".to_string()
             ],
             Some(RuleHistory::new()),
-            system.clone(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
             LocalCache::new(".ruler-cache"))
@@ -1433,6 +1433,7 @@ mod test
         }
 
         match handle_node(
+            system.clone(),
             to_info(vec!["poem.txt".to_string()]),
             vec![
                 "mycat".to_string(),
@@ -1441,7 +1442,6 @@ mod test
                 "poem.txt".to_string()
             ],
             Some(RuleHistory::new()),
-            system.clone(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
             LocalCache::new(".ruler-cache"))
@@ -1497,7 +1497,7 @@ mod test
         factory.input_ticket(TicketFactory::from_str("Violets are violet\n").result());
 
         match rule_history.insert(
-            factory.result(),
+            &factory.result(),
             vec![
                 TicketFactory::from_str("Roses are red\nViolets are violet\n").result()
             ]
@@ -1540,6 +1540,7 @@ mod test
         }
 
         match handle_node(
+            system.clone(),
             to_info(vec!["poem.txt".to_string()]),
             vec![
                 "error".to_string(),
@@ -1547,7 +1548,6 @@ mod test
                 "this command should not run".to_string(),
                 "the end".to_string()],
             Some(rule_history),
-            system.clone(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
             LocalCache::new(".ruler-cache"))
@@ -1609,7 +1609,7 @@ mod test
         factory.input_ticket(TicketFactory::from_str("Violets are violet\n").result());
 
         match rule_history.insert(
-            factory.result(),
+            &factory.result(),
             vec![
                 TicketFactory::from_str("Roses are red\nViolets are blue\n").result()
             ]
@@ -1658,6 +1658,7 @@ mod test
         }
 
         match handle_node(
+            system.clone(),
             to_info(vec!["poem.txt".to_string()]),
             vec![
                 "mycat".to_string(),
@@ -1666,7 +1667,6 @@ mod test
                 "poem.txt".to_string()
             ],
             Some(rule_history),
-            system.clone(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
             LocalCache::new(".ruler-cache"))
@@ -1740,6 +1740,7 @@ mod test
         }
 
         match handle_node(
+            system.clone(),
             to_info(vec!["poem.txt".to_string()]),
             vec![
                 "mycat".to_string(),
@@ -1748,7 +1749,6 @@ mod test
                 "poem.txt".to_string()
             ],
             Some(rule_history),
-            system.clone(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
             LocalCache::new(".ruler-cache"))
@@ -1808,10 +1808,10 @@ mod test
         }
 
         match handle_node(
+            system.clone(),
             to_info(vec!["verse1.txt".to_string()]),
             vec![],
             None,
-            system.clone(),
             vec![],
             vec![],
             LocalCache::new(".ruler-cache"))
@@ -1844,10 +1844,10 @@ mod test
         }
 
         match handle_node(
+            system.clone(),
             to_info(vec!["verse1.txt".to_string()]),
             vec!["rm".to_string(), "verse1.txt".to_string()],
             Some(RuleHistory::new()),
-            system.clone(),
             vec![],
             vec![],
             LocalCache::new(".rule-cache"))
@@ -1882,10 +1882,10 @@ mod test
             move || -> Result<WorkResult, WorkError>
             {
                 handle_node(
+                    system,
                     target_infos,
                     command,
                     rule_history_opt,
-                    system,
                     senders,
                     receivers,
                     LocalCache::new(".ruler-cache"))
@@ -2276,7 +2276,7 @@ mod test
         );
 
         match rule_history.insert(
-            factory.result(),
+            &factory.result(),
             vec![TicketFactory::from_str("I wish I were a windowsill").result()])
         {
             Ok(_) => {},
@@ -2353,7 +2353,7 @@ mod test
         );
 
         match rule_history2.insert(
-            factory.result(),
+            &factory.result(),
             vec![TicketFactory::from_str("I wish I were a windowsill").result()])
         {
             Ok(_) => {},
@@ -2514,7 +2514,7 @@ mod test
         );
 
         match rule_history2.insert(
-            factory.result(),
+            &factory.result(),
             vec![TicketFactory::from_str("I wish I were a windowsill").result()])
         {
             Ok(_) => {},
@@ -2615,7 +2615,7 @@ mod test
         );
 
         match rule_history2.insert(
-            factory.result(),
+            &factory.result(),
             vec![TicketFactory::from_str("I wish I were a windowsill").result()])
         {
             Ok(_) => {},

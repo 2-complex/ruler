@@ -335,7 +335,7 @@ impl Memory
             }
         );
 
-        match rule_history.insert(source_ticket, target_tickets)
+        match rule_history.insert(&source_ticket, target_tickets)
         {
             Ok(_) => {},
             Err(_) => panic!("Insert broken"),
@@ -540,7 +540,7 @@ mod test
     fn round_trip_history()
     {
         let mut history = RuleHistory::new();
-        match history.insert(TicketFactory::from_str("source").result(),
+        match history.insert(&TicketFactory::from_str("source").result(),
             [
                 TicketFactory::from_str("target1").result(),
                 TicketFactory::from_str("target2").result(),
@@ -586,7 +586,7 @@ mod test
     fn add_remove_rules()
     {
         let mut history_a = RuleHistory::new();
-        match history_a.insert(TicketFactory::from_str("sourceA").result(),
+        match history_a.insert(&TicketFactory::from_str("sourceA").result(),
             [
                 TicketFactory::from_str("target1A").result(),
                 TicketFactory::from_str("target2A").result(),
@@ -598,7 +598,7 @@ mod test
         }
 
         let mut history_b = RuleHistory::new();
-        match history_b.insert(TicketFactory::from_str("sourceB").result(),
+        match history_b.insert(&TicketFactory::from_str("sourceB").result(),
             [
                 TicketFactory::from_str("target1B").result(),
                 TicketFactory::from_str("target2B").result(),
