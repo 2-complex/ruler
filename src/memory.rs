@@ -79,11 +79,11 @@ impl RuleHistory
         If there's a contradiction, constructs a Contradiction with a vector of indices. */
     pub fn insert(
         &mut self,
-        source_ticket: Ticket,
+        source_ticket: &Ticket,
         target_tickets: Vec<Ticket>)
     -> Result<(), RuleHistoryInsertError>
     {
-        match self.source_to_targets.get(&source_ticket)
+        match self.source_to_targets.get(source_ticket)
         {
             Some(existing_tickets) =>
             {
@@ -116,7 +116,7 @@ impl RuleHistory
             },
             None =>
             {
-                self.source_to_targets.insert(source_ticket, target_tickets);
+                self.source_to_targets.insert(source_ticket.clone(), target_tickets);
                 Ok(())
             }
         }

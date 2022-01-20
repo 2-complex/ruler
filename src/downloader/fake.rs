@@ -23,7 +23,7 @@ impl FakeDownloader
 
 impl Downloader for FakeDownloader
 {
-    fn get_target_tickets(&self, source_ticket: &Ticket) -> Option<&Vec<Ticket>>
+    fn get_target_tickets(&self, source_ticket: &Ticket) -> Option<Vec<Ticket>>
     {
         None
     }
@@ -32,5 +32,4 @@ impl Downloader for FakeDownloader
 #[cfg(test)]
 mod test
 {
-
 }

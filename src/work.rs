@@ -339,32 +339,37 @@ Result<FileResolution, WorkError>
     }
 }
 
+
 fn get_target_tickets_with_downloader
 <
-    DownloaderType : Downloader
+    /*DownloaderType : Downloader*/
 >
 (
     rule_history : &mut RuleHistory,
-    downloader : &DownloaderType,
+    /*downloader : &DownloaderType,*/
     sources_ticket : &Ticket,
 )
--> Option<&Vec<Ticket>>
+-> Option<Vec<Ticket>>
 {
     match rule_history.get_target_tickets(sources_ticket)
     {
-        Some(target_tickets) => Some(target_tickets),
+        Some(target_tickets) => return Some(target_tickets),
         None => {},
     }
 
+    None
+    /*
     match downloader.get_target_tickets(sources_ticket)
     {
         Some(target_tickets) =>
         {
             rule_history.insert(sources_ticket, target_tickets);
+            Some(target_tickets)
         },
 
         None => None
     }
+    */
 }
 
 /*  Takes a vector of target_infos and attempts to resolve the targets using cache.
@@ -379,13 +384,13 @@ fn get_target_tickets_with_downloader
 fn resolve_with_cache
 <
     SystemType : System,
-    DownloaderType : Downloader,
+    /*DownloaderType : Downloader,*/
 >
 (
     system : &mut SystemType,
     cache : &LocalCache,
-    downloader : &DownloaderType,
-    rule_history : &mut RuleHistory,
+    /* downloader : &DownloaderType, */
+    mut rule_history : &mut RuleHistory,
     sources_ticket : &Ticket,
     target_infos : &Vec<TargetFileInfo>,
 )
@@ -395,8 +400,7 @@ Result<Vec<FileResolution>, WorkError>
     let mut resolutions = Vec::new();
 
     match get_target_tickets_with_downloader(
-        &rule_history,
-        &downloader,
+        rule_history,
         sources_ticket)
     {
         Some(remembered_target_tickets) =>
@@ -611,7 +615,7 @@ Result<WorkResult, WorkError>
                 }
             }
 
-            match rule_history.insert(sources_ticket, post_command_target_tickets.clone())
+            match rule_history.insert(&sources_ticket, post_command_target_tickets.clone())
             {
                 Ok(_) => {},
                 Err(error) =>
@@ -651,12 +655,17 @@ Result<WorkResult, WorkError>
     }
 }
 
-pub fn handle_target_node<SystemType: System>
+pub fn handle_target_node
+<
+    SystemType : System,
+    /*DownloaderType : Downloader*/
+>
 (
     system : &mut SystemType,
+    /*downloader : &DownloaderType,*/
     target_infos : Vec<TargetFileInfo>,
     command : Vec<String>,
-    rule_history : RuleHistory,
+    mut rule_history : RuleHistory,
     sources_ticket : Ticket,
     cache : LocalCache
 )
@@ -666,7 +675,8 @@ Result<WorkResult, WorkError>
     match resolve_with_cache(
         system,
         &cache,
-        &rule_history,
+        /*& downloader */
+        &mut rule_history,
         &sources_ticket,
         &target_infos)
     {
@@ -734,12 +744,17 @@ Result<WorkResult, WorkError>
     It is meant to be called by a dedicated thread, and as such, it eats all its arguments.
 
     The RuleHistory gets modified when appropriate, and gets returned as part of the result. */
-pub fn handle_node<SystemType: System>
+pub fn handle_node
+<
+    SystemType : System,
+    /*DownloaderType : Downloader*/
+>
 (
+    mut system : SystemType,
+    /*downloader : DownloaderType,*/
     target_infos : Vec<TargetFileInfo>,
     command : Vec<String>,
     rule_history_opt : Option<RuleHistory>,
-    mut system : SystemType,
     senders : Vec<(usize, Sender<Packet>)>,
     receivers : Vec<Receiver<Packet>>,
     cache : LocalCache
@@ -766,6 +781,7 @@ Result<WorkResult, WorkError>
         Some(rule_history) =>
             send_work_result(senders, handle_target_node(
                 &mut system,
+                /*&downloader,*/
                 target_infos,
                 command,
                 rule_history,
@@ -856,6 +872,10 @@ mod test
     {
         System,
         fake::FakeSystem,
+    };
+    use crate::downloader::
+    {
+        fake::FakeDownloader,
     };
 
     use std::sync::mpsc::{self, Sender, Receiver};
@@ -1158,6 +1178,7 @@ mod test
     fn do_empty_command()
     {
         let mut system = FakeSystem::new(10);
+        let mut downloader = FakeDownloader::new();
         match write_str_to_file(&mut system, "A", "A-content")
         {
             Ok(_) => {},
@@ -1165,10 +1186,11 @@ mod test
         }
 
         match handle_node(
+            system.clone(),
+            /*downloader.clone(),*/
             to_info(vec!["A".to_string()]),
             vec![],
             None,
-            system.clone(),
             Vec::new(),
             Vec::new(),
             LocalCache::new(".ruler-cache"))

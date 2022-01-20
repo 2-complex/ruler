@@ -20,7 +20,8 @@ use crate::system::
 {
     System,
     SystemError,
-    ReadWriteError
+    ReadWriteError,
+    real::RealSystem
 };
 use crate::system::util::
 {
@@ -28,8 +29,11 @@ use crate::system::util::
     write_str_to_file,
     ReadFileToStringError,
 };
-use crate::system::real::RealSystem;
-use crate::downloader::fake::FakeDownloader;
+use crate::downloader::
+{
+    Downloader,
+    real::RealDownloader,
+};
 use crate::printer::StandardPrinter;
 
 mod cache;
@@ -331,6 +335,8 @@ not its ancestors.")
         };
 
         let mut system = RealSystem::new();
+        let mut downloader = RealDownloader::new();
+
         match read_config(&mut system, &directory)
         {
             Ok(config) =>
@@ -451,6 +457,7 @@ The next time you run `ruler again`, it will repeat that `ruler build` with the 
         };
 
         let mut system = RealSystem::new();
+        let mut downloader = RealDownloader::new();
         let mut printer = StandardPrinter::new();
 
         match write_config(&mut system, &directory, &config)

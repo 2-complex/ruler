@@ -56,6 +56,11 @@ use crate::system::
     ReadWriteError,
 };
 
+use crate::downloader::
+{
+    Downloader
+};
+
 /*  Takes a vector of Nodes, iterates through them, and creates two multimaps, one for
     senders and one for receivers. */
 fn make_multimaps(nodes : &Vec<Node>)
@@ -479,10 +484,10 @@ pub fn build
                     move || -> Result<WorkResult, WorkError>
                     {
                         handle_node(
+                            system_clone,
                             target_infos,
                             command,
                             rule_history,
-                            system_clone,
                             sender_vec,
                             receiver_vec,
                             local_cache_clone)
