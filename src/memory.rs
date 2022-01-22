@@ -41,7 +41,7 @@ pub fn write_file
 }
 
 /*  Recall that a Rule is three things: sources, targets and command.  For each particular rule, a RuleHistory stores
-    the Tickets of target files witnessed by the program when the command built with a given rule-ticket.
+    the Tickets of target files recorded when the command executed and built a given rule.
 
     This is what Ruler uses to determine if targets are up-to-date.  It creates a ticket based on the current
     state of the rule, and indexes by that ticket into a RuleHistory to get target-tickets.  If the target
@@ -159,11 +159,11 @@ impl fmt::Display for RuleHistory
     }
 }
 
-/*  There are two steps to checking if a target file is up-to-date.  First: check the rule-history to see what the target
-    hash should be.  Second: compare the hash it should be to the hash it acutally is.
-
-    TargetHistory is a small struct meant to be the type of a value in the map 'target_histories' whose purpose is to
-    help ruler tell if a target is up-to-date */
+/*  The main purpose of TargetHistory is to be the value in the map 'target_histories'  target_histories
+    help ruler tell if a target is up-to-date.  Ostensibly, to tell if the target is up to date, we only
+    need to know the current Ticket.  But recall there's also an optimization where if the current target's
+    timestamp is exactly the same we don't bother checking the Ticket.  That's why this object contains
+    a ticket and timestamp. */
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct TargetHistory
 {
