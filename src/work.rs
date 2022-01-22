@@ -384,12 +384,12 @@ fn get_target_tickets_with_downloader
 fn resolve_with_cache
 <
     SystemType : System,
-    /*DownloaderType : Downloader,*/
+    DownloaderType : Downloader,
 >
 (
     system : &mut SystemType,
     cache : &LocalCache,
-    /* downloader : &DownloaderType, */
+    downloader : &DownloaderType,
     mut rule_history : &mut RuleHistory,
     sources_ticket : &Ticket,
     target_infos : &Vec<TargetFileInfo>,
@@ -658,11 +658,11 @@ Result<WorkResult, WorkError>
 pub fn handle_target_node
 <
     SystemType : System,
-    /*DownloaderType : Downloader*/
+    DownloaderType : Downloader
 >
 (
     system : &mut SystemType,
-    /*downloader : &DownloaderType,*/
+    downloader : &DownloaderType,
     target_infos : Vec<TargetFileInfo>,
     command : Vec<String>,
     mut rule_history : RuleHistory,
@@ -675,7 +675,7 @@ Result<WorkResult, WorkError>
     match resolve_with_cache(
         system,
         &cache,
-        /*& downloader */
+        downloader,
         &mut rule_history,
         &sources_ticket,
         &target_infos)
@@ -781,7 +781,7 @@ Result<WorkResult, WorkError>
         Some(rule_history) =>
             send_work_result(senders, handle_target_node(
                 &mut system,
-                /*&downloader,*/
+                &downloader,
                 target_infos,
                 command,
                 rule_history,

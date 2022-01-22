@@ -521,10 +521,12 @@ The next time you run `ruler again`, it will repeat that `ruler build` with the 
         };
 
         let system = RealSystem::new();
+        let downloader = RealDownloader::new();
         let mut printer = StandardPrinter::new();
 
         match build::one(
             system,
+            &downloader,
             directory,
             rulefiles,
             target,

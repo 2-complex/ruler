@@ -576,10 +576,12 @@ pub fn build
 pub fn one
 <
     SystemType : System + Clone + Send + 'static,
+    DownloaderType : Downloader + Clone + Send + 'static,
     PrinterType : Printer,
 >
 (
     mut system : SystemType,
+    downloader : &DownloaderType,
     directory : &str,
     rulefile_paths : Vec<String>,
     goal_target: String,
@@ -658,6 +660,7 @@ pub fn one
 
     match handle_target_node(
         &mut system,
+        downloader,
         target_infos,
         rule.command,
         rule_history,
@@ -924,6 +927,7 @@ poem.txt
 :
 ";
         let mut system = FakeSystem::new(10);
+        let mut downloader = FakeDownloader::new();
 
         match write_str_to_file(&mut system, "verse1.txt", "Roses are red.\n")
         {
@@ -945,6 +949,7 @@ poem.txt
 
         match one(
             system.clone(),
+            &downloader,
             "test.directory",
             vec!["test.rules".to_string()],
             "poem.txt".to_string(),
@@ -982,6 +987,7 @@ poem.txt
 :
 ";
         let mut system = FakeSystem::new(10);
+        let downloader = FakeDownloader::new();
 
         match write_str_to_file(&mut system, "verse1.txt", "Roses are red.\n")
         {
@@ -1003,6 +1009,7 @@ poem.txt
 
         match one(
             system.clone(),
+            &downloader,
             "test.directory",
             vec!["test.rules".to_string()],
             "poem.txt".to_string(),
