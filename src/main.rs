@@ -31,7 +31,6 @@ use crate::system::util::
 };
 use crate::downloader::
 {
-    Downloader,
     real::RealDownloader,
 };
 use crate::printer::StandardPrinter;
@@ -335,7 +334,7 @@ not its ancestors.")
         };
 
         let mut system = RealSystem::new();
-        let mut downloader = RealDownloader::new();
+        let downloader = RealDownloader::new();
 
         match read_config(&mut system, &directory)
         {
@@ -458,7 +457,7 @@ The next time you run `ruler again`, it will repeat that `ruler build` with the 
         };
 
         let mut system = RealSystem::new();
-        let mut downloader = RealDownloader::new();
+        let downloader = RealDownloader::new();
         let mut printer = StandardPrinter::new();
 
         match write_config(&mut system, &directory, &config)

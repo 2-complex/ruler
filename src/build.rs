@@ -58,8 +58,7 @@ use crate::system::
 
 use crate::downloader::
 {
-    Downloader,
-    real::RealDownloader,
+    Downloader
 };
 
 /*  Takes a vector of Nodes, iterates through them, and creates two multimaps, one for
@@ -836,7 +835,6 @@ mod test
     };
     use crate::downloader::
     {
-        Downloader,
         fake::FakeDownloader,
     };
     use crate::work::WorkError;
@@ -927,7 +925,7 @@ poem.txt
 :
 ";
         let mut system = FakeSystem::new(10);
-        let mut downloader = FakeDownloader::new();
+        let downloader = FakeDownloader::new();
 
         match write_str_to_file(&mut system, "verse1.txt", "Roses are red.\n")
         {

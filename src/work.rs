@@ -342,11 +342,11 @@ Result<FileResolution, WorkError>
 
 fn get_target_tickets_with_downloader
 <
-    /*DownloaderType : Downloader*/
+    DownloaderType : Downloader
 >
 (
     rule_history : &mut RuleHistory,
-    /*downloader : &DownloaderType,*/
+    downloader : &DownloaderType,
     sources_ticket : &Ticket,
 )
 -> Option<Vec<Ticket>>
@@ -357,19 +357,20 @@ fn get_target_tickets_with_downloader
         None => {},
     }
 
-    None
-    /*
     match downloader.get_target_tickets(sources_ticket)
     {
         Some(target_tickets) =>
         {
-            rule_history.insert(sources_ticket, target_tickets);
+            match rule_history.insert(sources_ticket, target_tickets.clone())
+            {
+                Ok(_) => {},
+                Err(_error) => eprintln!("Inserting download rule from history failed"),
+            }
             Some(target_tickets)
         },
 
         None => None
     }
-    */
 }
 
 /*  Takes a vector of target_infos and attempts to resolve the targets using cache.
@@ -390,7 +391,7 @@ fn resolve_with_cache
     system : &mut SystemType,
     cache : &LocalCache,
     downloader : &DownloaderType,
-    mut rule_history : &mut RuleHistory,
+    rule_history : &mut RuleHistory,
     sources_ticket : &Ticket,
     target_infos : &Vec<TargetFileInfo>,
 )
@@ -401,6 +402,7 @@ Result<Vec<FileResolution>, WorkError>
 
     match get_target_tickets_with_downloader(
         rule_history,
+        downloader,
         sources_ticket)
     {
         Some(remembered_target_tickets) =>
@@ -1178,7 +1180,7 @@ mod test
     fn do_empty_command()
     {
         let mut system = FakeSystem::new(10);
-        let mut downloader = FakeDownloader::new();
+
         match write_str_to_file(&mut system, "A", "A-content")
         {
             Ok(_) => {},

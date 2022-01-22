@@ -3,7 +3,9 @@ use crate::ticket::
     Ticket
 };
 
+#[cfg(test)]
 pub mod fake;
+
 pub mod real;
 
 /*  Downloader abstracts the rule-history and file network-based-cache.  An

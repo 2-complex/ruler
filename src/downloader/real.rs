@@ -24,7 +24,7 @@ impl RealDownloader
 
 impl Downloader for RealDownloader
 {
-    fn get_target_tickets(&self, source_ticket: &Ticket) -> Option<Vec<Ticket>>
+    fn get_target_tickets(&self, _source_ticket: &Ticket) -> Option<Vec<Ticket>>
     {
         None
     }
