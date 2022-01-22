@@ -7,6 +7,7 @@ use crate::downloader::
     Downloader
 };
 
+#[derive(Debug, Clone)]
 pub struct RealDownloader
 {
 }

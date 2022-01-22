@@ -747,11 +747,11 @@ Result<WorkResult, WorkError>
 pub fn handle_node
 <
     SystemType : System,
-    /*DownloaderType : Downloader*/
+    DownloaderType : Downloader
 >
 (
     mut system : SystemType,
-    /*downloader : DownloaderType,*/
+    downloader : DownloaderType,
     target_infos : Vec<TargetFileInfo>,
     command : Vec<String>,
     rule_history_opt : Option<RuleHistory>,
@@ -1187,7 +1187,7 @@ mod test
 
         match handle_node(
             system.clone(),
-            /*downloader.clone(),*/
+            FakeDownloader::new(),
             to_info(vec!["A".to_string()]),
             vec![],
             None,
@@ -1248,6 +1248,7 @@ mod test
 
         match handle_node(
             system.clone(),
+            FakeDownloader::new(),
             to_info(vec!["A.txt".to_string()]),
             vec!["mycat".to_string(), "A-source.txt".to_string(), "A.txt".to_string()],
             Some(RuleHistory::new()),
@@ -1322,6 +1323,7 @@ mod test
 
         match handle_node(
             system.clone(),
+            FakeDownloader::new(),
             to_info(vec!["poem.txt".to_string()]),
             vec!["error".to_string()],
             Some(RuleHistory::new()),
@@ -1378,6 +1380,7 @@ mod test
 
         match handle_node(
             system.clone(),
+            FakeDownloader::new(),
             to_info(vec!["poem.txt".to_string()]),
             vec![
                 "mycat".to_string(),
@@ -1434,6 +1437,7 @@ mod test
 
         match handle_node(
             system.clone(),
+            FakeDownloader::new(),
             to_info(vec!["poem.txt".to_string()]),
             vec![
                 "mycat".to_string(),
@@ -1541,6 +1545,7 @@ mod test
 
         match handle_node(
             system.clone(),
+            FakeDownloader::new(),
             to_info(vec!["poem.txt".to_string()]),
             vec![
                 "error".to_string(),
@@ -1659,6 +1664,7 @@ mod test
 
         match handle_node(
             system.clone(),
+            FakeDownloader::new(),
             to_info(vec!["poem.txt".to_string()]),
             vec![
                 "mycat".to_string(),
@@ -1741,6 +1747,7 @@ mod test
 
         match handle_node(
             system.clone(),
+            FakeDownloader::new(),
             to_info(vec!["poem.txt".to_string()]),
             vec![
                 "mycat".to_string(),
@@ -1809,6 +1816,7 @@ mod test
 
         match handle_node(
             system.clone(),
+            FakeDownloader::new(),
             to_info(vec!["verse1.txt".to_string()]),
             vec![],
             None,
@@ -1845,6 +1853,7 @@ mod test
 
         match handle_node(
             system.clone(),
+            FakeDownloader::new(),
             to_info(vec!["verse1.txt".to_string()]),
             vec!["rm".to_string(), "verse1.txt".to_string()],
             Some(RuleHistory::new()),
@@ -1883,6 +1892,7 @@ mod test
             {
                 handle_node(
                     system,
+                    FakeDownloader::new(),
                     target_infos,
                     command,
                     rule_history_opt,

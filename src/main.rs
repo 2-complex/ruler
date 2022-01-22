@@ -362,6 +362,7 @@ not its ancestors.")
                         match build::build(
                             system,
                             directory,
+                            downloader,
                             rules,
                             target,
                             &mut printer)
@@ -467,6 +468,7 @@ The next time you run `ruler again`, it will repeat that `ruler build` with the 
                 match build::build(
                     system,
                     directory,
+                    downloader,
                     rulefiles,
                     target,
                     &mut printer)

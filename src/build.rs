@@ -58,7 +58,8 @@ use crate::system::
 
 use crate::downloader::
 {
-    Downloader
+    Downloader,
+    real::RealDownloader,
 };
 
 /*  Takes a vector of Nodes, iterates through them, and creates two multimaps, one for
@@ -381,11 +382,13 @@ fn print_work_result
 pub fn build
 <
     SystemType : System + Clone + Send + 'static,
+    DownloaderType : Downloader + Clone + Send + 'static,
     PrinterType : Printer,
 >
 (
     mut system : SystemType,
     directory : &str,
+    downloader : DownloaderType,
     rulefile_paths : Vec<String>,
     goal_target_opt: Option<String>,
     printer : &mut PrinterType,
@@ -476,6 +479,7 @@ pub fn build
             None => None,
         };
         let system_clone = system.clone();
+        let downloader = downloader.clone();
 
         handles.push(
             (
@@ -485,6 +489,7 @@ pub fn build
                     {
                         handle_node(
                             system_clone,
+                            downloader,
                             target_infos,
                             command,
                             rule_history,
@@ -826,6 +831,11 @@ mod test
         System,
         fake::FakeSystem
     };
+    use crate::downloader::
+    {
+        Downloader,
+        fake::FakeDownloader,
+    };
     use crate::work::WorkError;
     use crate::ticket::TicketFactory;
     use crate::cache::LocalCache;
@@ -856,6 +866,7 @@ poem.txt
 :
 ";
         let mut system = FakeSystem::new(10);
+        let downloader = FakeDownloader::new();
 
         match write_str_to_file(&mut system, "verse1.txt", "Roses are red.\n")
         {
@@ -878,6 +889,7 @@ poem.txt
         match build(
             system.clone(),
             "test.directory",
+            downloader,
             vec!["test.rules".to_string()],
             Some("poem.txt".to_string()),
             &mut EmptyPrinter::new())
@@ -1054,6 +1066,7 @@ poem.txt
         match build(
             system.clone(),
             "test.directory",
+            FakeDownloader::new(),
             vec!["test.rules".to_string()],
             Some("poem.txt".to_string()),
             &mut EmptyPrinter::new())
@@ -1085,6 +1098,7 @@ poem.txt
         match build(
             system.clone(),
             "test.directory",
+            FakeDownloader::new(),
             vec!["test.rules".to_string()],
             Some("poem.txt".to_string()),
             &mut EmptyPrinter::new())
@@ -1132,9 +1146,10 @@ poem.txt
 :
 ";
         let mut system = FakeSystem::new(10);
+        let downloader = FakeDownloader::new();
 
         match write_str_to_file(&mut system, "verse1.txt", "Roses are red.\n")
-        {
+        {   
             Ok(_) => {},
             Err(_) => panic!("File failed to write"),
         }
@@ -1154,6 +1169,7 @@ poem.txt
         match build(
             system.clone(),
             ".ruler",
+            FakeDownloader::new(),
             vec!["test.rules".to_string()],
             Some("poem.txt".to_string()),
             &mut EmptyPrinter::new())
@@ -1186,6 +1202,7 @@ poem.txt
         match build(
             system.clone(),
             ".ruler",
+            FakeDownloader::new(),
             vec!["test.rules".to_string()],
             Some("poem.txt".to_string()),
             &mut EmptyPrinter::new())
@@ -1224,6 +1241,7 @@ poem.txt
         match build(
             system.clone(),
             ".ruler",
+            downloader,
             vec!["test.rules".to_string()],
             Some("poem.txt".to_string()),
             &mut EmptyPrinter::new())
@@ -1256,6 +1274,7 @@ poem.txt
 :
 ";
         let mut system = FakeSystem::new(17);
+        let downloader = FakeDownloader::new();
 
         match write_str_to_file(&mut system, "verse1.txt", "Roses are red.\n")
         {
@@ -1291,6 +1310,7 @@ poem.txt
         match build(
             system.clone(),
             "ruler-directory",
+            downloader,
             vec!["test.rules".to_string()],
             Some("poem.txt".to_string()),
             &mut EmptyPrinter::new())
