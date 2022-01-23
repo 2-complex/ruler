@@ -39,7 +39,9 @@ pub struct TargetFileInfo
 
 /*  Takes a system and a TargetFileInfo, and obtains a ticket for the file
     described.  If the modified date of the file matches the one in
-    TargetHistory exactly. */
+    TargetHistory exactly, this function doesn't bother opening the file to
+    get the ticket, instead it extracts it from the TargetHistory in the
+    TargetFileInfo assuming that the file hasn't changed. */
 pub fn get_file_ticket<SystemType: System>
 (
     system : &SystemType,
@@ -850,6 +852,7 @@ mod test
     {
         handle_node,
         get_file_ticket,
+        get_target_tickets_with_downloader,
         FileResolution,
         WorkResult,
         WorkOption,
@@ -1091,6 +1094,239 @@ mod test
             Err(_) => panic!("Unexpected error getting file ticket"),
         }
     }
+
+
+    /*  Create an empty rule-history.  Create a source-ticket, and use get_target_tickets_with_downloader()
+        to try to obtain target tickets.  Check that we get none. */
+    #[test]
+    fn work_get_target_tickets_with_downloader_empty_rule_history()
+    {
+        let mut rule_history = RuleHistory::new();
+        let mut system = FakeSystem::new(10);
+
+        let source_content = "int main(){printf(\"my game\"); return 0;}";
+
+        // Meanwhile, in the filesystem put some source code in game.cpp
+        match write_str_to_file(&mut system, "game.cpp", source_content)
+        {
+            Ok(_) => {},
+            Err(error) => panic!("Failed to make fake file: {}", error),
+        }
+
+        // Then get the file-ticket for the current source file:
+        match get_file_ticket(
+            &system,
+            &TargetFileInfo
+            {
+                path : "game.cpp".to_string(),
+                history : TargetHistory
+                {
+                    ticket : TicketFactory::new().result(),
+                    timestamp : 0,
+                }
+            })
+        {
+            Ok(ticket_opt) =>
+            {
+                match ticket_opt
+                {
+                    Some(ticket) =>
+                    {
+                        // Make sure it matches the content of the file that we wrote
+                        assert_eq!(ticket, TicketFactory::from_str(source_content).result());
+
+                        // Then create a source ticket for all (one) sources
+                        let mut source_factory = TicketFactory::new();
+                        source_factory.input_ticket(ticket);
+                        let source_ticket = source_factory.result();
+
+                        // Call get_target_tickets_with_downloader, give it a trivial downloader,
+                        // and empty rule history.  Check that we don't get an answer.
+                        match get_target_tickets_with_downloader(
+                            &mut rule_history,
+                            &FakeDownloader::new(),
+                            &source_ticket)
+                        {
+                            Some(_target_tickets) => panic!("Tickets found where none were expected"),
+                            None => {},
+                        };
+                    },
+                    None => panic!("No ticket found where expected"),
+                }
+            }
+            Err(err) => panic!(format!("Could not get ticket: {}", err)),
+        }
+    }
+
+
+    /*  Create an empty rule-history.  Create a source file and target file content, initialize
+        a fake downloader that answers yes when you ask it if it knows the target tickets. */
+    #[test]
+    fn work_get_target_tickets_actually_from_the_downloader()
+    {
+        let mut rule_history = RuleHistory::new();
+        let mut system = FakeSystem::new(10);
+
+        let source_content = "int main(){printf(\"my game\"); return 0;}";
+        let mut source_factory = TicketFactory::new();
+        source_factory.input_ticket(TicketFactory::from_str(source_content).result());
+        let source_ticket = source_factory.result();
+        let target_content = "machine code for my game";
+
+        // Meanwhile, in the filesystem put some source code in game.cpp
+        match write_str_to_file(&mut system, "game.cpp", source_content)
+        {
+            Ok(_) => {},
+            Err(error) => panic!("Failed to make fake file: {}", error),
+        }
+
+        let mut downloader = FakeDownloader::new();
+        downloader.insert(
+            &source_ticket,
+            vec![TicketFactory::from_str(target_content).result()]);
+
+        // Then get the file-ticket for the current source file:
+        match get_file_ticket(
+            &system,
+            &TargetFileInfo
+            {
+                path : "game.cpp".to_string(),
+                history : TargetHistory
+                {
+                    ticket : TicketFactory::new().result(),
+                    timestamp : 0,
+                }
+            })
+        {
+            Ok(ticket_opt) =>
+            {
+                match ticket_opt
+                {
+                    Some(ticket) =>
+                    {
+                        // Make sure it matches the content of the file that we wrote
+                        assert_eq!(ticket, TicketFactory::from_str(source_content).result());
+
+                        // Then create a source ticket for all (one) sources
+                        let mut source_factory = TicketFactory::new();
+                        source_factory.input_ticket(ticket);
+                        let source_ticket = source_factory.result();
+
+                        // Call get_target_tickets_with_downloader, give it a trivial downloader,
+                        // and empty rule history.  Check that we don't get an answer.
+                        match get_target_tickets_with_downloader(
+                            &mut rule_history,
+                            &downloader,
+                            &source_ticket)
+                        {
+                            Some(target_tickets) =>
+                            {
+                                assert_eq!(
+                                    vec![
+                                        TicketFactory::from_str(target_content).result()
+                                    ],
+                                    target_tickets
+                                );
+                            },
+                            None => panic!("No target tickets found where expected"),
+                        };
+                    },
+                    None => panic!("No ticket found where expected"),
+                }
+            }
+            Err(err) => panic!(format!("Could not get ticket: {}", err)),
+        }
+    }
+
+
+    /*  Create a rule-history and populate it simulating a game having been built from a
+        single C++ source file.  Get the file-ticket for the source, use that ticket to
+        get a target ticket from the rule-history by calling get_target_tickets_with_downloader(),
+        passing it a trivial downloader, and check the target tickets. */
+    #[test]
+    fn work_get_target_tickets_with_downloader()
+    {
+        let mut rule_history = RuleHistory::new();
+        let mut system = FakeSystem::new(10);
+
+        let source_content = "int main(){printf(\"my game\"); return 0;}";
+        let target_content = "machine code for my game";
+
+        let mut source_factory = TicketFactory::new();
+        source_factory.input_ticket(TicketFactory::from_str(source_content).result());
+
+        // Make rule history remembering that the source c++ code built
+        // to the target executable.
+        match rule_history.insert(
+            &source_factory.result(),
+            vec![TicketFactory::from_str(target_content).result()])
+        {
+            Ok(_) => {},
+            Err(_) => panic!("Rule history failed to insert"),
+        }
+
+        // Meanwhile, in the filesystem put some source code in game.cpp
+        match write_str_to_file(&mut system, "game.cpp", source_content)
+        {
+            Ok(_) => {},
+            Err(why) => panic!("Failed to make fake file: {}", why),
+        }
+
+        // Then get the file-ticket for the current source file:
+        match get_file_ticket(
+            &system,
+            &TargetFileInfo
+            {
+                path : "game.cpp".to_string(),
+                history : TargetHistory
+                {
+                    ticket : TicketFactory::new().result(),
+                    timestamp : 0,
+                }
+            })
+        {
+            Ok(ticket_opt) =>
+            {
+                match ticket_opt
+                {
+                    Some(ticket) =>
+                    {
+                        // Make sure it matches the content of the file that we wrote
+                        assert_eq!(ticket, TicketFactory::from_str(source_content).result());
+
+                        // Then create a source ticket for all (one) sources
+                        let mut source_factory = TicketFactory::new();
+                        source_factory.input_ticket(ticket);
+                        let source_ticket = source_factory.result();
+
+                        // Call get_target_tickets_with_downloader, give it a trivial downloader.
+                        // Our rule history already has target tickets for the source ticket, though
+                        // so check that it returns those target tickets.
+                        let target_tickets =
+                        match get_target_tickets_with_downloader(
+                            &mut rule_history,
+                            &FakeDownloader::new(),
+                            &source_ticket)
+                        {
+                            Some(target_tickets) => target_tickets,
+                            None => panic!("Tickets not in history as expected"),
+                        };
+
+                        // Check that the target tickets in the history match the ones for the target
+                        assert_eq!(
+                            vec![
+                                TicketFactory::from_str(target_content).result()
+                            ],
+                            target_tickets
+                        );
+                    },
+                    None => panic!("No ticket found where expected"),
+                }
+            }
+            Err(err) => panic!(format!("Could not get ticket: {}", err)),
+        }
+    }
+
 
     /*  Create a rule-history and populate it simulating a game having been built from a
         single C++ source file.  Get the file-ticket for the source, use that ticket to
