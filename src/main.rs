@@ -273,33 +273,33 @@ and its ancestors, as needed.")
                 .takes_value(true))
         )
         .subcommand(
-SubCommand::with_name("hash")
-.about("Outputs the hash of a file")
-.help("
+            SubCommand::with_name("hash")
+            .about("Outputs the hash of a file")
+            .help("
 Takes a path to a file, returns the url-safe-base64-encoded sha256 of the file.
 ")
-.arg(Arg::with_name("path")
-.help("
+            .arg(Arg::with_name("path")
+            .help("
 Path to any file.
 ")
-.required(true)
-.index(1)
-)
-)
-.setting(AppSettings::ArgRequiredElseHelp)
-.subcommand(
-SubCommand::with_name("nodes")
-.about("Displays info on current build-nodes along with their
+            .required(true)
+            .index(1)
+        )
+    )
+        .setting(AppSettings::ArgRequiredElseHelp)
+        .subcommand(
+            SubCommand::with_name("nodes")
+            .about("Displays info on current build-nodes along with their
 current rule-hash")
-.help("
+            .help("
 Reads the rules files the same way as when invoking ruler build, except instead
 of running the build process, prints information about each node.  This command
 is read only.  It is useful for troubleshooting and understanding how ruler
 works.
 ")
-)
-.setting(AppSettings::ArgRequiredElseHelp)
-.subcommand(
+        )
+        .setting(AppSettings::ArgRequiredElseHelp)
+        .subcommand(
             SubCommand::with_name("serve")
             .about("Starts a server to provide other instances of ruler on the
 network access to the files in the current filesystem and ruler cache.")
