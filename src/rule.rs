@@ -47,6 +47,7 @@ pub struct Node
     pub rule_ticket : Option<Ticket>,
 }
 
+
 impl fmt::Display for Rule
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result
@@ -69,27 +70,35 @@ impl fmt::Display for Rule
     }
 }
 
+
 impl fmt::Display for Node
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result
     {
-        for t in self.targets.iter()
+        match &self.rule_ticket
         {
-            write!(f, "{}\n", t).unwrap();
+            Some(ticket) =>
+            {
+                write!(f, "\n").unwrap();
+                for t in self.targets.iter()
+                {
+                    write!(f, "{}\n", t).unwrap();
+                }
+                write!(f, "{}\n\n", ticket).unwrap();
+            },
+            None =>
+            {
+                for t in self.targets.iter()
+                {
+                    write!(f, "{}\n", t).unwrap();
+                }
+            }
         }
-        write!(f, ":\n").unwrap();
-        for (t, u) in self.source_indices.iter()
-        {
-            write!(f, "({}, {})\n", t, u).unwrap();
-        }
-        write!(f, ":\n").unwrap();
-        for t in self.command.iter()
-        {
-            write!(f, "{}\n", t).unwrap();
-        }
-        write!(f, ":\n")
+
+        write!(f, "")
     }
 }
+
 
 struct EndpointPair
 {
