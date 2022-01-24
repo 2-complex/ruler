@@ -8,7 +8,6 @@ use std::time::SystemTime;
 pub mod fake;
 
 pub mod util;
-
 pub mod real;
 
 pub struct CommandLineOutput

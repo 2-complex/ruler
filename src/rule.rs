@@ -41,8 +41,8 @@ impl Rule
     that's the hash of the rule itself (not file content). */
 pub struct Node
 {
-    pub targets: Vec<String>,
-    pub source_indices: Vec<(usize, usize)>,
+    pub targets : Vec<String>,
+    pub source_indices : Vec<(usize, usize)>,
     pub command : Vec<String>,
     pub rule_ticket : Option<Ticket>,
 }
@@ -608,7 +608,7 @@ impl TopologicalSortMachine
 
 }
 
-/*  Takes a vector of Rules and goal_target, goal target is the target in whose rule the
+/*  Takes a vector of Rules and goal_target, goal_target is the target in whose rule the
     search originates.
 
     Rules contain enough information to establish a dependence tree. This function
@@ -678,7 +678,51 @@ pub fn topological_sort_all(
     }
 }
 
+/*  Takes a vector of Rules, consumes it, and returns a vector of Nodes
+    and a map saying where each target occurs in the vector of Nodes.
 
+    Unlike topological sort functions, the order of the vector of Nodes
+    is simply a repeat of the rules that are passed in. */
+pub fn get_rule_for_one_target(
+    mut rules : Vec<Rule>,
+    goal_target : &str)
+->
+Result<Rule, TopologicalSortError>
+{
+    let mut opt_node = None;
+
+    for rule in rules.drain(..)
+    {
+        let mut count = 0;
+        for target in &rule.targets
+        {
+            if target == goal_target
+            {
+                count+=1;
+            }
+        }
+
+        if count > 1
+        {
+            return Err(TopologicalSortError::TargetInMultipleRules(goal_target.to_string()));
+        }
+
+        if count == 1
+        {
+            opt_node = match opt_node
+            {
+                None => Some(rule),
+                Some(_) => return Err(TopologicalSortError::TargetInMultipleRules(goal_target.to_string())),
+            }
+        }
+    }
+
+    match opt_node
+    {
+        None => return Err(TopologicalSortError::TargetMissing(goal_target.to_string())),
+        Some(node) => return Ok(node),
+    }
+}
 
 #[cfg(test)]
 mod tests

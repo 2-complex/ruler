@@ -45,7 +45,7 @@ pub fn write_file
 }
 
 /*  Recall that a Rule is three things: sources, targets and command.  For each particular rule, a RuleHistory stores
-    the Tickets of target files witnessed by the program when the command built with a given rule-ticket.
+    the Tickets of target files recorded when the command executed and built a given rule.
 
     This is what Ruler uses to determine if targets are up-to-date.  It creates a ticket based on the current
     state of the rule, and indexes by that ticket into a RuleHistory to get target-tickets.  If the target
@@ -83,11 +83,11 @@ impl RuleHistory
         If there's a contradiction, constructs a Contradiction with a vector of indices. */
     pub fn insert(
         &mut self,
-        source_ticket: Ticket,
+        source_ticket: &Ticket,
         target_tickets: Vec<Ticket>)
     -> Result<(), RuleHistoryInsertError>
     {
-        match self.source_to_targets.get(&source_ticket)
+        match self.source_to_targets.get(source_ticket)
         {
             Some(existing_tickets) =>
             {
@@ -120,16 +120,20 @@ impl RuleHistory
             },
             None =>
             {
-                self.source_to_targets.insert(source_ticket, target_tickets);
+                self.source_to_targets.insert(source_ticket.clone(), target_tickets);
                 Ok(())
             }
         }
 
     }
 
-    pub fn get_target_tickets(&self, source_ticket: &Ticket) -> Option<&Vec<Ticket>>
+    pub fn get_target_tickets(&self, source_ticket: &Ticket) -> Option<Vec<Ticket>>
     {
-        self.source_to_targets.get(source_ticket)
+        match self.source_to_targets.get(source_ticket)
+        {
+            Some(target_tickets) => Some(target_tickets.clone()),
+            None => None,
+        }
     }
 }
 
@@ -159,11 +163,11 @@ impl fmt::Display for RuleHistory
     }
 }
 
-/*  There are two steps to checking if a target file is up-to-date.  First: check the rule-history to see what the target
-    hash should be.  Second: compare the hash it should be to the hash it acutally is.
-
-    TargetHistory is a small struct meant to be the type of a value in the map 'target_histories' whose purpose is to
-    help ruler tell if a target is up-to-date */
+/*  The main purpose of TargetHistory is to be the value in the map 'target_histories'  target_histories
+    help ruler tell if a target is up-to-date.  Ostensibly, to tell if the target is up to date, we only
+    need to know the current Ticket.  But recall there's also an optimization where if the current target's
+    timestamp is exactly the same we don't bother checking the Ticket.  That's why this object contains
+    a ticket and timestamp. */
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct TargetHistory
 {
@@ -335,7 +339,7 @@ impl Memory
             }
         );
 
-        match rule_history.insert(source_ticket, target_tickets)
+        match rule_history.insert(&source_ticket, target_tickets)
         {
             Ok(_) => {},
             Err(_) => panic!("Insert broken"),
@@ -540,7 +544,7 @@ mod test
     fn round_trip_history()
     {
         let mut history = RuleHistory::new();
-        match history.insert(TicketFactory::from_str("source").result(),
+        match history.insert(&TicketFactory::from_str("source").result(),
             [
                 TicketFactory::from_str("target1").result(),
                 TicketFactory::from_str("target2").result(),
@@ -586,7 +590,7 @@ mod test
     fn add_remove_rules()
     {
         let mut history_a = RuleHistory::new();
-        match history_a.insert(TicketFactory::from_str("sourceA").result(),
+        match history_a.insert(&TicketFactory::from_str("sourceA").result(),
             [
                 TicketFactory::from_str("target1A").result(),
                 TicketFactory::from_str("target2A").result(),
@@ -598,7 +602,7 @@ mod test
         }
 
         let mut history_b = RuleHistory::new();
-        match history_b.insert(TicketFactory::from_str("sourceB").result(),
+        match history_b.insert(&TicketFactory::from_str("sourceB").result(),
             [
                 TicketFactory::from_str("target1B").result(),
                 TicketFactory::from_str("target2B").result(),

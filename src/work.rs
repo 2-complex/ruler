@@ -11,6 +11,10 @@ use crate::system::
     System,
     SystemError,
 };
+use crate::downloader::
+{
+    Downloader
+};
 use crate::system::util::get_timestamp;
 use crate::memory::
 {
@@ -37,35 +41,12 @@ pub struct TargetFileInfo
     pub history : TargetHistory,
 }
 
-/*  Takes a System and a filepath as a string.
 
-    If the file exists, returns a ticket.
-    If the file does not exist, returns Ok, but with no Ticket inside
-    If the file exists but does not open or some other error occurs when generating
-    the ticket, returns an error. */
-pub fn get_file_ticket_from_path<SystemType: System>
-(
-    system : &SystemType,
-    path : &str
-)
--> Result<Option<Ticket>, ReadWriteError>
-{
-    if system.is_file(&path) || system.is_dir(&path)
-    {
-        match TicketFactory::from_file(system, &path)
-        {
-            Ok(mut factory) => Ok(Some(factory.result())),
-            Err(error) => Err(error),
-        }
-    }
-    else
-    {
-        Ok(None)
-    }
-}
-
-/*  Takes a system and a TargetFileInfo, and obtains a ticket for the file described.
-    If the modified date of the file matches the one in TargetHistory exactly. */
+/*  Takes a system and a TargetFileInfo, and obtains a ticket for the file
+    described.  If the modified date of the file matches the one in
+    TargetHistory exactly, this function doesn't bother opening the file to
+    get the ticket, instead it extracts it from the TargetHistory in the
+    TargetFileInfo assuming that the file hasn't changed. */
 pub fn get_file_ticket<SystemType: System>
 (
     system : &SystemType,
@@ -73,8 +54,9 @@ pub fn get_file_ticket<SystemType: System>
 )
 -> Result<Option<Ticket>, ReadWriteError>
 {
-    /*  The body of this match looks like it has unhandled errors.  What's happening is:
-        if any error occurs with the timestamp optimization, we skip the optimization. */
+    /*  The body of this match looks like it has unhandled errors.  What's
+        happening is: if any error occurs with the timestamp optimization, we
+        skip the optimization. */
     match system.get_modified(&target_info.path)
     {
         Ok(system_time) =>
@@ -148,6 +130,27 @@ pub enum FileResolution
     NeedsRebuild,
 }
 
+impl fmt::Display for FileResolution
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
+    {
+        match self
+        {
+            FileResolution::Recovered =>
+                write!(formatter, " Recovered"),
+
+            FileResolution::Downloaded =>
+                write!(formatter, "Downloaded"),
+
+            FileResolution::AlreadyCorrect =>
+                write!(formatter, "Up-to-date"),
+
+            FileResolution::NeedsRebuild =>
+                write!(formatter, "  Outdated"),
+        }
+    }
+}
+
 pub enum WorkOption
 {
     SourceOnly,
@@ -159,6 +162,7 @@ pub struct WorkResult
 {
     pub target_infos : Vec<TargetFileInfo>,
     pub work_option : WorkOption,
+    pub post_command_target_tickets : Vec<Ticket>,
     pub rule_history : Option<RuleHistory>,
 }
 
@@ -335,7 +339,41 @@ Result<FileResolution, WorkError>
     }
 }
 
-/*  Takes a vector of target_infos and attempts to resolve the targets using cache or download urls.
+
+fn get_target_tickets_with_downloader
+<
+    DownloaderType : Downloader
+>
+(
+    rule_history : &mut RuleHistory,
+    downloader : &DownloaderType,
+    sources_ticket : &Ticket,
+)
+-> Option<Vec<Ticket>>
+{
+    match rule_history.get_target_tickets(sources_ticket)
+    {
+        Some(target_tickets) => return Some(target_tickets),
+        None => {},
+    }
+
+    match downloader.get_target_tickets(sources_ticket)
+    {
+        Some(target_tickets) =>
+        {
+            match rule_history.insert(sources_ticket, target_tickets.clone())
+            {
+                Ok(_) => {},
+                Err(_error) => eprintln!("Inserting download rule from history failed"),
+            }
+            Some(target_tickets)
+        },
+
+        None => None
+    }
+}
+
+/*  Takes a vector of target_infos and attempts to resolve the targets using cache.
 
     If there are remembered tickets, then this function appeals to resolve_single_target
     to try to retrieve a backup copy either from the cache or from the internet (backing up the current copy
@@ -344,11 +382,16 @@ Result<FileResolution, WorkError>
     If there are no remembered tickets, then this function goes through each target, backs up the current version
     if it's there, and returns a vector full of NeedsRebuild
 */
-fn resolve_with_cache<SystemType : System>
+fn resolve_with_cache
+<
+    SystemType : System,
+    DownloaderType : Downloader,
+>
 (
     system : &mut SystemType,
-    cache : &mut LocalCache,
-    rule_history : &RuleHistory,
+    cache : &LocalCache,
+    downloader : &DownloaderType,
+    rule_history : &mut RuleHistory,
     sources_ticket : &Ticket,
     target_infos : &Vec<TargetFileInfo>,
 )
@@ -357,7 +400,10 @@ Result<Vec<FileResolution>, WorkError>
 {
     let mut resolutions = Vec::new();
 
-    match rule_history.get_target_tickets(sources_ticket)
+    match get_target_tickets_with_downloader(
+        rule_history,
+        downloader,
+        sources_ticket)
     {
         Some(remembered_target_tickets) =>
         {
@@ -455,8 +501,7 @@ fn handle_source_only_node<SystemType: System>
 (
     target_infos : Vec<TargetFileInfo>,
     command : Vec<String>,
-    system : SystemType,
-    senders : Vec<(usize, Sender<Packet>)>
+    system : SystemType
 )
 ->
 Result<WorkResult, WorkError>
@@ -474,21 +519,12 @@ Result<WorkResult, WorkError>
         Err(error) => return Err(error),
     };
 
-    for (sub_index, sender) in senders
-    {
-        match sender.send(Packet::from_ticket(
-            current_target_tickets[sub_index].clone()))
-        {
-            Ok(_) => {},
-            Err(_error) => return Err(WorkError::SenderError),
-        }
-    }
-
     Ok(
         WorkResult
         {
             target_infos : target_infos,
             work_option : WorkOption::SourceOnly,
+            post_command_target_tickets : current_target_tickets, // Not sure if this makes sense
             rule_history : None
         }
     )
@@ -553,7 +589,6 @@ fn rebuild_node<SystemType : System>
     mut rule_history : RuleHistory,
     sources_ticket : Ticket,
     command : Vec<String>,
-    senders : Vec<(usize, Sender<Packet>)>,
     mut target_infos : Vec<TargetFileInfo>
 )
 ->
@@ -582,20 +617,7 @@ Result<WorkResult, WorkError>
                 }
             }
 
-            for (sub_index, sender) in senders
-            {
-                match sender.send(Packet::from_ticket(
-                    post_command_target_tickets[sub_index].clone()))
-                {
-                    Ok(_) => {},
-                    Err(_error) =>
-                    {
-                        return Err(WorkError::SenderError);
-                    },
-                }
-            }
-
-            match rule_history.insert(sources_ticket, post_command_target_tickets)
+            match rule_history.insert(&sources_ticket, post_command_target_tickets.clone())
             {
                 Ok(_) => {},
                 Err(error) =>
@@ -623,6 +645,7 @@ Result<WorkResult, WorkError>
                 {
                     target_infos : target_infos,
                     work_option : WorkOption::CommandExecuted(command_result),
+                    post_command_target_tickets : post_command_target_tickets,
                     rule_history : Some(rule_history),
                 }
             )
@@ -635,20 +658,114 @@ Result<WorkResult, WorkError>
 }
 
 /*  This is a central, public function for handling a node in the depednece
-    graph.  It is meant to be called by a dedicated thread, and as such, it
-    eats all its arguments.
+graph.  It is meant to be called by a dedicated thread, and as such, it
+eats all its arguments.
 
-    The RuleHistory gets modified when appropriate, and gets returned as part
-    of the result. */
-pub fn handle_node<SystemType: System>
+The RuleHistory gets modified when appropriate, and gets returned as part
+of the result. */
+pub fn handle_target_node
+<
+    SystemType : System,
+    DownloaderType : Downloader
+>
 (
+    system : &mut SystemType,
+    downloader : &DownloaderType,
+    target_infos : Vec<TargetFileInfo>,
+    command : Vec<String>,
+    mut rule_history : RuleHistory,
+    sources_ticket : Ticket,
+    cache : LocalCache
+)
+->
+Result<WorkResult, WorkError>
+{
+    match resolve_with_cache(
+        system,
+        &cache,
+        downloader,
+        &mut rule_history,
+        &sources_ticket,
+        &target_infos)
+    {
+        Ok(resolutions) =>
+        {
+            if needs_rebuild(&resolutions)
+            {
+                rebuild_node(
+                    system,
+                    rule_history,
+                    sources_ticket,
+                    command,
+                    target_infos)
+            }
+            else
+            {
+                let target_tickets = match get_current_target_tickets(
+                    system,
+                    &target_infos)
+                {
+                    Ok(target_tickets) => target_tickets,
+                    Err(error) => return Err(error),
+                };
+
+                Ok(
+                    WorkResult
+                    {
+                        target_infos : target_infos,
+                        work_option : WorkOption::Resolutions(resolutions),
+                        post_command_target_tickets : target_tickets,
+                        rule_history : Some(rule_history),
+                    }
+                )
+            }
+        },
+
+        Err(error) => Err(error),
+    }
+}
+
+/*  Takes a vector of sendsrs and a work-result.  Sends the post-command target tickets
+    to the senders.  Returns the same work-result unless one of the sends fails, in which
+    case, it returns a WorkError indidating the send-failure. */
+fn send_work_result(senders : Vec<(usize, Sender<Packet>)>, work_result : WorkResult)
+->
+Result<WorkResult, WorkError>
+{
+    for (sub_index, sender) in senders
+    {
+        match sender.send(Packet::from_ticket(
+            work_result.post_command_target_tickets[sub_index].clone()))
+        {
+            Ok(_) => {},
+            Err(_error) =>
+            {
+                return Err(WorkError::SenderError);
+            },
+        }
+    }
+
+    return Ok(work_result)
+}
+
+/*  This is a central, public function for handling a node in the depednece graph.
+    It is meant to be called by a dedicated thread, and as such, it eats all its arguments.
+
+    The RuleHistory gets modified when appropriate, and gets returned as part of the result. */
+pub fn handle_node
+<
+    SystemType : System,
+    DownloaderType : Downloader
+>
+(
+    mut system : SystemType,
+    downloader : DownloaderType,
     target_infos : Vec<TargetFileInfo>,
     command : Vec<String>,
     rule_history_opt : Option<RuleHistory>,
-    mut system : SystemType,
     senders : Vec<(usize, Sender<Packet>)>,
     receivers : Vec<Receiver<Packet>>,
-    mut cache : LocalCache
+    cache : LocalCache
 )
 ->
 Result<WorkResult, WorkError>
@@ -663,68 +780,21 @@ Result<WorkResult, WorkError>
         otherwise, it is a plain source file. */
     match rule_history_opt
     {
-        None => handle_source_only_node(
-            target_infos,
-            command,
-            system,
-            senders),
+        None =>
+            send_work_result(senders, handle_source_only_node(
+                target_infos,
+                command,
+                system)?),
 
         Some(rule_history) =>
-        {
-            match resolve_with_cache(
+            send_work_result(senders, handle_target_node(
                 &mut system,
-                &mut cache,
-                &rule_history,
-                &sources_ticket,
-                &target_infos)
-            {
-                Ok(resolutions) =>
-                {
-                    if needs_rebuild(&resolutions)
-                    {
-                        rebuild_node(
-                            &mut system,
-                            rule_history,
-                            sources_ticket,
-                            command,
-                            senders,
-                            target_infos
-                        )
-                    }
-                    else
-                    {
-                        let target_tickets = match get_current_target_tickets(
-                            &system,
-                            &target_infos)
-                        {
-                            Ok(target_tickets) => target_tickets,
-                            Err(error) => return Err(error),
-                        };
-
-                        for (sub_index, sender) in senders
-                        {
-                            match sender.send(
-                                Packet::from_ticket(target_tickets[sub_index].clone()))
-                            {
-                                Ok(_) => {},
-                                Err(_error) => return Err(WorkError::SenderError),
-                            }
-                        }
-
-                        Ok(
-                            WorkResult
-                            {
-                                target_infos : target_infos,
-                                work_option : WorkOption::Resolutions(resolutions),
-                                rule_history : Some(rule_history),
-                            }
-                        )
-                    }
-                },
-
-                Err(error) => Err(error),
-            }
-        },
+                &downloader,
+                target_infos,
+                command,
+                rule_history,
+                sources_ticket,
+                cache)?),
     }
 }
 
@@ -787,6 +857,7 @@ mod test
         handle_node,
         get_file_ticket_from_path,
         get_file_ticket,
+        get_target_tickets_with_downloader,
         FileResolution,
         WorkResult,
         WorkOption,
@@ -811,6 +882,10 @@ mod test
     {
         System,
         fake::FakeSystem,
+    };
+    use crate::downloader::
+    {
+        fake::FakeDownloader,
     };
 
     use std::sync::mpsc::{self, Sender, Receiver};
@@ -1052,6 +1127,239 @@ mod test
         }
     }
 
+
+    /*  Create an empty rule-history.  Create a source-ticket, and use get_target_tickets_with_downloader()
+        to try to obtain target tickets.  Check that we get none. */
+    #[test]
+    fn work_get_target_tickets_with_downloader_empty_rule_history()
+    {
+        let mut rule_history = RuleHistory::new();
+        let mut system = FakeSystem::new(10);
+
+        let source_content = "int main(){printf(\"my game\"); return 0;}";
+
+        // Meanwhile, in the filesystem put some source code in game.cpp
+        match write_str_to_file(&mut system, "game.cpp", source_content)
+        {
+            Ok(_) => {},
+            Err(error) => panic!("Failed to make fake file: {}", error),
+        }
+
+        // Then get the file-ticket for the current source file:
+        match get_file_ticket(
+            &system,
+            &TargetFileInfo
+            {
+                path : "game.cpp".to_string(),
+                history : TargetHistory
+                {
+                    ticket : TicketFactory::new().result(),
+                    timestamp : 0,
+                }
+            })
+        {
+            Ok(ticket_opt) =>
+            {
+                match ticket_opt
+                {
+                    Some(ticket) =>
+                    {
+                        // Make sure it matches the content of the file that we wrote
+                        assert_eq!(ticket, TicketFactory::from_str(source_content).result());
+
+                        // Then create a source ticket for all (one) sources
+                        let mut source_factory = TicketFactory::new();
+                        source_factory.input_ticket(ticket);
+                        let source_ticket = source_factory.result();
+
+                        // Call get_target_tickets_with_downloader, give it a trivial downloader,
+                        // and empty rule history.  Check that we don't get an answer.
+                        match get_target_tickets_with_downloader(
+                            &mut rule_history,
+                            &FakeDownloader::new(),
+                            &source_ticket)
+                        {
+                            Some(_target_tickets) => panic!("Tickets found where none were expected"),
+                            None => {},
+                        };
+                    },
+                    None => panic!("No ticket found where expected"),
+                }
+            }
+            Err(err) => panic!(format!("Could not get ticket: {}", err)),
+        }
+    }
+
+
+    /*  Create an empty rule-history.  Create a source file and target file content, initialize
+        a fake downloader that answers yes when you ask it if it knows the target tickets. */
+    #[test]
+    fn work_get_target_tickets_actually_from_the_downloader()
+    {
+        let mut rule_history = RuleHistory::new();
+        let mut system = FakeSystem::new(10);
+
+        let source_content = "int main(){printf(\"my game\"); return 0;}";
+        let mut source_factory = TicketFactory::new();
+        source_factory.input_ticket(TicketFactory::from_str(source_content).result());
+        let source_ticket = source_factory.result();
+        let target_content = "machine code for my game";
+
+        // Meanwhile, in the filesystem put some source code in game.cpp
+        match write_str_to_file(&mut system, "game.cpp", source_content)
+        {
+            Ok(_) => {},
+            Err(error) => panic!("Failed to make fake file: {}", error),
+        }
+
+        let mut downloader = FakeDownloader::new();
+        downloader.insert(
+            &source_ticket,
+            vec![TicketFactory::from_str(target_content).result()]);
+
+        // Then get the file-ticket for the current source file:
+        match get_file_ticket(
+            &system,
+            &TargetFileInfo
+            {
+                path : "game.cpp".to_string(),
+                history : TargetHistory
+                {
+                    ticket : TicketFactory::new().result(),
+                    timestamp : 0,
+                }
+            })
+        {
+            Ok(ticket_opt) =>
+            {
+                match ticket_opt
+                {
+                    Some(ticket) =>
+                    {
+                        // Make sure it matches the content of the file that we wrote
+                        assert_eq!(ticket, TicketFactory::from_str(source_content).result());
+
+                        // Then create a source ticket for all (one) sources
+                        let mut source_factory = TicketFactory::new();
+                        source_factory.input_ticket(ticket);
+                        let source_ticket = source_factory.result();
+
+                        // Call get_target_tickets_with_downloader, give it a trivial downloader,
+                        // and empty rule history.  Check that we don't get an answer.
+                        match get_target_tickets_with_downloader(
+                            &mut rule_history,
+                            &downloader,
+                            &source_ticket)
+                        {
+                            Some(target_tickets) =>
+                            {
+                                assert_eq!(
+                                    vec![
+                                        TicketFactory::from_str(target_content).result()
+                                    ],
+                                    target_tickets
+                                );
+                            },
+                            None => panic!("No target tickets found where expected"),
+                        };
+                    },
+                    None => panic!("No ticket found where expected"),
+                }
+            }
+            Err(err) => panic!(format!("Could not get ticket: {}", err)),
+        }
+    }
+
+
+    /*  Create a rule-history and populate it simulating a game having been built from a
+        single C++ source file.  Get the file-ticket for the source, use that ticket to
+        get a target ticket from the rule-history by calling get_target_tickets_with_downloader(),
+        passing it a trivial downloader, and check the target tickets. */
+    #[test]
+    fn work_get_target_tickets_with_downloader()
+    {
+        let mut rule_history = RuleHistory::new();
+        let mut system = FakeSystem::new(10);
+
+        let source_content = "int main(){printf(\"my game\"); return 0;}";
+        let target_content = "machine code for my game";
+
+        let mut source_factory = TicketFactory::new();
+        source_factory.input_ticket(TicketFactory::from_str(source_content).result());
+
+        // Make rule history remembering that the source c++ code built
+        // to the target executable.
+        match rule_history.insert(
+            &source_factory.result(),
+            vec![TicketFactory::from_str(target_content).result()])
+        {
+            Ok(_) => {},
+            Err(_) => panic!("Rule history failed to insert"),
+        }
+
+        // Meanwhile, in the filesystem put some source code in game.cpp
+        match write_str_to_file(&mut system, "game.cpp", source_content)
+        {
+            Ok(_) => {},
+            Err(why) => panic!("Failed to make fake file: {}", why),
+        }
+
+        // Then get the file-ticket for the current source file:
+        match get_file_ticket(
+            &system,
+            &TargetFileInfo
+            {
+                path : "game.cpp".to_string(),
+                history : TargetHistory
+                {
+                    ticket : TicketFactory::new().result(),
+                    timestamp : 0,
+                }
+            })
+        {
+            Ok(ticket_opt) =>
+            {
+                match ticket_opt
+                {
+                    Some(ticket) =>
+                    {
+                        // Make sure it matches the content of the file that we wrote
+                        assert_eq!(ticket, TicketFactory::from_str(source_content).result());
+
+                        // Then create a source ticket for all (one) sources
+                        let mut source_factory = TicketFactory::new();
+                        source_factory.input_ticket(ticket);
+                        let source_ticket = source_factory.result();
+
+                        // Call get_target_tickets_with_downloader, give it a trivial downloader.
+                        // Our rule history already has target tickets for the source ticket, though
+                        // so check that it returns those target tickets.
+                        let target_tickets =
+                        match get_target_tickets_with_downloader(
+                            &mut rule_history,
+                            &FakeDownloader::new(),
+                            &source_ticket)
+                        {
+                            Some(target_tickets) => target_tickets,
+                            None => panic!("Tickets not in history as expected"),
+                        };
+
+                        // Check that the target tickets in the history match the ones for the target
+                        assert_eq!(
+                            vec![
+                                TicketFactory::from_str(target_content).result()
+                            ],
+                            target_tickets
+                        );
+                    },
+                    None => panic!("No ticket found where expected"),
+                }
+            }
+            Err(err) => panic!(format!("Could not get ticket: {}", err)),
+        }
+    }
+
+
     /*  Create a rule-history and populate it simulating a game having been built from a
         single C++ source file.  Get the file-ticket for the source, use that ticket to
         get a target ticket from the rule-history, and check it is what's expected. */
@@ -1070,7 +1378,7 @@ mod test
         // Make rule history remembering that the source c++ code built
         // to the target executable.
         match rule_history.insert(
-            source_factory.result(),
+            &source_factory.result(),
             vec![TicketFactory::from_str(target_content).result()])
         {
             Ok(_) => {},
@@ -1124,7 +1432,7 @@ mod test
                             vec![
                                 TicketFactory::from_str(target_content).result()
                             ],
-                            *target_tickets
+                            target_tickets
                         );
                     },
                     None => panic!("No ticket found where expected"),
@@ -1140,6 +1448,7 @@ mod test
     fn do_empty_command()
     {
         let mut system = FakeSystem::new(10);
+
         match write_str_to_file(&mut system, "A", "A-content")
         {
             Ok(_) => {},
@@ -1147,10 +1456,11 @@ mod test
         }
 
         match handle_node(
+            system.clone(),
+            FakeDownloader::new(),
             to_info(vec!["A".to_string()]),
             vec![],
             None,
-            system.clone(),
             Vec::new(),
             Vec::new(),
             LocalCache::new(".ruler-cache"))
@@ -1207,10 +1517,11 @@ mod test
         }
 
         match handle_node(
+            system.clone(),
+            FakeDownloader::new(),
             to_info(vec!["A.txt".to_string()]),
             vec!["mycat".to_string(), "A-source.txt".to_string(), "A.txt".to_string()],
             Some(RuleHistory::new()),
-            system.clone(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
             LocalCache::new(".ruler-cache"))
@@ -1281,10 +1592,11 @@ mod test
         }
 
         match handle_node(
+            system.clone(),
+            FakeDownloader::new(),
             to_info(vec!["poem.txt".to_string()]),
             vec!["error".to_string()],
             Some(RuleHistory::new()),
-            system.clone(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
             LocalCache::new(".ruler-cache"))
@@ -1337,6 +1649,8 @@ mod test
         }
 
         match handle_node(
+            system.clone(),
+            FakeDownloader::new(),
             to_info(vec!["poem.txt".to_string()]),
             vec![
                 "mycat".to_string(),
@@ -1345,7 +1659,6 @@ mod test
                 "wrong.txt".to_string()
             ],
             Some(RuleHistory::new()),
-            system.clone(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
             LocalCache::new(".ruler-cache"))
@@ -1393,6 +1706,8 @@ mod test
         }
 
         match handle_node(
+            system.clone(),
+            FakeDownloader::new(),
             to_info(vec!["poem.txt".to_string()]),
             vec![
                 "mycat".to_string(),
@@ -1401,7 +1716,6 @@ mod test
                 "poem.txt".to_string()
             ],
             Some(RuleHistory::new()),
-            system.clone(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
             LocalCache::new(".ruler-cache"))
@@ -1457,7 +1771,7 @@ mod test
         factory.input_ticket(TicketFactory::from_str("Violets are violet\n").result());
 
         match rule_history.insert(
-            factory.result(),
+            &factory.result(),
             vec![
                 TicketFactory::from_str("Roses are red\nViolets are violet\n").result()
             ]
@@ -1500,6 +1814,8 @@ mod test
         }
 
         match handle_node(
+            system.clone(),
+            FakeDownloader::new(),
             to_info(vec!["poem.txt".to_string()]),
             vec![
                 "error".to_string(),
@@ -1507,7 +1823,6 @@ mod test
                 "this command should not run".to_string(),
                 "the end".to_string()],
             Some(rule_history),
-            system.clone(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
             LocalCache::new(".ruler-cache"))
@@ -1569,7 +1884,7 @@ mod test
         factory.input_ticket(TicketFactory::from_str("Violets are violet\n").result());
 
         match rule_history.insert(
-            factory.result(),
+            &factory.result(),
             vec![
                 TicketFactory::from_str("Roses are red\nViolets are blue\n").result()
             ]
@@ -1618,6 +1933,8 @@ mod test
         }
 
         match handle_node(
+            system.clone(),
+            FakeDownloader::new(),
             to_info(vec!["poem.txt".to_string()]),
             vec![
                 "mycat".to_string(),
@@ -1626,7 +1943,6 @@ mod test
                 "poem.txt".to_string()
             ],
             Some(rule_history),
-            system.clone(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
             LocalCache::new(".ruler-cache"))
@@ -1700,6 +2016,8 @@ mod test
         }
 
         match handle_node(
+            system.clone(),
+            FakeDownloader::new(),
             to_info(vec!["poem.txt".to_string()]),
             vec![
                 "mycat".to_string(),
@@ -1708,7 +2026,6 @@ mod test
                 "poem.txt".to_string()
             ],
             Some(rule_history),
-            system.clone(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
             LocalCache::new(".ruler-cache"))
@@ -1741,10 +2058,10 @@ mod test
                     {
                         let target_tickets = rule_history.get_target_tickets(&source_ticket).unwrap();
                         assert_eq!(
-                            *target_tickets,
                             vec![
                                 TicketFactory::from_str("Roses are red\nViolets are violet\n").result()
-                            ]
+                            ],
+                            target_tickets,
                         );
                     },
                     None => panic!("Expected RuleHistory, got none"),
@@ -1768,10 +2085,11 @@ mod test
         }
 
         match handle_node(
+            system.clone(),
+            FakeDownloader::new(),
             to_info(vec!["verse1.txt".to_string()]),
             vec![],
             None,
-            system.clone(),
             vec![],
             vec![],
             LocalCache::new(".ruler-cache"))
@@ -1804,10 +2122,11 @@ mod test
         }
 
         match handle_node(
+            system.clone(),
+            FakeDownloader::new(),
             to_info(vec!["verse1.txt".to_string()]),
             vec!["rm".to_string(), "verse1.txt".to_string()],
             Some(RuleHistory::new()),
-            system.clone(),
             vec![],
             vec![],
             LocalCache::new(".rule-cache"))
@@ -1842,10 +2161,11 @@ mod test
             move || -> Result<WorkResult, WorkError>
             {
                 handle_node(
+                    system,
+                    FakeDownloader::new(),
                     target_infos,
                     command,
                     rule_history_opt,
-                    system,
                     senders,
                     receivers,
                     LocalCache::new(".ruler-cache"))
@@ -2236,7 +2556,7 @@ mod test
         );
 
         match rule_history.insert(
-            factory.result(),
+            &factory.result(),
             vec![TicketFactory::from_str("I wish I were a windowsill").result()])
         {
             Ok(_) => {},
@@ -2313,7 +2633,7 @@ mod test
         );
 
         match rule_history2.insert(
-            factory.result(),
+            &factory.result(),
             vec![TicketFactory::from_str("I wish I were a windowsill").result()])
         {
             Ok(_) => {},
@@ -2474,7 +2794,7 @@ mod test
         );
 
         match rule_history2.insert(
-            factory.result(),
+            &factory.result(),
             vec![TicketFactory::from_str("I wish I were a windowsill").result()])
         {
             Ok(_) => {},
@@ -2575,7 +2895,7 @@ mod test
         );
 
         match rule_history2.insert(
-            factory.result(),
+            &factory.result(),
             vec![TicketFactory::from_str("I wish I were a windowsill").result()])
         {
             Ok(_) => {},
