@@ -41,6 +41,32 @@ pub struct TargetFileInfo
     pub history : TargetHistory,
 }
 
+/*  Takes a System and a filepath as a string.
+
+    If the file exists, returns a ticket.
+    If the file does not exist, returns Ok, but with no Ticket inside
+    If the file exists but does not open or some other error occurs when generating
+    the ticket, returns an error. */
+pub fn get_file_ticket_from_path<SystemType: System>
+(
+    system : &SystemType,
+    path : &str
+)
+-> Result<Option<Ticket>, ReadWriteError>
+{
+    if system.is_file(&path) || system.is_dir(&path)
+    {
+        match TicketFactory::from_file(system, &path)
+        {
+            Ok(mut factory) => Ok(Some(factory.result())),
+            Err(error) => Err(error),
+        }
+    }
+    else
+    {
+        Ok(None)
+    }
+}
 
 /*  Takes a system and a TargetFileInfo, and obtains a ticket for the file
     described.  If the modified date of the file matches the one in
@@ -389,7 +415,7 @@ fn resolve_with_cache
 >
 (
     system : &mut SystemType,
-    cache : &LocalCache,
+    cache : &mut LocalCache,
     downloader : &DownloaderType,
     rule_history : &mut RuleHistory,
     sources_ticket : &Ticket,
@@ -675,14 +701,14 @@ pub fn handle_target_node
     command : Vec<String>,
     mut rule_history : RuleHistory,
     sources_ticket : Ticket,
-    cache : LocalCache
+    mut cache : LocalCache
 )
 ->
 Result<WorkResult, WorkError>
 {
     match resolve_with_cache(
         system,
-        &cache,
+        &mut cache,
         downloader,
         &mut rule_history,
         &sources_ticket,

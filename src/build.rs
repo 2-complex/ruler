@@ -382,6 +382,52 @@ fn print_work_result
 }
 
 
+/*  This is the function that runs when you type "ruler nodes" at the commandline.
+    It opens the rulefile, parses it, and returns the vector of rule Nodes. */
+pub fn get_nodes
+<
+    SystemType : System + Clone + Send + 'static,
+>
+(
+    system : &SystemType,
+    rulefile_paths : Vec<String>,
+    goal_target_opt: Option<String>
+)
+-> Result<Vec<Node>, BuildError>
+{
+    let all_rule_text = read_all_rules(system, rulefile_paths)?;
+
+    let rules =
+    match parse_all(all_rule_text)
+    {
+        Ok(rules) => rules,
+        Err(error) => return Err(BuildError::RuleFileFailedToParse(error)),
+    };
+
+    Ok(
+        match goal_target_opt
+        {
+            Some(goal_target) =>
+            {
+                match topological_sort(rules, &goal_target)
+                {
+                    Ok(nodes) => nodes,
+                    Err(error) => return Err(BuildError::TopologicalSortFailed(error)),
+                }
+            },
+            None =>
+            {
+                match topological_sort_all(rules)
+                {
+                    Ok(nodes) => nodes,
+                    Err(error) => return Err(BuildError::TopologicalSortFailed(error)),
+                }
+            }
+        }
+    )
+}
+
+
 /*  This is the function that runs when you type "ruler build" at the commandline.
     It opens the rulefile, parses it, and then either updates all targets in all rules
     or, if goal_target_opt is Some, only the targets that are ancestors of goal_target_opt
@@ -417,35 +463,7 @@ pub fn build
         }
     };
 
-    let all_rule_text = read_all_rules(&system, rulefile_paths)?;
-
-    let rules =
-    match parse_all(all_rule_text)
-    {
-        Ok(rules) => rules,
-        Err(error) => return Err(BuildError::RuleFileFailedToParse(error)),
-    };
-
-    let mut nodes =
-    match goal_target_opt
-    {
-        Some(goal_target) =>
-        {
-            match topological_sort(rules, &goal_target)
-            {
-                Ok(nodes) => nodes,
-                Err(error) => return Err(BuildError::TopologicalSortFailed(error)),
-            }
-        },
-        None =>
-        {
-            match topological_sort_all(rules)
-            {
-                Ok(nodes) => nodes,
-                Err(error) => return Err(BuildError::TopologicalSortFailed(error)),
-            }
-        }
-    };
+    let mut nodes = get_nodes(&system, rulefile_paths, goal_target_opt)?;
 
     let (mut senders, mut receivers) = make_multimaps(&nodes);
     let mut handles = Vec::new();

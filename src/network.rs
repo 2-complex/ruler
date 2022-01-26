@@ -20,11 +20,13 @@ use std::time::Duration;
 use crate::ticket::
 {
     Ticket,
+    TicketFactory,
 };
 use crate::rule::
 {
     Rule,
     parse_all,
+    get_rule_for_one_target,
 };
 use crate::build::
 {
@@ -248,7 +250,7 @@ pub fn download
     rulefile_paths : Vec<String>,
     printer : &mut PrinterType,
     address : &str,
-    target : &str
+    goal_target : &str
 )
 -> Result<(), NetworkError>
 {
@@ -297,22 +299,44 @@ pub fn download
         }
     };
 
-    let rule_ticket =
-    match find_rule_ticket_with_target(rules, target)
+    let mut rule =
+    match get_rule_for_one_target(rules, &goal_target)
     {
-        Ok(ticket) => ticket,
-        Err(_) =>
-        {
-            return Err(NetworkError::RuleNotFound);
-        }
+        Ok(rule) => rule,
+        Err(error) => return Err(NetworkError::RulesError),
     };
 
-    // TODO: should get this address from the address parameter
+    let rule_ticket = Ticket::from_strings(
+        &rule.targets,
+        &rule.sources,
+        &rule.command);
+
+    let mut sources_factory = TicketFactory::new();
+    for source in rule.sources
+    {
+        match TicketFactory::from_file(&system, &source)
+        {
+            Ok(mut file_factory) => sources_factory.input_ticket(file_factory.result()),
+            Err(error) => return Err(NetworkError::RulesError),
+        }
+    }
+
+    // TODO: get this address from config
     let addr = SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 34254);
 
-    let packet = SendPacket::WantRule(1, rule_ticket, );
+    let packet = SendPacket::WantRule(1, rule_ticket, sources_factory.result());
     let encoded = bincode::serialize(&packet).unwrap();
-    socket.send_to(&encoded, &addr)?;
+    match socket.send_to(&encoded, &addr)
+    {
+        Ok(_) =>
+        {
+            println!("packet sent");
+        },
+        Err(error) =>
+        {
+            return Err(NetworkError::SendFailed);
+        },
+    }
     socket.set_read_timeout(Some(Duration::from_millis(1000)));
 
     Ok(())
