@@ -34,6 +34,7 @@ use crate::build::
     InitDirectoryError,
     BuildError
 };
+use std::fmt;
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 enum ReceivePacket
@@ -56,6 +57,34 @@ pub enum NetworkError
     BuildErrorReadingRules(BuildError),
     RulesError,
     RuleNotFound,
+}
+
+
+impl fmt::Display for NetworkError
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
+    {
+        match self
+        {
+            NetworkError::InitDirectoryError(error) =>
+                write!(formatter, "Failed to init directory: {}", error),
+
+            NetworkError::SocketBindFailed =>
+                write!(formatter, "Socket bind failed"),
+
+            NetworkError::SendFailed =>
+                write!(formatter, "Send failed"),
+
+            NetworkError::BuildErrorReadingRules(error) =>
+                write!(formatter, "Error reading rules: {}", error),
+
+            NetworkError::RulesError =>
+                write!(formatter, "Some error with the rules"),
+
+            NetworkError::RuleNotFound =>
+                write!(formatter, "Rule not found"),
+        }
+    }
 }
 
 pub fn serve
@@ -118,7 +147,6 @@ Result<(), NetworkError>
                 return Err(NetworkError::RulesError);
             }
         };
-
 
         loop
         {

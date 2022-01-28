@@ -479,6 +479,43 @@ The next time you run `ruler again`, it will repeat that `ruler build` with the 
         }
     }
 
+    if let Some(matches) = big_matches.subcommand_matches("serve")
+    {
+        let mut system = RealSystem::new();
+        let mut printer = StandardPrinter::new();
+
+        let directory_path =
+        match matches.value_of("directory")
+        {
+            Some(value) => value,
+            None => ".ruler",
+        };
+
+        let rulefiles =
+        match matches.values_of("rules")
+        {
+            Some(values) =>
+            {
+                values.map(|s| s.to_string()).collect()
+            },
+            None =>
+            {
+                vec!("build.rules".to_string())
+            },
+        };
+
+        match network::serve(
+            system,
+            directory_path,
+            rulefiles,
+            &mut printer,
+            "127.0.0.1:3456")
+        {
+            Ok(_) => {},
+            Err(error) => eprintln!("{}", error),
+        }
+    }
+
     if let Some(matches) = big_matches.subcommand_matches("build")
     {
         let rulefiles =
