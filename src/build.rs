@@ -15,7 +15,6 @@ use std::io::
 
 use crate::rule::
 {
-    Rule,
     parse_all,
     get_rule_for_one_target,
     ParseError,

@@ -15,7 +15,6 @@ use crate::system::
 };
 use crate::printer::Printer;
 use std::io::Read;
-use std::io::Write;
 use std::time::Duration;
 use crate::ticket::
 {
@@ -35,8 +34,6 @@ use crate::build::
     InitDirectoryError,
     BuildError
 };
-use crate::memory::{Memory, MemoryError};
-
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 enum ReceivePacket
@@ -122,14 +119,14 @@ Result<(), NetworkError>
             }
         };
 
-        /*  Receives a single datagram message on the socket. If `buf` is too small to hold
-            the message, it will be cut off. */
-        let mut buf = [0; 256];
 
         loop
         {
             printer.print("Receiving requests");
 
+            let mut buf = [0; 256];
+            /*  Receives a single datagram message on the socket. If `buf` is too small to hold
+                the message, it will be cut off. */
             match socket.recv_from(&mut buf)
             {
                 Ok((amt, src)) =>
