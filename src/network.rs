@@ -59,7 +59,6 @@ pub enum NetworkError
     RuleNotFound,
 }
 
-
 impl fmt::Display for NetworkError
 {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result

@@ -516,6 +516,58 @@ The next time you run `ruler again`, it will repeat that `ruler build` with the 
         }
     }
 
+    if let Some(matches) = big_matches.subcommand_matches("download")
+    {
+        let mut system = RealSystem::new();
+        let mut printer = StandardPrinter::new();
+
+        let directory_path =
+        match matches.value_of("directory")
+        {
+            Some(value) => value,
+            None => ".ruler",
+        };
+
+        let rulefile_paths =
+        match matches.values_of("rules")
+        {
+            Some(values) =>
+            {
+                values.map(|s| s.to_string()).collect()
+            },
+            None =>
+            {
+                vec!("build.rules".to_string())
+            },
+        };
+
+        let goal_target =
+        match matches.value_of("target")
+        {
+            Some(value) => value,
+            None => "",
+        };
+
+        let address =
+        match matches.value_of("target")
+        {
+            Some(value) => value,
+            None => "",
+        };
+
+        match network::download(
+            system,
+            directory_path,
+            rulefile_paths,
+            &mut printer,
+            address,
+            goal_target)
+        {
+            Ok(_) => {},
+            Err(error) => eprintln!("{}", error),
+        }
+    }
+
     if let Some(matches) = big_matches.subcommand_matches("build")
     {
         let rulefiles =
