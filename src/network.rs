@@ -1,21 +1,7 @@
-use std::net::
-{
-    UdpSocket,
-    Ipv4Addr,
-    SocketAddrV4
-};
-use serde::
-{
-    Serialize,
-    Deserialize
-};
-use crate::system::
-{
-    System
-};
+use crate::system::System;
 use crate::printer::Printer;
-use std::io::Read;
-use std::time::Duration;
+use crate::memory::Memory;
+use crate::cache::LocalCache;
 use crate::ticket::
 {
     Ticket,
@@ -23,7 +9,6 @@ use crate::ticket::
 };
 use crate::rule::
 {
-    Rule,
     parse_all,
     get_rule_for_one_target,
 };
@@ -34,6 +19,21 @@ use crate::build::
     InitDirectoryError,
     BuildError
 };
+
+use std::net::
+{
+    UdpSocket,
+    Ipv4Addr,
+    SocketAddrV4,
+    SocketAddr
+};
+use serde::
+{
+    Serialize,
+    Deserialize
+};
+use std::io::Read;
+use std::time::Duration;
 use std::fmt;
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
@@ -53,7 +53,9 @@ pub enum NetworkError
 {
     InitDirectoryError(InitDirectoryError),
     SocketBindFailed,
+    ReceiveRequestFailed,
     SendFailed,
+    FileReadError,
     BuildErrorReadingRules(BuildError),
     RulesError,
     RuleNotFound,
@@ -71,8 +73,14 @@ impl fmt::Display for NetworkError
             NetworkError::SocketBindFailed =>
                 write!(formatter, "Socket bind failed"),
 
+            NetworkError::ReceiveRequestFailed =>
+                write!(formatter, "Receive request failed"),
+
             NetworkError::SendFailed =>
                 write!(formatter, "Send failed"),
+
+            NetworkError::FileReadError =>
+                write!(formatter, "File read error"),
 
             NetworkError::BuildErrorReadingRules(error) =>
                 write!(formatter, "Error reading rules: {}", error),
@@ -83,6 +91,68 @@ impl fmt::Display for NetworkError
             NetworkError::RuleNotFound =>
                 write!(formatter, "Rule not found"),
         }
+    }
+}
+
+
+fn handle_received_datagram
+<
+    SystemType : System,
+    PrinterType : Printer,
+>
+(
+    system : &mut SystemType,
+    memory : &mut Memory,
+    cache : &LocalCache,
+    printer : &mut PrinterType,
+    amt : usize,
+    buf : &[u8],
+    src : SocketAddr,
+)
+-> Result<(Vec<SystemType::File>, u32), NetworkError>
+{
+    let decoded_packet : SendPacket = 
+    match bincode::deserialize(&buf[..amt])
+    {
+        Ok(decoded_packet) => decoded_packet,
+        Err(error) =>
+        {
+            printer.print(&format!("Packet failed to deserialize.  Error: {}", error));
+            return Err(NetworkError::ReceiveRequestFailed);
+        },
+    };
+
+    match decoded_packet
+    {
+        SendPacket::WantRule(fetch_id, rule_ticket, sources_ticket) =>
+        {
+            printer.print(&format!("Want: rule: {} sources: {}", rule_ticket, sources_ticket));
+
+            let rule_history = memory.take_rule_history(&rule_ticket);
+
+            match rule_history.get_target_tickets(&sources_ticket)
+            {
+                Some(target_tickets) =>
+                {
+                    let mut readers = vec![];
+                    for target_ticket in target_tickets.iter()
+                    {
+                        match cache.open(system, target_ticket)
+                        {
+                            Ok(mut reader) => readers.push(reader),
+                            Err(error) => return Err(NetworkError::FileReadError),
+                        };
+                    }
+
+                    Ok((readers, fetch_id))
+                },
+                None =>
+                {
+                    printer.print(&format!("Not found"));
+                    Err(NetworkError::RuleNotFound)
+                }
+            }
+        },
     }
 }
 
@@ -152,82 +222,65 @@ Result<(), NetworkError>
             printer.print("Receiving requests");
 
             let mut buf = [0; 256];
+
             /*  Receives a single datagram message on the socket. If `buf` is too small to hold
                 the message, it will be cut off. */
             match socket.recv_from(&mut buf)
             {
                 Ok((amt, src)) =>
                 {
-                    let decoded_packet : SendPacket = bincode::deserialize(&buf[..amt]).unwrap();
+                    printer.print("Got something");
 
-                    match decoded_packet
+                    match handle_received_datagram(
+                        &mut system, &mut memory, &cache, printer, amt, &buf, src)
                     {
-                        SendPacket::WantRule(fetch_id, rule_ticket, sources_ticket) =>
+                        Ok((readers, fetch_id)) =>
                         {
-                            printer.print(&format!("Want: rule: {} sources: {}", rule_ticket, sources_ticket));
-
-                            let rule_history = memory.take_rule_history(&rule_ticket);
-
-                            match rule_history.get_target_tickets(&sources_ticket)
+                            printer.print("about to send the file back");
+                            let mut in_buffer = [0u8; 256];
+                            let mut i = 0usize;
+                            for mut reader in readers
                             {
-                                Some(target_tickets) =>
+                                loop
                                 {
-                                    for target_ticket in target_tickets.iter()
+                                    match reader.read(&mut in_buffer)
                                     {
-                                        match cache.open(&mut system, target_ticket)
+                                        Ok(0) =>
                                         {
-                                            Ok(mut reader) =>
-                                            {
-                                                printer.print("about to send the file back");
-                                                let mut in_buffer = [0u8; 256];
-                                                let mut i = 0usize;
-                                                loop
-                                                {
-                                                    match reader.read(&mut in_buffer)
-                                                    {
-                                                        Ok(0) =>
-                                                        {
-                                                            break;
-                                                        }
-                                                        Ok(size) =>
-                                                        {
-                                                            let packet = ReceivePacket::FileData(fetch_id, i, in_buffer[..size].to_vec());
-                                                            i+=1;
-                                                            let encoded = bincode::serialize(&packet).unwrap();
-                                                            match socket.send_to(&encoded, &src)
-                                                            {
-                                                                Ok(_) => {},
-                                                                Err(_) => return Err(NetworkError::SendFailed),
-                                                            }
-                                                        },
-                                                        Err(error) =>
-                                                        {
-                                                            printer.print(&format!("file io error: {}", error));
-                                                        },
-                                                    }
-                                                }
-
-                                                let packet = ReceivePacket::FileIndexCount(fetch_id, i);
-                                                let encoded = bincode::serialize(&packet).unwrap();
-                                                match socket.send_to(&encoded, &src)
-                                                {
-                                                    Ok(_) => {},
-                                                    Err(_) => return Err(NetworkError::SendFailed),
-                                                }
-                                            },
-                                            Err(error) =>
-                                            {
-                                                printer.print(&format!("File read error: {}", error));
-                                            }
+                                            break;
                                         }
+                                        Ok(size) =>
+                                        {
+                                            let packet = ReceivePacket::FileData(fetch_id, i, in_buffer[..size].to_vec());
+                                            i+=1;
+                                            let encoded = bincode::serialize(&packet).unwrap();
+                                            match socket.send_to(&encoded, &src)
+                                            {
+                                                Ok(_) => {},
+                                                Err(_) => return Err(NetworkError::SendFailed),
+                                            }
+                                        },
+                                        Err(error) =>
+                                        {
+                                            printer.print(&format!("file io error: {}", error));
+                                        },
                                     }
-                                },
-                                None => 
-                                {
-                                    printer.print(&format!("Not found"));
-                                    continue;
                                 }
                             }
+
+                            let packet = ReceivePacket::FileIndexCount(fetch_id, i);
+                            let encoded = bincode::serialize(&packet).unwrap();
+                            match socket.send_to(&encoded, &src)
+                            {
+                                Ok(_) => {},
+                                Err(_) => return Err(NetworkError::SendFailed),
+                            }
+                        },
+
+                        Err(_error) =>
+                        {
+                            printer.print("file didn't open");
+                            continue;
                         },
                     }
                 },
@@ -241,26 +294,6 @@ Result<(), NetworkError>
         }
     }
     Ok(())
-}
-
-fn find_rule_ticket_with_target(rules : Vec<Rule>, target : &str)
--> Result<Ticket, ()>
-{
-    for rule in rules.iter()
-    {
-        for t in rule.targets.iter()
-        {
-            if target == t
-            {
-                return Ok(Ticket::from_strings(
-                    &rule.targets,
-                    &rule.sources,
-                    &rule.command));
-            }
-        }
-    }
-
-    Err(())
 }
 
 pub fn download
