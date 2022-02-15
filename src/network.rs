@@ -346,7 +346,7 @@ pub fn download
     }
 
     // TODO: get this address from config
-    let addr = SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 34254);
+    let addr = SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 3456);
 
     let packet = SendPacket::WantRule(1, rule_ticket, sources_factory.result());
     let encoded = bincode::serialize(&packet).unwrap();
