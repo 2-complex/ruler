@@ -46,6 +46,7 @@ mod printer;
 mod system;
 mod network;
 mod downloader;
+mod piecemeal;
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 struct BuildInvocation

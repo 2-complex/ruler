@@ -1,7 +1,16 @@
 use crate::system::System;
 use crate::printer::Printer;
 use crate::memory::Memory;
-use crate::cache::LocalCache;
+use crate::piecemeal::
+{
+    PiecemealFileWriter,
+    PiecemealFileWriterResult,
+};
+use crate::cache::
+{
+    LocalCache,
+    CacheError,
+};
 use crate::ticket::
 {
     Ticket,
@@ -55,6 +64,7 @@ pub enum NetworkError
     SocketBindFailed,
     ReceiveRequestFailed,
     SendFailed,
+    CacheError(CacheError),
     FileReadError,
     BuildErrorReadingRules(BuildError),
     RulesError,
@@ -78,6 +88,9 @@ impl fmt::Display for NetworkError
 
             NetworkError::SendFailed =>
                 write!(formatter, "Send failed"),
+
+            NetworkError::CacheError(error) =>
+                write!(formatter, "Cache error: {}", error),
 
             NetworkError::FileReadError =>
                 write!(formatter, "File read error"),
@@ -277,9 +290,9 @@ Result<(), NetworkError>
                             }
                         },
 
-                        Err(_error) =>
+                        Err(error) =>
                         {
-                            printer.print("file didn't open");
+                            printer.print(&format!("file didn't open error: {}", error));
                             continue;
                         },
                     }
@@ -395,6 +408,68 @@ pub fn download
         },
     }
     socket.set_read_timeout(Some(Duration::from_millis(1000)));
+
+    let (mut writer, mut file) = match PiecemealFileWriter::create_file(&mut system, goal_target)
+    {
+        Ok((mut writer, mut file)) => (writer, file),
+        Err(error) => panic!("Error opening output file {}", error),
+    };
+
+    loop
+    {
+        let mut buffer = [0u8; 1024];
+        match socket.recv_from(&mut buffer)
+        {
+            Ok((size, _src)) =>
+            {
+                let decoded_packet: ReceivePacket = bincode::deserialize(&buffer[..size]).unwrap();
+
+                match decoded_packet
+                {
+                    ReceivePacket::FileData(path_str, index, data) =>
+                    {
+                        println!("Receiving {} : {} bytes at index={}", path_str, data.len(), index);
+                        match writer.obtain(data, index, &mut file)
+                        {
+                            PiecemealFileWriterResult::Continue => {},
+                            PiecemealFileWriterResult::Done => break,
+                            PiecemealFileWriterResult::Contradiction =>
+                            {
+                                panic!("Ack!  Piecemeal file writer had contradiction!");
+                            },
+                            PiecemealFileWriterResult::IOError(error) =>
+                            {
+                                panic!("Ack!  Piecemeal file writer i/o error!");
+                            }
+                        }
+                    },
+
+                    ReceivePacket::FileIndexCount(path_str, index_count) =>
+                    {
+                        println!("Noted {} total indices: {}", path_str, index_count);
+                        match writer.limit(index_count)
+                        {
+                            PiecemealFileWriterResult::Continue => {},
+                            PiecemealFileWriterResult::Done => break,
+                            PiecemealFileWriterResult::Contradiction =>
+                            {
+                                panic!("Ack!  Piecemeal file writer had contradiction!");
+                            },
+                            PiecemealFileWriterResult::IOError(error) =>
+                            {
+                                panic!("Ack!  Piecemeal file writer i/o error!");
+                            }
+                        }
+                    },
+                }
+            },
+
+            Err(_) =>
+            {
+                break;
+            }
+        }
+    }
 
     Ok(())
 }

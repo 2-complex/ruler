@@ -104,19 +104,25 @@ impl LocalCache
     ->
     Result<SystemType::File, CacheError>
     {
+        println!("opening {}", ticket);
+
         if system.is_dir(&self.cache_directory_path)
         {
+            println!("cache_directory_path is directory");
             match self.ticket_to_path.get(ticket)
             {
                 Some(path) =>
                 {
+                    println!("path found: {}", &path);
                     return match system.open(&path)
                     {
                         Ok(file) => Ok(file),
                         Err(system_error) => Err(CacheError::SystemError(system_error)),
                     }
                 },
-                None => {},
+                None => {
+                    println!("ticket to path returned none");
+                },
             }
 
             let cache_path = format!("{}/{}", self.cache_directory_path, ticket.base64());
