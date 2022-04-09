@@ -902,9 +902,9 @@ mod test
             Ok(ticket_opt) => match ticket_opt
             {
                 Some(ticket) => assert_eq!(ticket, TicketFactory::from_str("cat $0").result()),
-                None => panic!(format!("Could not get ticket")),
+                None => panic!("Could not get ticket"),
             }
-            Err(err) => panic!(format!("Could not get ticket: {}", err)),
+            Err(err) => panic!("Could not get ticket: {}", err),
         }
     }
 
