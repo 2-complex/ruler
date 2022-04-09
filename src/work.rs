@@ -893,9 +893,9 @@ mod test
             Ok(ticket_opt) => match ticket_opt
             {
                 Some(ticket) => assert_eq!(ticket, TicketFactory::from_str("cat $0").result()),
-                None => panic!(format!("Could not get ticket")),
+                None => panic!("Could not get ticket"),
             }
-            Err(err) => panic!(format!("Could not get ticket: {}", err)),
+            Err(err) => panic!("Could not get ticket: {}", err),
         }
     }
 
@@ -1076,7 +1076,7 @@ mod test
                     None => panic!("No ticket found where expected"),
                 }
             }
-            Err(err) => panic!(format!("Could not get ticket: {}", err)),
+            Err(err) => panic!("Could not get ticket: {}", err),
         }
     }
 
@@ -1469,10 +1469,10 @@ mod test
                         match resolutions[0]
                         {
                             FileResolution::AlreadyCorrect => {},
-                            _ => panic!("Expected poem to already be correct, was some other work option {}"),
+                            _ => panic!("Expected poem to already be correct, was some other work option"),
                         }
                     },
-                    _ => panic!("Expected poem to already be resolved, was some other work option {}"),
+                    _ => panic!("Expected poem to already be resolved, was some other work option"),
                 }
 
                 match receiver_c.recv()

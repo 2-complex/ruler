@@ -32,6 +32,7 @@ use crate::system::real::RealSystem;
 use crate::printer::StandardPrinter;
 
 mod cache;
+mod directory;
 mod build;
 mod rule;
 mod ticket;

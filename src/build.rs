@@ -12,7 +12,11 @@ use std::io::
     self,
     Read,
 };
-
+use crate::directory::
+{
+    self,
+    InitDirectoryError
+};
 use crate::rule::
 {
     parse_all,
@@ -34,8 +38,7 @@ use crate::work::
     clean_targets,
 };
 
-use crate::memory::{Memory, MemoryError};
-use crate::cache::LocalCache;
+use crate::memory::{MemoryError};
 use crate::printer::Printer;
 
 use termcolor::
@@ -131,73 +134,6 @@ impl fmt::Display for BuildError
     }
 }
 
-pub enum InitDirectoryError
-{
-    FailedToCreateDirectory(SystemError),
-    FailedToCreateCacheDirectory(SystemError),
-    FailedToReadMemoryFile(MemoryError),
-}
-
-impl fmt::Display for InitDirectoryError
-{
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
-    {
-        match self
-        {
-            InitDirectoryError::FailedToCreateDirectory(error) =>
-                write!(formatter, "Failed to create directory: {}", error),
-
-            InitDirectoryError::FailedToCreateCacheDirectory(error) =>
-                write!(formatter, "Failed to create cache directory: {}", error),
-
-            InitDirectoryError::FailedToReadMemoryFile(error) =>
-                write!(formatter, "Failed to read memory file: {}", error),
-        }
-    }
-}
-
-pub fn init_directory<SystemType : System + Clone + Send + 'static>
-(
-    system : &mut SystemType,
-    directory : &str
-)
-->
-Result<(Memory, LocalCache, String), InitDirectoryError>
-{
-    if ! system.is_dir(directory)
-    {
-        match system.create_dir(directory)
-        {
-            Ok(_) => {},
-            Err(error) => return Err(InitDirectoryError::FailedToCreateDirectory(error)),
-        }
-    }
-
-    let cache_path = format!("{}/cache", directory);
-
-    if ! system.is_dir(&cache_path)
-    {
-        match system.create_dir(&cache_path)
-        {
-            Ok(_) => {},
-            Err(error) => return Err(InitDirectoryError::FailedToCreateCacheDirectory(error)),
-        }
-    }
-
-    let memoryfile = format!("{}/memory", directory);
-
-    Ok((
-        match Memory::from_file(system, &memoryfile)
-        {
-            Ok(memory) => memory,
-            Err(error) => return Err(InitDirectoryError::FailedToReadMemoryFile(error)),
-        },
-        LocalCache::new(&cache_path),
-        memoryfile
-    ))
-}
-
-
 fn read_all_rules<SystemType : System>
 (
     system : &SystemType,
@@ -249,7 +185,7 @@ pub fn build
 >
 (
     mut system : SystemType,
-    directory : &str,
+    directory_path : &str,
     rulefile_paths : Vec<String>,
     goal_target_opt: Option<String>,
     printer: &mut PrinterType,
@@ -257,7 +193,7 @@ pub fn build
 -> Result<(), BuildError>
 {
     let (mut memory, cache, memoryfile) =
-    match init_directory(&mut system, directory)
+    match directory::init(&mut system, directory_path)
     {
         Ok((memory, cache, memoryfile)) => (memory, cache, memoryfile),
         Err(error) =>
@@ -498,14 +434,14 @@ pub fn build
 pub fn clean<SystemType : System + Clone + Send + 'static>
 (
     mut system : SystemType,
-    directory : &str,
+    directory_path : &str,
     rulefile_paths: Vec<String>,
     goal_target_opt: Option<String>
 )
 -> Result<(), BuildError>
 {
     let (mut memory, cache, _memoryfile) =
-    match init_directory(&mut system, directory)
+    match directory::init(&mut system, directory_path)
     {
         Ok((memory, cache, memoryfile)) => (memory, cache, memoryfile),
         Err(error) =>
@@ -624,10 +560,10 @@ pub fn clean<SystemType : System + Clone + Send + 'static>
 #[cfg(test)]
 mod test
 {
+    use crate::directory;
     use crate::build::
     {
         build,
-        init_directory,
         BuildError,
     };
     use crate::system::
@@ -972,7 +908,7 @@ poem.txt
 
         {
             let (mut memory, _cache, _memoryfile) =
-            match init_directory(&mut system, "ruler-directory")
+            match directory::init(&mut system, "ruler-directory")
             {
                 Ok((memory, cache, memoryfile)) => (memory, cache, memoryfile),
                 Err(error) => panic!("Failed to init directory error: {}", error)
@@ -1002,7 +938,7 @@ poem.txt
 
         {
             let (mut memory, _cache, _memoryfile) =
-            match init_directory(&mut system, "ruler-directory")
+            match directory::init(&mut system, "ruler-directory")
             {
                 Ok((memory, cache, memoryfile)) => (memory, cache, memoryfile),
                 Err(error) => panic!("Failed to init directory error: {}", error)
