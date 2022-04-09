@@ -47,6 +47,7 @@ pub struct Node
     pub rule_ticket : Option<Ticket>,
 }
 
+
 impl fmt::Display for Rule
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result
@@ -69,27 +70,35 @@ impl fmt::Display for Rule
     }
 }
 
+
 impl fmt::Display for Node
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result
     {
-        for t in self.targets.iter()
+        match &self.rule_ticket
         {
-            write!(f, "{}\n", t).unwrap();
+            Some(ticket) =>
+            {
+                write!(f, "\n").unwrap();
+                for t in self.targets.iter()
+                {
+                    write!(f, "{}\n", t).unwrap();
+                }
+                write!(f, "{}\n\n", ticket).unwrap();
+            },
+            None =>
+            {
+                for t in self.targets.iter()
+                {
+                    write!(f, "{}\n", t).unwrap();
+                }
+            }
         }
-        write!(f, ":\n").unwrap();
-        for (t, u) in self.source_indices.iter()
-        {
-            write!(f, "({}, {})\n", t, u).unwrap();
-        }
-        write!(f, ":\n").unwrap();
-        for t in self.command.iter()
-        {
-            write!(f, "{}\n", t).unwrap();
-        }
-        write!(f, ":\n")
+
+        write!(f, "")
     }
 }
+
 
 struct EndpointPair
 {
@@ -929,7 +938,7 @@ mod tests
                 assert_eq!(nodes.len(), 1);
                 assert_eq!(nodes[0].targets[0], "plant");
             }
-            Err(error) => panic!(format!("Expected success, got: {}", error)),
+            Err(error) => panic!("Expected success, got: {}", error),
         }
     }
 
@@ -953,7 +962,7 @@ mod tests
                 assert_eq!(nodes.len(), 1);
                 assert_eq!(nodes[0].targets[0], "plant");
             }
-            Err(error) => panic!(format!("Expected success, got: {}", error)),
+            Err(error) => panic!("Expected success, got: {}", error),
         }
     }
 
@@ -985,7 +994,7 @@ mod tests
                 assert_eq!(nodes[0].targets[0], "plant");
                 assert_eq!(nodes[1].targets[0], "fruit");
             }
-            Err(error) => panic!(format!("Expected success, got: {}", error)),
+            Err(error) => panic!("Expected success, got: {}", error),
         }
     }
 
@@ -1016,7 +1025,7 @@ mod tests
                 assert_eq!(nodes[0].targets[0], "plant");
                 assert_eq!(nodes[1].targets[0], "fruit");
             }
-            Err(error) => panic!(format!("Expected success, got: {}", error)),
+            Err(error) => panic!("Expected success, got: {}", error),
         }
     }
 
@@ -1071,7 +1080,7 @@ mod tests
                 assert_eq!(v[3].source_indices[0], (1, 0));
                 assert_eq!(v[3].source_indices[1], (2, 0));
             }
-            Err(why) => panic!(format!("Expected success, got: {}", why)),
+            Err(why) => panic!("Expected success, got: {}", why),
         }
     }
 
@@ -1130,7 +1139,7 @@ mod tests
                 assert_eq!(v[3].source_indices[0], (1, 0));
                 assert_eq!(v[3].source_indices[1], (2, 0));
             }
-            Err(why) => panic!(format!("Expected success, got: {}", why)),
+            Err(why) => panic!("Expected success, got: {}", why),
         }
     }
 
@@ -1187,7 +1196,7 @@ mod tests
                 assert_eq!(v[3].source_indices[0], (1, 0));
                 assert_eq!(v[3].source_indices[1], (2, 0));
             }
-            Err(why) => panic!(format!("Expected success, got: {}", why)),
+            Err(why) => panic!("Expected success, got: {}", why),
         }
     }
 
@@ -1241,7 +1250,7 @@ mod tests
                 assert_eq!(v[4].source_indices, [(0, 0), (3, 0)]);
                 assert_eq!(v[5].source_indices, [(2, 0), (4, 0)]);
             }
-            Err(why) => panic!(format!("Expected success, got: {}", why)),
+            Err(why) => panic!("Expected success, got: {}", why),
         }
     }
 
@@ -1291,7 +1300,7 @@ mod tests
                 assert_eq!(v[4].source_indices, [(0, 0), (3, 0)]);
                 assert_eq!(v[5].source_indices, [(2, 0), (4, 0)]);
             }
-            Err(why) => panic!(format!("Expected success, got: {}", why)),
+            Err(why) => panic!("Expected success, got: {}", why),
         }
     }
 
@@ -1340,7 +1349,7 @@ mod tests
                 assert_eq!(v[4].source_indices, [(0, 0), (3, 0)]);
                 assert_eq!(v[5].source_indices, [(2, 0), (4, 0)]);
             }
-            Err(why) => panic!(format!("Expected success, got: {}", why)),
+            Err(why) => panic!("Expected success, got: {}", why),
         }
     }
 
@@ -1389,7 +1398,7 @@ mod tests
                 assert_eq!(v[4].source_indices, [(0, 0), (3, 0)]);
                 assert_eq!(v[5].source_indices, [(2, 0), (4, 0)]);
             }
-            Err(why) => panic!(format!("Expected success, got: {}", why)),
+            Err(why) => panic!("Expected success, got: {}", why),
         }
     }
 
@@ -1496,7 +1505,7 @@ mod tests
                 assert_eq!(v[4].targets[0], "plant");
                 assert_eq!(v[5].targets[0], "fruit");
             }
-            Err(why) => panic!(format!("Expected success, got: {}", why)),
+            Err(why) => panic!("Expected success, got: {}", why),
         }
     }
 
@@ -1663,7 +1672,7 @@ mod tests
         {
             Ok(_) =>
             {
-                panic!(format!("Unexpected success when parsing empty string"));
+                panic!("Unexpected success when parsing empty string");
             },
             Err(error) =>
             {
@@ -1696,7 +1705,7 @@ mod tests
                 assert_eq!(v[0].sources, vec!["b".to_string()]);
                 assert_eq!(v[0].command, vec!["c".to_string()]);
             },
-            Err(why) => panic!(format!("Expected success, got: {}", why)),
+            Err(why) => panic!("Expected success, got: {}", why),
         };
     }
 
@@ -1719,7 +1728,7 @@ mod tests
                 assert_eq!(v[1].sources, vec!["e".to_string()]);
                 assert_eq!(v[1].command, vec!["f".to_string()]);
             },
-            Err(why) => panic!(format!("Expected success, got: {}", why)),
+            Err(why) => panic!("Expected success, got: {}", why),
         };
     }
 
@@ -1733,7 +1742,7 @@ mod tests
             {
                 assert_eq!(v.len(), 0);
             },
-            Err(why) => panic!(format!("Expected success, got: {}", why)),
+            Err(why) => panic!("Expected success, got: {}", why),
         };
     }
 
@@ -1749,7 +1758,7 @@ mod tests
                 assert_eq!(v[0].sources, vec!["b".to_string()]);
                 assert_eq!(v[0].command, vec!["c".to_string()]);
             },
-            Err(why) => panic!(format!("Expected success, got: {}", why)),
+            Err(why) => panic!("Expected success, got: {}", why),
         };
     }
 
@@ -1772,7 +1781,7 @@ mod tests
                 assert_eq!(v[1].sources, vec!["e".to_string()]);
                 assert_eq!(v[1].command, vec!["f".to_string()]);
             },
-            Err(why) => panic!(format!("Expected success, got: {}", why)),
+            Err(why) => panic!("Expected success, got: {}", why),
         };
     }
 
@@ -1784,7 +1793,7 @@ mod tests
             "banana.rules".to_string(),
             "\na\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\nf\n:\n".to_string())
         {
-            Ok(_) => panic!(format!("Unexpected success")),
+            Ok(_) => panic!("Unexpected success"),
             Err(error) =>
             {
                 match error
@@ -1808,7 +1817,7 @@ mod tests
             "fruit.rules".to_string(),
             "a\n:\nb\n\n:\nc\n:\n\nd\n:\ne\n:\nf\n:\n".to_string())
         {
-            Ok(_) => panic!(format!("Unexpected success")),
+            Ok(_) => panic!("Unexpected success"),
             Err(error) =>
             {
                 match error
@@ -1832,7 +1841,7 @@ mod tests
             "well.rules".to_string(),
             "a\n:\nb\n:\nc\n:\n\n\nd\n:\ne\n:\nf\n:\n".to_string())
         {
-            Ok(_) => panic!(format!("Unexpected success")),
+            Ok(_) => panic!("Unexpected success"),
             Err(error) =>
             {
                 match error
@@ -1856,7 +1865,7 @@ mod tests
             "glass.rules".to_string(),
             "a\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\nf\n:\n\n".to_string())
         {
-            Ok(_) => panic!(format!("Unexpected success")),
+            Ok(_) => panic!("Unexpected success"),
             Err(error) =>
             {
                 match error
@@ -1880,7 +1889,7 @@ mod tests
             "spider.rules".to_string(),
             "a\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\nf\n:\n\nt".to_string())
         {
-            Ok(_) => panic!(format!("Unexpected success")),
+            Ok(_) => panic!("Unexpected success"),
             Err(error) =>
             {
                 match error
@@ -1904,7 +1913,7 @@ mod tests
             "movie.rules".to_string(),
             "a\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\nf\n:\n\nt\n".to_string())
         {
-            Ok(_) => panic!(format!("Unexpected success")),
+            Ok(_) => panic!("Unexpected success"),
             Err(error) =>
             {
                 match error
@@ -1928,7 +1937,7 @@ mod tests
             "box.rules".to_string(),
             "a\n:\nb\n:\nc\n:\n\nd\n:\n".to_string())
         {
-            Ok(_) => panic!(format!("Unexpected success")),
+            Ok(_) => panic!("Unexpected success"),
             Err(error) =>
             {
                 match error
@@ -1952,7 +1961,7 @@ mod tests
             "house".to_string(),
             "a\n:\nb\n:\nc\n:\n\nd\n:\ns".to_string())
         {
-            Ok(_) => panic!(format!("Unexpected success")),
+            Ok(_) => panic!("Unexpected success"),
             Err(error) =>
             {
                 match error
@@ -1976,7 +1985,7 @@ mod tests
             "pi.rules".to_string(),
             "a\n:\nb\n:\nc\n:\n\nd\n:\ns\n".to_string())
         {
-            Ok(_) => panic!(format!("Unexpected success")),
+            Ok(_) => panic!("Unexpected success"),
             Err(error) =>
             {
                 match error
@@ -2000,7 +2009,7 @@ mod tests
             "green.rules".to_string(),
             "a\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\n".to_string())
         {
-            Ok(_) => panic!(format!("Unexpected success")),
+            Ok(_) => panic!("Unexpected success"),
             Err(error) =>
             {
                 match error
@@ -2024,7 +2033,7 @@ mod tests
             "sunset.rules".to_string(),
             "a\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\n".to_string())
         {
-            Ok(_) => panic!(format!("Unexpected success")),
+            Ok(_) => panic!("Unexpected success"),
             Err(error) =>
             {
                 match error
@@ -2048,7 +2057,7 @@ mod tests
             "tape.rules".to_string(),
             "a\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\nf".to_string())
         {
-            Ok(_) => panic!(format!("Unexpected success")),
+            Ok(_) => panic!("Unexpected success"),
             Err(error) =>
             {
                 match error

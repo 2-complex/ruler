@@ -33,6 +33,33 @@ pub struct TargetFileInfo
     pub history : TargetHistory,
 }
 
+/*  Takes a System and a filepath as a string.
+
+    If the file exists, returns a ticket.
+    If the file does not exist, returns Ok, but with no Ticket inside
+    If the file exists but does not open or some other error occurs when generating
+    the ticket, returns an error. */
+pub fn get_file_ticket_from_path<SystemType: System>
+(
+    system : &SystemType,
+    path : &str
+)
+-> Result<Option<Ticket>, ReadWriteError>
+{
+    if system.is_file(&path) || system.is_dir(&path)
+    {
+        match TicketFactory::from_file(system, &path)
+        {
+            Ok(mut factory) => Ok(Some(factory.result())),
+            Err(error) => Err(error),
+        }
+    }
+    else
+    {
+        Ok(None)
+    }
+}
+
 /*  Takes a system and a TargetFileInfo, and obtains a ticket for the file described.
     If the modified date of the file matches the one in TargetHistory exactly. */
 pub fn get_file_ticket<SystemType: System>
@@ -63,18 +90,7 @@ pub fn get_file_ticket<SystemType: System>
         Err(_) => {},
     }
 
-    if system.is_file(&target_info.path) || system.is_dir(&target_info.path)
-    {
-        match TicketFactory::from_file(system, &target_info.path)
-        {
-            Ok(mut factory) => Ok(Some(factory.result())),
-            Err(error) => Err(error),
-        }
-    }
-    else
-    {
-        Ok(None)
-    }
+    get_file_ticket_from_path(system, &target_info.path)
 }
 
 /*  Takes a system and a TargetFileInfo, and obtains a ticket for the file described,
@@ -759,13 +775,14 @@ mod test
     use crate::work::
     {
         handle_node,
+        get_file_ticket_from_path,
         get_file_ticket,
         FileResolution,
         WorkResult,
         WorkOption,
         WorkError,
         TargetFileInfo,
-        wait_for_sources_ticket
+        wait_for_sources_ticket,
     };
     use crate::ticket::
     {
@@ -864,6 +881,33 @@ mod test
         result
     }
 
+    /*  Use a fake system to create a file, and write a string to it.  Then use
+        get_file_ticket_from_path to obtain a ticket for that file, and compare
+        that against a ticket made directly from the string. */
+    #[test]
+    fn work_get_file_ticket_from_path()
+    {
+        let mut system = FakeSystem::new(10);
+
+        match write_str_to_file(&mut system, "quine.sh", "cat $0")
+        {
+            Ok(_) => {},
+            Err(why) => panic!("Failed to make fake file: {}", why),
+        }
+
+        match get_file_ticket_from_path(
+            &system,
+            "quine.sh")
+        {
+            Ok(ticket_opt) => match ticket_opt
+            {
+                Some(ticket) => assert_eq!(ticket, TicketFactory::from_str("cat $0").result()),
+                None => panic!("Could not get ticket"),
+            }
+            Err(err) => panic!("Could not get ticket: {}", err),
+        }
+    }
+
     /*  Use the system to create a file, and write a string to it.  Then use get_file_ticket
         to obtain a ticket for that file, and compare that against a ticket made directly
         from the string. */
@@ -893,9 +937,9 @@ mod test
             Ok(ticket_opt) => match ticket_opt
             {
                 Some(ticket) => assert_eq!(ticket, TicketFactory::from_str("cat $0").result()),
-                None => panic!(format!("Could not get ticket")),
+                None => panic!("Could not get ticket"),
             }
-            Err(err) => panic!(format!("Could not get ticket: {}", err)),
+            Err(err) => panic!("Could not get ticket: {}", err),
         }
     }
 
@@ -1076,7 +1120,7 @@ mod test
                     None => panic!("No ticket found where expected"),
                 }
             }
-            Err(err) => panic!(format!("Could not get ticket: {}", err)),
+            Err(err) => panic!("Could not get ticket: {}", err),
         }
     }
 
@@ -1469,10 +1513,10 @@ mod test
                         match resolutions[0]
                         {
                             FileResolution::AlreadyCorrect => {},
-                            _ => panic!("Expected poem to already be correct, was some other work option {}"),
+                            _ => panic!("Expected poem to already be correct, was some other work option"),
                         }
                     },
-                    _ => panic!("Expected poem to already be resolved, was some other work option {}"),
+                    _ => panic!("Expected poem to already be resolved, was some other work option"),
                 }
 
                 match receiver_c.recv()

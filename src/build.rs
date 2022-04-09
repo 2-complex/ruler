@@ -12,7 +12,11 @@ use std::io::
     self,
     Read,
 };
-
+use crate::directory::
+{
+    self,
+    InitDirectoryError
+};
 use crate::rule::
 {
     parse_all,
@@ -34,8 +38,7 @@ use crate::work::
     clean_targets,
 };
 
-use crate::memory::{Memory, MemoryError};
-use crate::cache::LocalCache;
+use crate::memory::{MemoryError};
 use crate::printer::Printer;
 
 use termcolor::
@@ -131,73 +134,6 @@ impl fmt::Display for BuildError
     }
 }
 
-pub enum InitDirectoryError
-{
-    FailedToCreateDirectory(SystemError),
-    FailedToCreateCacheDirectory(SystemError),
-    FailedToReadMemoryFile(MemoryError),
-}
-
-impl fmt::Display for InitDirectoryError
-{
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
-    {
-        match self
-        {
-            InitDirectoryError::FailedToCreateDirectory(error) =>
-                write!(formatter, "Failed to create directory: {}", error),
-
-            InitDirectoryError::FailedToCreateCacheDirectory(error) =>
-                write!(formatter, "Failed to create cache directory: {}", error),
-
-            InitDirectoryError::FailedToReadMemoryFile(error) =>
-                write!(formatter, "Failed to read memory file: {}", error),
-        }
-    }
-}
-
-pub fn init_directory<SystemType : System + Clone + Send + 'static>
-(
-    system : &mut SystemType,
-    directory : &str
-)
-->
-Result<(Memory, LocalCache, String), InitDirectoryError>
-{
-    if ! system.is_dir(directory)
-    {
-        match system.create_dir(directory)
-        {
-            Ok(_) => {},
-            Err(error) => return Err(InitDirectoryError::FailedToCreateDirectory(error)),
-        }
-    }
-
-    let cache_path = format!("{}/cache", directory);
-
-    if ! system.is_dir(&cache_path)
-    {
-        match system.create_dir(&cache_path)
-        {
-            Ok(_) => {},
-            Err(error) => return Err(InitDirectoryError::FailedToCreateCacheDirectory(error)),
-        }
-    }
-
-    let memoryfile = format!("{}/memory", directory);
-
-    Ok((
-        match Memory::from_file(system, &memoryfile)
-        {
-            Ok(memory) => memory,
-            Err(error) => return Err(InitDirectoryError::FailedToReadMemoryFile(error)),
-        },
-        LocalCache::new(&cache_path),
-        memoryfile
-    ))
-}
-
-
 fn read_all_rules<SystemType : System>
 (
     system : &SystemType,
@@ -237,6 +173,51 @@ fn read_all_rules<SystemType : System>
     Ok(result)
 }
 
+/*  This is the function that runs when you type "ruler nodes" at the commandline.
+    It opens the rulefile, parses it, and returns the vector of rule Nodes. */
+pub fn get_nodes
+<
+    SystemType : System + Clone + Send + 'static,
+>
+(
+    system : &SystemType,
+    rulefile_paths : Vec<String>,
+    goal_target_opt: Option<String>
+)
+-> Result<Vec<Node>, BuildError>
+{
+    let all_rule_text = read_all_rules(system, rulefile_paths)?;
+
+    let rules =
+    match parse_all(all_rule_text)
+    {
+        Ok(rules) => rules,
+        Err(error) => return Err(BuildError::RuleFileFailedToParse(error)),
+    };
+
+    Ok(
+        match goal_target_opt
+        {
+            Some(goal_target) =>
+            {
+                match topological_sort(rules, &goal_target)
+                {
+                    Ok(nodes) => nodes,
+                    Err(error) => return Err(BuildError::TopologicalSortFailed(error)),
+                }
+            },
+            None =>
+            {
+                match topological_sort_all(rules)
+                {
+                    Ok(nodes) => nodes,
+                    Err(error) => return Err(BuildError::TopologicalSortFailed(error)),
+                }
+            }
+        }
+    )
+}
+
 
 /*  This is the function that runs when you type "ruler build" at the commandline.
     It opens the rulefile, parses it, and then either updates all targets in all rules
@@ -249,7 +230,7 @@ pub fn build
 >
 (
     mut system : SystemType,
-    directory : &str,
+    directory_path : &str,
     rulefile_paths : Vec<String>,
     goal_target_opt: Option<String>,
     printer: &mut PrinterType,
@@ -257,7 +238,7 @@ pub fn build
 -> Result<(), BuildError>
 {
     let (mut memory, cache, memoryfile) =
-    match init_directory(&mut system, directory)
+    match directory::init(&mut system, directory_path)
     {
         Ok((memory, cache, memoryfile)) => (memory, cache, memoryfile),
         Err(error) =>
@@ -271,35 +252,7 @@ pub fn build
         }
     };
 
-    let all_rule_text = read_all_rules(&system, rulefile_paths)?;
-
-    let rules =
-    match parse_all(all_rule_text)
-    {
-        Ok(rules) => rules,
-        Err(error) => return Err(BuildError::RuleFileFailedToParse(error)),
-    };
-
-    let mut nodes =
-    match goal_target_opt
-    {
-        Some(goal_target) =>
-        {
-            match topological_sort(rules, &goal_target)
-            {
-                Ok(nodes) => nodes,
-                Err(error) => return Err(BuildError::TopologicalSortFailed(error)),
-            }
-        },
-        None =>
-        {
-            match topological_sort_all(rules)
-            {
-                Ok(nodes) => nodes,
-                Err(error) => return Err(BuildError::TopologicalSortFailed(error)),
-            }
-        }
-    };
+    let mut nodes = get_nodes(&system, rulefile_paths, goal_target_opt)?;
 
     let (mut senders, mut receivers) = make_multimaps(&nodes);
     let mut handles = Vec::new();
@@ -319,7 +272,7 @@ pub fn build
             None => vec![],
         };
 
-        let mut target_infos = Vec::new();
+        let mut target_infos = vec![];
         for target_path in node.targets.drain(..)
         {
             target_infos.push(
@@ -498,14 +451,14 @@ pub fn build
 pub fn clean<SystemType : System + Clone + Send + 'static>
 (
     mut system : SystemType,
-    directory : &str,
+    directory_path : &str,
     rulefile_paths: Vec<String>,
     goal_target_opt: Option<String>
 )
 -> Result<(), BuildError>
 {
     let (mut memory, cache, _memoryfile) =
-    match init_directory(&mut system, directory)
+    match directory::init(&mut system, directory_path)
     {
         Ok((memory, cache, memoryfile)) => (memory, cache, memoryfile),
         Err(error) =>
@@ -624,10 +577,10 @@ pub fn clean<SystemType : System + Clone + Send + 'static>
 #[cfg(test)]
 mod test
 {
+    use crate::directory;
     use crate::build::
     {
         build,
-        init_directory,
         BuildError,
     };
     use crate::system::
@@ -972,7 +925,7 @@ poem.txt
 
         {
             let (mut memory, _cache, _memoryfile) =
-            match init_directory(&mut system, "ruler-directory")
+            match directory::init(&mut system, "ruler-directory")
             {
                 Ok((memory, cache, memoryfile)) => (memory, cache, memoryfile),
                 Err(error) => panic!("Failed to init directory error: {}", error)
@@ -1002,7 +955,7 @@ poem.txt
 
         {
             let (mut memory, _cache, _memoryfile) =
-            match init_directory(&mut system, "ruler-directory")
+            match directory::init(&mut system, "ruler-directory")
             {
                 Ok((memory, cache, memoryfile)) => (memory, cache, memoryfile),
                 Err(error) => panic!("Failed to init directory error: {}", error)
