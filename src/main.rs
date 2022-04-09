@@ -273,6 +273,33 @@ and its ancestors, as needed.")
                 .takes_value(true))
         )
         .subcommand(
+            SubCommand::with_name("hash")
+            .about("Outputs the hash of a file")
+            .help("
+Takes a path to a file, returns the url-safe-base64-encoded sha256 of the file.
+")
+            .arg(Arg::with_name("path")
+                .help("
+Path to any file.
+")
+                .required(true)
+                .index(1)
+            )
+        )
+        .setting(AppSettings::ArgRequiredElseHelp)
+        .subcommand(
+            SubCommand::with_name("nodes")
+            .about("Displays info on current build-nodes along with their
+current rule-hash")
+            .help("
+Reads the rules files the same way as when invoking ruler build, except instead
+of running the build process, prints information about each node.  This command
+is read only.  It is useful for troubleshooting and understanding how ruler
+works.
+")
+        )
+        .setting(AppSettings::ArgRequiredElseHelp)
+        .subcommand(
             SubCommand::with_name("again")
             .about("Repeats the most recent build command")
             .help("
@@ -450,6 +477,69 @@ The next time you run `ruler again`, it will repeat that `ruler build` with the 
                 println!("Error writing config file: {}", error);
             }
         }
+    }
 
+    if let Some(matches) = big_matches.subcommand_matches("hash")
+    {
+        match matches.value_of("path")
+        {
+            Some(path) =>
+            {
+                let system = RealSystem::new();
+                match work::get_file_ticket_from_path(&system, &path)
+                {
+                    Ok(Some(file_ticket)) =>
+                    {
+                        println!("{}", file_ticket);
+                    },
+                    Ok(None) => eprintln!("File not found: {}", path),
+                    Err(error) => eprintln!("{}", error),
+                }
+            },
+            None =>
+            {
+                eprintln!("Internal error");
+            }
+        }
+    }
+
+    if let Some(matches) = big_matches.subcommand_matches("nodes")
+    {
+        let rulefiles =
+        match matches.values_of("rules")
+        {
+            Some(values) =>
+            {
+                values.map(|s| s.to_string()).collect()
+            },
+            None =>
+            {
+                vec!("build.rules".to_string())
+            },
+        };
+
+        let target =
+        match matches.value_of("target")
+        {
+            Some(value) => Some(value.to_string()),
+            None => None,
+        };
+
+        let system = RealSystem::new();
+
+        match build::get_nodes(
+            &system,
+            rulefiles,
+            target)
+        {
+            Ok(nodes) =>
+            {
+                for node in nodes.iter()
+                {
+                    print!("{}", node);
+                }
+            },
+            Err(error) => eprintln!("{}", error),
+        }
     }
 }
