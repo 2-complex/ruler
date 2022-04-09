@@ -493,27 +493,27 @@ The next time you run `ruler again`, it will repeat that `ruler build` with the 
         }
     }
 
-if let Some(matches) = big_matches.subcommand_matches("serve")
-{
-let directory =
-match matches.value_of("directory")
-{
-Some(value) => value,
-None => ".ruler",
-};
+    if let Some(matches) = big_matches.subcommand_matches("serve")
+    {
+        let directory =
+        match matches.value_of("directory")
+        {
+            Some(value) => value,
+            None => ".ruler",
+        };
 
-let mut system = RealSystem::new();
-let mut printer = StandardPrinter::new();
+        let mut system = RealSystem::new();
+        let mut printer = StandardPrinter::new();
 
-match server::serve(
-system,
-directory,
-&mut printer)
-{
-Ok(()) => {},
-Err(error) => eprintln!("{}", error),
-}
-}
+        match server::serve(
+            system,
+            directory,
+            &mut printer)
+        {
+            Ok(()) => {},
+            Err(error) => eprintln!("{}", error),
+        }
+    }
 
     if let Some(matches) = big_matches.subcommand_matches("hash")
     {
