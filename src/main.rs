@@ -33,6 +33,7 @@ use crate::printer::StandardPrinter;
 
 mod cache;
 mod build;
+mod server;
 mod rule;
 mod ticket;
 mod work;
@@ -294,6 +295,19 @@ and its ancestors, as needed.")
                 .help("Path to a custom rules file (default: build.rules)")
                 .takes_value(true))
         )
+        .subcommand(
+            SubCommand::with_name("serve")
+            .about("Starts a server to provide other instances of ruler on the
+network access to the files in the cache.")
+            .help("Starts a server to provide other instances of ruler on the
+network access to the files in the cache.")
+            .arg(Arg::with_name("address")
+                .short("a")
+                .long("address")
+                .value_name("address")
+                .help("The address upon which to serve")
+                .takes_value(true))
+        )
         .setting(AppSettings::ArgRequiredElseHelp)
         .get_matches();
 
@@ -449,6 +463,27 @@ The next time you run `ruler again`, it will repeat that `ruler build` with the 
                 println!("Error writing config file: {}", error);
             }
         }
+    }
 
+    if let Some(matches) = big_matches.subcommand_matches("serve")
+    {
+        let directory =
+        match matches.value_of("directory")
+        {
+            Some(value) => value,
+            None => ".ruler",
+        };
+
+        let mut system = RealSystem::new();
+        let mut printer = StandardPrinter::new();
+
+        match server::serve(
+            system,
+            directory,
+            &mut printer)
+        {
+            Ok(()) => {},
+            Err(error) => eprintln!("{}", error),
+        }
     }
 }
