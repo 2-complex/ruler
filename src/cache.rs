@@ -16,6 +16,13 @@ pub enum RestoreResult
     SystemError(SystemError)
 }
 
+pub enum OpenError
+{
+    NotThere,
+    CacheDirectoryMissing,
+    SystemError(SystemError)
+}
+
 #[derive(Clone)]
 pub struct LocalCache
 {
@@ -59,6 +66,34 @@ impl LocalCache
         else
         {
             RestoreResult::CacheDirectoryMissing
+        }
+    }
+
+    pub fn open<SystemType : System>(
+        &self,
+        system : &mut SystemType,
+        ticket : &Ticket
+    ) -> Result<SystemType::File, OpenError>
+    {
+        if system.is_dir(&self.path)
+        {
+            let cache_path = format!("{}/{}", self.path, ticket.base64());
+            if system.is_file(&cache_path)
+            {
+                match system.open(&cache_path)
+                {
+                    Ok(file) => Ok(file),
+                    Err(system_error) => Err(OpenError::SystemError(system_error)),
+                }
+            }
+            else
+            {
+                Err(OpenError::NotThere)
+            }
+        }
+        else
+        {
+            Err(OpenError::CacheDirectoryMissing)
         }
     }
 

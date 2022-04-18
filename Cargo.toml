@@ -20,3 +20,4 @@ serde = { version = "1.0.114", features = ["derive"] }
 lipsum = "0.7.0"
 termcolor = "1"
 execute = "0.2.8"
+actix-web = "4"

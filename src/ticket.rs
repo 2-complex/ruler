@@ -40,6 +40,13 @@ impl TicketFactory
         TicketFactory{ dig : d }
     }
 
+    pub fn from_hash_str(hash_str: &str) -> TicketFactory
+    {
+        let mut d = Sha256::new();
+        d.input(first_input.as_bytes());
+        TicketFactory{ dig : d }
+    }
+
     /*  Read in a Ticket, convert (the hash therein) to bytes,
         and incorporate those bytes into the currently building ticket. */
     pub fn input_ticket(&mut self, input: Ticket)
@@ -53,6 +60,7 @@ impl TicketFactory
     {
         self.dig.input(input.as_bytes());
     }
+
 
     /*  Create a ticket from the bytes incorporated so far. */
     pub fn result(&mut self) -> Ticket

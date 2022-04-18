@@ -1,44 +1,33 @@
 use std::fmt;
+
+/*
 use std::io::
 {
     self,
     Read,
 };
+*/
 
-use crate::rule::
-{
-    parse_all,
-    ParseError,
-    Node,
-    topological_sort,
-    topological_sort_all,
-    TopologicalSortError,
-};
-use crate::packet::Packet;
-use crate::work::
-{
-    TargetFileInfo,
-    WorkOption,
-    WorkResult,
-    WorkError,
-    FileResolution,
-    handle_node,
-    clean_targets,
-};
-
-use crate::memory::{Memory, MemoryError};
-use crate::cache::LocalCache;
+// use crate::memory::{Memory, MemoryError};
+// use crate::cache::LocalCache;
 use crate::printer::Printer;
+use crate::directory;
+// use termcolor::Color;
 
-use termcolor::
+use actix_web::
 {
-    Color,
+    web,
+    App,
+    HttpServer,
+    HttpResponse,
+//    Responder,
+    rt,
+    http::StatusCode,
 };
 
 use crate::system::
 {
     System,
-    SystemError
 };
 
 pub enum ServerError
@@ -58,8 +47,7 @@ impl fmt::Display for ServerError
     }
 }
 
-
-/*   */
+/*  Creates an HTTP server */
 pub fn serve
 <
     SystemType : System + Clone + Send + 'static,
@@ -67,16 +55,49 @@ pub fn serve
 >
 (
     mut system : SystemType,
-    directory : &str,
+    directory_path : &str,
     printer: &mut PrinterType,
 )
 -> Result<(), ServerError>
 {
-    println!("SERVING! or rather, pretending to serve");
+    let (mut _memory, cache, _memoryfile) =
+    match directory::init(&mut system, "ruler-directory")
+    {
+        Ok((memory, cache, memoryfile)) => (memory, cache, memoryfile),
+        Err(error) => panic!("Failed to init directory error: {}", error)
+    };
+
+    let mut runtime = rt::Runtime::new().unwrap();
+    runtime.block_on(async {
+        HttpServer::new(|| {
+            App::new()
+                .route(
+                    "/files/{hash}", web::get().to(
+                        |hash: web::Path<String>| async move
+                        {
+                            let status_ok = StatusCode::from_u16(200).unwrap();
+                            let status_not_found = StatusCode::from_u16(404).unwrap();
+                            match cache.open(Ticket::from_hash_str(hash))
+                            {
+                                Ok(file) =>
+                                    HttpResponse::new(status_ok).set_body(file),
+                                Err(error) =>
+                                    HttpResponse::new(status_not_found)
+                            }
+                        }
+                    )
+                )
+        })
+        .bind(("127.0.0.1", 8080))?
+        .run()
+        .await
+    });
+
     Err(ServerError::Weird) 
 }
 
 #[cfg(test)]
 mod test
 {
+
 }
