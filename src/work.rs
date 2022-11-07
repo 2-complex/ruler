@@ -534,7 +534,6 @@ mod test
     use crate::work::
     {
         handle_node,
-        get_file_ticket,
         FileResolution,
         WorkResult,
         WorkOption,
@@ -556,6 +555,7 @@ mod test
         TargetHistory,
         TargetTickets,
         ResolutionError,
+        get_file_ticket
     };
     use crate::packet::Packet;
     use crate::cache::LocalCache;
@@ -646,140 +646,6 @@ mod test
         }
 
         result
-    }
-
-    /*  Use the system to create a file, and write a string to it.  Then use get_file_ticket
-        to obtain a ticket for that file, and compare that against a ticket made directly
-        from the string. */
-    #[test]
-    fn work_get_tickets_from_filesystem()
-    {
-        let mut system = FakeSystem::new(10);
-
-        match write_str_to_file(&mut system, "quine.sh", "cat $0")
-        {
-            Ok(_) => {},
-            Err(why) => panic!("Failed to make fake file: {}", why),
-        }
-
-        match get_file_ticket(
-            &system,
-            &TargetFileInfo
-            {
-                path : "quine.sh".to_string(),
-                history : TargetHistory
-                {
-                    ticket : TicketFactory::new().result(),
-                    timestamp : 0,
-                }
-            })
-        {
-            Ok(ticket_opt) => match ticket_opt
-            {
-                Some(ticket) => assert_eq!(ticket, TicketFactory::from_str("cat $0").result()),
-                None => panic!(format!("Could not get ticket")),
-            }
-            Err(err) => panic!(format!("Could not get ticket: {}", err)),
-        }
-    }
-
-    /*  Create a file and a TargetFileInfo for that file with matching timestamp.  Then fill the file
-        with some other data.  Make sure that when we get_file_ticket, we get the one from the history
-        instead of the one from the file. */
-    #[test]
-    fn work_test_timestamp_optimization()
-    {
-        // Set the clock to 11
-        let mut system = FakeSystem::new(11);
-
-        let content = "int main(){printf(\"my game\"); return 0;}";
-        let content_ticket = TicketFactory::from_str(content).result();
-
-        // Doctor a TargetFileInfo to indicate the game.cpp was written at time 11
-        let target_file_info = TargetFileInfo
-        {
-            path : "game.cpp".to_string(),
-            history : TargetHistory
-            {
-                ticket : content_ticket.clone(),
-                timestamp : 11,
-            }
-        };
-
-        // Meanwhile, in the filesystem put some incorrect rubbish in game.cpp
-        match write_str_to_file(&mut system, "game.cpp", "some rubbish")
-        {
-            Ok(_) => {},
-            Err(why) => panic!("Failed to make fake file: {}", why),
-        }
-
-        // Then get the ticket for the current target file, passing the TargetFileInfo
-        // with timestamp 11.  Check that it gives the ticket for the C++ code.
-        match get_file_ticket(
-            &system,
-            &target_file_info)
-        {
-            Ok(ticket_opt) =>
-            {
-                match ticket_opt
-                {
-                    Some(ticket) => assert_eq!(ticket, content_ticket),
-                    None => panic!("Failed to generate ticket"),
-                }
-            },
-            Err(_) => panic!("Unexpected error getting file ticket"),
-        }
-    }
-
-    /*  Create a file and a TargetFileInfo for that file with not-matching timestamp.  Fill the file
-        with new and improved code.  Make sure that when we get_file_ticket, we get the one from the
-        file because the history doesn't match. */
-    #[test]
-    fn work_test_timestamp_mismatch()
-    {
-        // Set the clock to 11
-        let mut system = FakeSystem::new(11);
-
-        let previous_content = "int main(){printf(\"my game\"); return 0;}";
-        let previous_ticket = TicketFactory::from_str(previous_content).result();
-
-        let current_content = "int main(){printf(\"my better game\"); return 0;}";
-        let current_ticket = TicketFactory::from_str(current_content).result();
-
-        // Doctor a TargetFileInfo to indicate the game.cpp was written at time 9
-        let target_file_info = TargetFileInfo
-        {
-            path : "game.cpp".to_string(),
-            history : TargetHistory
-            {
-                ticket : previous_ticket.clone(),
-                timestamp : 9,
-            }
-        };
-
-        // Meanwhile, in the filesystem, put new and improved game.cpp
-        match write_str_to_file(&mut system, "game.cpp", current_content)
-        {
-            Ok(_) => {},
-            Err(why) => panic!("Failed to make fake file: {}", why),
-        }
-
-        // Then get the ticket for the current target file, passing the TargetFileInfo
-        // with timestamp 11.  Check that it gives the ticket for the C++ code.
-        match get_file_ticket(
-            &system,
-            &target_file_info)
-        {
-            Ok(ticket_opt) =>
-            {
-                match ticket_opt
-                {
-                    Some(ticket) => assert_eq!(ticket, current_ticket),
-                    None => panic!("Failed to generate ticket"),
-                }
-            },
-            Err(_) => panic!("Unexpected error getting file ticket"),
-        }
     }
 
     /*  Create a rule-history and populate it simulating a game having been built from a
