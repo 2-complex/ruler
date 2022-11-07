@@ -23,13 +23,16 @@ use crate::rule::
     TopologicalSortError,
 };
 use crate::packet::Packet;
-use crate::work::
+use crate::blob::
 {
     TargetFileInfo,
+    FileResolution,
+};
+use crate::work::
+{
     WorkOption,
     WorkResult,
     WorkError,
-    FileResolution,
     handle_node,
     clean_targets,
 };
@@ -661,7 +664,7 @@ mod test
         read_file_to_string
     };
     use crate::printer::EmptyPrinter;
-    use crate::memory::
+    use crate::blob::
     {
         TargetHistory
     };

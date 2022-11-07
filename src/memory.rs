@@ -1,11 +1,21 @@
-use crate::ticket::{TicketFactory, Ticket};
+use crate::ticket::{Ticket};
 use crate::system::
 {
     System,
     ReadWriteError,
 };
+use crate::blob::
+{
+    TargetHistory,
+    TargetTickets,
+    BlobError,
+};
 use std::collections::HashMap;
-use serde::{Serialize, Deserialize};
+use serde::
+{
+    Serialize,
+    Deserialize
+};
 use std::fmt;
 use std::io::
 {
@@ -52,7 +62,7 @@ pub struct RuleHistory
     /*  Each rule history consists of a map
             key = source-ticket
             value = a target ticket for each target */
-    source_to_targets : HashMap<Ticket, Vec<Ticket>>,
+    source_to_targets : HashMap<Ticket, TargetTickets>,
 }
 
 /*  Inserting target tickets in a RuleHistory can go wrong in a couple ways.
@@ -76,42 +86,23 @@ impl RuleHistory
     }
 
     /*  With the given source_ticket, add the given target_tickets to the history.
-        If there's a contradiction, constructs a Contradiction with a vector of indices. */
+        If there's a contradiction, constructs a RuleHistoryInsertError::Contradiction
+        with a vector of indices. */
     pub fn insert(
         &mut self,
         source_ticket: Ticket,
-        target_tickets: Vec<Ticket>)
+        target_tickets: TargetTickets)
     -> Result<(), RuleHistoryInsertError>
     {
         match self.source_to_targets.get(&source_ticket)
         {
             Some(existing_tickets) =>
             {
-                let elen : usize = existing_tickets.len();
-
-                if elen != target_tickets.len()
+                match existing_tickets.compare(target_tickets)
                 {
-                    return Err(RuleHistoryInsertError::TargetSizesDifferWeird)
-                }
-                else
-                {
-                    let mut contradicting_indices = Vec::new();
-                    for i in 0..elen
-                    {
-                        if existing_tickets[i] != target_tickets[i]
-                        {
-                            contradicting_indices.push(i);
-                        }
-                    }
-
-                    if contradicting_indices.len() == 0
-                    {
-                        Ok(())
-                    }
-                    else
-                    {
-                        return Err(RuleHistoryInsertError::Contradiction(contradicting_indices))
-                    }
+                    Err(BlobError::Contradiction(v)) => Err(RuleHistoryInsertError::Contradiction(v)),
+                    Err(BlobError::TargetSizesDifferWeird) => Err(RuleHistoryInsertError::TargetSizesDifferWeird),
+                    Ok(_) => Ok(()),
                 }
             },
             None =>
@@ -120,10 +111,9 @@ impl RuleHistory
                 Ok(())
             }
         }
-
     }
 
-    pub fn get_target_tickets(&self, source_ticket: &Ticket) -> Option<&Vec<Ticket>>
+    pub fn get_target_tickets(&self, source_ticket: &Ticket) -> Option<&TargetTickets>
     {
         self.source_to_targets.get(source_ticket)
     }
@@ -143,51 +133,10 @@ impl fmt::Display for RuleHistory
             out.push_str(&source_ticket.base64());
             out.push_str("\n");
 
-            for target_ticket in target_tickets.iter()
-            {
-                out.push_str("    ");
-                out.push_str(&target_ticket.base64());
-                out.push_str("\n");
-            }
+            out.push_str(&target_tickets.base64())
         }
 
         write!(formatter, "{}", out)
-    }
-}
-
-/*  There are two steps to checking if a target file is up-to-date.  First: check the rule-history to see what the target
-    hash should be.  Second: compare the hash it should be to the hash it acutally is.
-
-    TargetHistory is a small struct meant to be the type of a value in the map 'target_histories' whose purpose is to
-    help ruler tell if a target is up-to-date */
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
-pub struct TargetHistory
-{
-    pub ticket : Ticket,
-    pub timestamp : u64,
-}
-
-impl TargetHistory
-{
-    /*  Create a new empty TargetHistory */
-    pub fn empty() -> TargetHistory
-    {
-        TargetHistory
-        {
-            ticket : TicketFactory::new().result(),
-            timestamp : 0,
-        }
-    }
-
-    pub fn new(
-        ticket : Ticket,
-        timestamp : u64) -> TargetHistory
-    {
-        TargetHistory
-        {
-            ticket : ticket,
-            timestamp : timestamp,
-        }
     }
 }
 
@@ -322,7 +271,7 @@ impl Memory
 
     /*  For testing, it is useful to create a mock Memory with specific source and target tickets. */
     #[cfg(test)]
-    fn insert(&mut self, rule_ticket: Ticket, source_ticket: Ticket, target_tickets: Vec<Ticket>)
+    fn insert(&mut self, rule_ticket: Ticket, source_ticket: Ticket, target_tickets: TargetTickets)
     {
         let rule_history = self.rule_histories.entry(rule_ticket).or_insert(
             RuleHistory
@@ -406,6 +355,10 @@ mod test
         TargetHistory,
         write_file,
     };
+    use crate::blob::
+    {
+        TargetTickets,
+    };
     use crate::ticket::{TicketFactory};
     use crate::system::util::read_file;
 
@@ -418,11 +371,11 @@ mod test
         mem.insert(
             TicketFactory::from_str("rule").result(),
             TicketFactory::from_str("source").result(),
-            [
+            TargetTickets::from_vec(vec![
                 TicketFactory::from_str("target1").result(),
                 TicketFactory::from_str("target2").result(),
                 TicketFactory::from_str("target3").result(),
-            ].to_vec()
+            ])
         );
 
         let target_history = TargetHistory::new(
@@ -449,11 +402,11 @@ mod test
         mem.insert(
             TicketFactory::from_str("rule").result(),
             TicketFactory::from_str("source").result(),
-            [
+            TargetTickets::from_vec(vec![
                 TicketFactory::from_str("target1").result(),
                 TicketFactory::from_str("target2").result(),
                 TicketFactory::from_str("target3").result(),
-            ].to_vec()
+            ])
         );
 
         let target_history = TargetHistory::new(
@@ -492,11 +445,11 @@ mod test
         memory.insert(
             TicketFactory::from_str("rule").result(),
             TicketFactory::from_str("source").result(),
-            [
+            TargetTickets::from_vec(vec![
                 TicketFactory::from_str("target1").result(),
                 TicketFactory::from_str("target2").result(),
                 TicketFactory::from_str("target3").result(),
-            ].to_vec()
+            ])
         );
 
         let target_history = TargetHistory::new(
@@ -537,11 +490,11 @@ mod test
     {
         let mut history = RuleHistory::new();
         match history.insert(TicketFactory::from_str("source").result(),
-            [
+            TargetTickets::from_vec(vec![
                 TicketFactory::from_str("target1").result(),
                 TicketFactory::from_str("target2").result(),
                 TicketFactory::from_str("target3").result(),
-            ].to_vec())
+            ]))
         {
             Ok(_) => {},
             Err(_) => panic!("Rule history failed to insert"),
@@ -555,22 +508,12 @@ mod test
         {
             Some(target_tickets) =>
             {
-                assert_eq!(target_tickets.len(), 3);
-
-                assert_eq!(
-                    target_tickets[0],
-                    TicketFactory::from_str("target1").result()
-                );
-
-                assert_eq!(
-                    target_tickets[1],
-                    TicketFactory::from_str("target2").result()
-                );
-
-                assert_eq!(
-                    target_tickets[2],
-                    TicketFactory::from_str("target3").result()
-                );
+                assert_eq!(*target_tickets,
+                    TargetTickets::from_vec(vec![
+                        TicketFactory::from_str("target1").result(),
+                        TicketFactory::from_str("target2").result(),
+                        TicketFactory::from_str("target3").result(),
+                    ]));
             },
             None => panic!("Targets not found"),
         }
@@ -583,11 +526,11 @@ mod test
     {
         let mut history_a = RuleHistory::new();
         match history_a.insert(TicketFactory::from_str("sourceA").result(),
-            [
+            TargetTickets::from_vec(vec![
                 TicketFactory::from_str("target1A").result(),
                 TicketFactory::from_str("target2A").result(),
                 TicketFactory::from_str("target3A").result(),
-            ].to_vec())
+            ]))
         {
             Ok(_) => {},
             Err(_) => panic!("Rule history failed to insert"),
@@ -595,11 +538,11 @@ mod test
 
         let mut history_b = RuleHistory::new();
         match history_b.insert(TicketFactory::from_str("sourceB").result(),
-            [
+            TargetTickets::from_vec(vec![
                 TicketFactory::from_str("target1B").result(),
                 TicketFactory::from_str("target2B").result(),
                 TicketFactory::from_str("target3B").result(),
-            ].to_vec())
+            ]))
         {
             Ok(_) => {},
             Err(_) => panic!("Rule history failed to insert"),
@@ -607,21 +550,22 @@ mod test
 
         let mut memory = Memory::new();
 
-        memory.insert(TicketFactory::from_str("ruleA").result(),
+        memory.insert(
+            TicketFactory::from_str("ruleA").result(),
             TicketFactory::from_str("sourceA").result(),
-            [
+            TargetTickets::from_vec(vec![
                 TicketFactory::from_str("target1A").result(),
                 TicketFactory::from_str("target2A").result(),
                 TicketFactory::from_str("target3A").result(),
-            ].to_vec());
+            ]));
 
         memory.insert(TicketFactory::from_str("ruleB").result(),
             TicketFactory::from_str("sourceB").result(),
-            [
+            TargetTickets::from_vec(vec![
                 TicketFactory::from_str("target1B").result(),
                 TicketFactory::from_str("target2B").result(),
                 TicketFactory::from_str("target3B").result(),
-            ].to_vec());
+            ]));
 
         let history = memory.take_rule_history(&TicketFactory::from_str("ruleA").result());
 
@@ -630,7 +574,11 @@ mod test
         {
             Some(target_tickets) =>
             {
-                assert_eq!(target_tickets.len(), 3);
+                assert_eq!(*target_tickets, TargetTickets::from_vec(vec![
+                    TicketFactory::from_str("target1A").result(),
+                    TicketFactory::from_str("target2A").result(),
+                    TicketFactory::from_str("target3A").result(),
+                ]));
             },
             None => panic!("Important event missing from hisotry"),
         }
@@ -650,7 +598,11 @@ mod test
         {
             Some(target_tickets) =>
             {
-                assert_eq!(target_tickets.len(), 3);
+                assert_eq!(*target_tickets, TargetTickets::from_vec(vec![
+                    TicketFactory::from_str("target1B").result(),
+                    TicketFactory::from_str("target2B").result(),
+                    TicketFactory::from_str("target3B").result(),
+                ]));
             },
             None => panic!("Important event missing from hisotry"),
         }
