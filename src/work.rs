@@ -11,7 +11,6 @@ use crate::system::
     System,
     SystemError,
 };
-use crate::system::util::get_timestamp;
 use crate::memory::
 {
     RuleHistory,
@@ -20,7 +19,6 @@ use crate::memory::
 use crate::cache::
 {
     LocalCache,
-    RestoreResult,
 };
 
 use crate::blob::
@@ -31,21 +29,14 @@ use crate::blob::
     TargetFileInfo,
     ResolutionError,
     GetFileTicketAndTimestampError,
-    BlobError,
-    resolve_single_target,
     get_file_ticket,
     get_file_ticket_and_timestamp,
-    get_file_ticket_from_path,
     resolve_remembered_target_tickets,
     resolve_with_no_memory,
 };
 
 use std::sync::mpsc::{Sender, Receiver, RecvError};
 use std::fmt;
-use std::time::
-{
-    SystemTimeError
-};
 
 pub enum WorkOption
 {
@@ -71,14 +62,11 @@ pub enum WorkError
     TargetFileNotGenerated(String),
     FileNotAvailableToCache(String, ReadWriteError),
     ReadWriteError(String, ReadWriteError),
-    SystemTimeError(String, SystemTimeError),
     ResolutionError(ResolutionError),
     GetFileTicketAndTimestampError(GetFileTicketAndTimestampError),
     CommandExecutedButErrored,
     CommandFailedToExecute(SystemError),
     Contradiction(Vec<String>),
-    CacheDirectoryMissing,
-    CacheMalfunction(SystemError),
     CommandWithNoRuleHistory,
     Weird,
 }
@@ -113,9 +101,6 @@ impl fmt::Display for WorkError
             WorkError::ReadWriteError(path, error) =>
                 write!(formatter, "Error reading file: {}: {}", path, error),
 
-            WorkError::SystemTimeError(path, error) =>
-                write!(formatter, "Error when getting modified timestamp: {}: {}", path, error),
-
             WorkError::ResolutionError(error) =>
                 write!(formatter, "Error resolving rule: {}", error),
 
@@ -139,12 +124,6 @@ impl fmt::Display for WorkError
                 message.push_str("This likely means a real dependence is not reflected in the rule.\n");
                 write!(formatter, "{}", message)
             },
-
-            WorkError::CacheDirectoryMissing =>
-                write!(formatter, "Cache directory missing"),
-
-            WorkError::CacheMalfunction(error) =>
-                write!(formatter, "Cache file i/o failed: {}", error),
 
             WorkError::CommandWithNoRuleHistory =>
                 write!(formatter, "Command provided but no rule history, that should be impossible"),
@@ -311,6 +290,7 @@ Result<WorkResult, WorkError>
                         target_info.history = TargetHistory::new(ticket.clone(), timestamp);
                         post_command_target_tickets.push(ticket);
                     },
+                    Err(GetFileTicketAndTimestampError::TargetFileNotFound(path, _system_error)) => return Err(WorkError::TargetFileNotGenerated(path)),
                     Err(error) => return Err(WorkError::GetFileTicketAndTimestampError(error)),
                 }
             }
@@ -554,7 +534,6 @@ mod test
     use crate::work::
     {
         handle_node,
-        get_file_ticket_from_path,
         get_file_ticket,
         FileResolution,
         WorkResult,
@@ -576,6 +555,7 @@ mod test
     {
         TargetHistory,
         TargetTickets,
+        ResolutionError,
     };
     use crate::packet::Packet;
     use crate::cache::LocalCache;
@@ -1574,7 +1554,7 @@ mod test
             {
                 match error
                 {
-                    WorkError::FileNotAvailableToCache(path, _error) => assert_eq!(path, "verse1.txt"),
+                    WorkError::ResolutionError(ResolutionError::FileNotAvailableToCache(path, _error)) => assert_eq!(path, "verse1.txt"),
                     _ => panic!("Wrong kind of error!  Incorrect error: {}", error),
                 }
             },
