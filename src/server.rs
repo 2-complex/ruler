@@ -12,6 +12,11 @@ use std::io::
 // use crate::cache::LocalCache;
 use crate::printer::Printer;
 use crate::directory;
+use crate::ticket::
+{
+    Ticket,
+    // From64Error,
+};
 // use termcolor::Color;
 
 use actix_web::
@@ -72,22 +77,70 @@ pub fn serve
         HttpServer::new(|| {
             App::new()
                 .route(
-                    "/files/{hash}", web::get().to(
+                    "/files/{hash}",
+                    web::get().to(
+                        |h: web::Path<String>| async move
+                        {
+                            let status_ok = StatusCode::from_u16(200).unwrap();
+
+                            match Ticket::from_base64(&h)
+                            {
+                                Ok(ticket) =>
+                                {
+                                    match cache.open(&mut system, &ticket)
+                                    {
+                                        Ok(file) =>
+                                        {
+                                            HttpResponse::new(status_ok).set_body("stuff".to_string())
+                                        },
+                                        Err(err) => 
+                                        {
+                                            HttpResponse::new(status_ok).set_body("ERROR".to_string())
+                                        }
+                                    }
+                                },
+
+                                Err(_) =>
+                                {
+                                    HttpResponse::new(status_ok).set_body("ERROR".to_string())
+                                },
+                            }
+                        }
+                    ))})
+
+/*
+                    web::get().to(
                         |hash: web::Path<String>| async move
                         {
                             let status_ok = StatusCode::from_u16(200).unwrap();
+                            HttpResponse::new(status_ok).set_body("something that should be the file");
+
+                            let status_ok = StatusCode::from_u16(200).unwrap();
                             let status_not_found = StatusCode::from_u16(404).unwrap();
-                            match cache.open(Ticket::from_hash_str(hash))
+                            match Ticket::from_base64(&hash)
                             {
-                                Ok(file) =>
-                                    HttpResponse::new(status_ok).set_body(file),
+                                Ok(ticket) =>
+                                {
+                                    match cache.open(&mut system, &ticket)
+                                    {
+                                        Ok(file) =>
+                                            HttpResponse::new(status_ok).set_body("something that should be the file"),
+                                        Err(error) =>
+                                            HttpResponse::new(status_not_found).set_body(""),
+                                    }
+                                },
+
                                 Err(error) =>
-                                    HttpResponse::new(status_not_found)
+                                {
+                                    println!("{}", error);
+                                    HttpResponse::new(status_not_found).set_body("")
+                                },
                             }
                         }
                     )
                 )
         })
+                            */
         .bind(("127.0.0.1", 8080))?
         .run()
         .await
