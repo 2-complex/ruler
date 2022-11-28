@@ -1,6 +1,7 @@
+use std::boxed::Box;
+
 use crate::ticket::Ticket;
 use crate::ticket::TicketFactory;
-
 use crate::system::
 {
     System,
@@ -17,29 +18,31 @@ pub enum RestoreResult
 }
 
 #[derive(Clone)]
-pub struct LocalCache
+pub struct SysCache<SystemType : System>
 {
+    system_box : Box<SystemType>,
     path : String,
 }
 
-impl LocalCache
+impl<SystemType : System> SysCache<SystemType>
 {
-    pub fn new(path : &str)
-    -> LocalCache
+    pub fn new(system : SystemType, path : &str)
+    -> SysCache<SystemType>
     {
-        LocalCache
+        SysCache
         {
+            system_box : Box::new(system),
             path : path.to_string(),
         }
     }
 
-    pub fn restore_file<SystemType : System>(
-        &self,
-        system : &mut SystemType,
+    pub fn restore_file(
+        &mut self,
         ticket : &Ticket,
         target_path : &str
     ) -> RestoreResult
     {
+        let system = &mut (*self.system_box);
         if system.is_dir(&self.path)
         {
             let cache_path = format!("{}/{}", self.path, ticket.base64());
@@ -64,16 +67,16 @@ impl LocalCache
 
     /*  Creates a file with the given ticket (convertd to base64) as a name, and
         moves the file into that place. */
-    pub fn back_up_file_with_ticket<SystemType : System>
+    pub fn back_up_file_with_ticket
     (
-        &self,
-        system : &mut SystemType,
+        &mut self,
         ticket : &Ticket,
         target_path : &str
     )
     ->
     Result<(), ReadWriteError>
     {
+        let system = &mut (*self.system_box);
         let cache_path = format!("{}/{}", self.path, ticket.base64());
         match system.rename(&target_path, &cache_path)
         {
@@ -82,20 +85,20 @@ impl LocalCache
         }
     }
 
-    pub fn back_up_file<SystemType : System>
+    pub fn back_up_file
     (
-        &self,
-        system : &mut SystemType,
+        &mut self,
         target_path : &str
     )
     ->
     Result<(), ReadWriteError>
     {
+        let system = &mut (*self.system_box);
         match TicketFactory::from_file(system, target_path)
         {
             Ok(mut factory) =>
             {
-                self.back_up_file_with_ticket(system, &factory.result(), target_path)
+                self.back_up_file_with_ticket(&mut factory.result(), target_path)
             }
             Err(error) => Err(error)
         }
@@ -111,25 +114,35 @@ mod test
         fake::FakeSystem
     };
     use crate::ticket::TicketFactory;
-    use crate::cache::{LocalCache, RestoreResult};
+    use crate::cache::
+    {
+        SysCache,
+        RestoreResult
+    };
     use crate::system::util::
     {
         write_str_to_file,
         read_file_to_string
     };
 
-    #[test]
-    fn back_up_and_restore()
+    fn make_fake_system_and_cache() -> (FakeSystem, SysCache<FakeSystem>)
     {
         let mut system = FakeSystem::new(10);
 
-        match system.create_dir(".ruler-cache")
+        match system.create_dir("files")
         {
             Ok(()) => {},
             Err(error) => panic!("Failed to initialize file situation: {}", error),
         }
 
-        let cache = LocalCache::new(".ruler-cache");
+        let cache = SysCache::new(system.clone(), "files");
+        (system, cache)
+    }
+
+    #[test]
+    fn back_up_and_restore()
+    {
+        let (mut system, mut cache) = make_fake_system_and_cache();
 
         match write_str_to_file(&mut system, "apples.txt", "apples\n")
         {
@@ -139,7 +152,7 @@ mod test
 
         assert!(system.is_file("apples.txt"));
 
-        match cache.back_up_file(&mut system, "apples.txt")
+        match cache.back_up_file("apples.txt")
         {
             Ok(()) => {},
             Err(error) => panic!("Backup failed unexpectedly: {}", error),
@@ -147,7 +160,7 @@ mod test
 
         assert!(!system.is_file("apples.txt"));
 
-        match cache.restore_file(&mut system, &TicketFactory::from_str("apples\n").result(), "apples.txt")
+        match cache.restore_file(&TicketFactory::from_str("apples\n").result(), "apples.txt")
         {
             RestoreResult::Done => {},
             RestoreResult::NotThere => panic!("Back up not there when expected"),
@@ -167,19 +180,10 @@ mod test
     #[test]
     fn back_up_nonexistent_file()
     {
-        let mut system = FakeSystem::new(10);
-
-        match system.create_dir(".ruler-cache")
-        {
-            Ok(()) => {},
-            Err(error) => panic!("Failed to initialize file situation: {}", error),
-        }
-
-        let cache = LocalCache::new(".ruler-cache");
-
+        let (system, mut cache) = make_fake_system_and_cache();
         assert!(!system.is_file("apples.txt"));
 
-        match cache.back_up_file(&mut system, "apples.txt")
+        match cache.back_up_file("apples.txt")
         {
             Ok(()) => panic!("Unexpected successful backup when file not present"),
             Err(_error) => {},
@@ -189,15 +193,7 @@ mod test
     #[test]
     fn restore_nonexistent_file()
     {
-        let mut system = FakeSystem::new(10);
-
-        match system.create_dir(".ruler-cache")
-        {
-            Ok(()) => {},
-            Err(error) => panic!("Failed to initialize file situation: {}", error),
-        }
-
-        let cache = LocalCache::new(".ruler-cache");
+        let (mut system, mut cache) = make_fake_system_and_cache();
 
         match write_str_to_file(&mut system, "apples.txt", "wrong content\n")
         {
@@ -207,7 +203,7 @@ mod test
 
         assert!(system.is_file("apples.txt"));
 
-        match cache.back_up_file(&mut system, "apples.txt")
+        match cache.back_up_file("apples.txt")
         {
             Ok(()) => {},
             Err(error) => panic!("Backup failed unexpectedly: {}", error),
@@ -215,7 +211,7 @@ mod test
 
         assert!(!system.is_file("apples.txt"));
 
-        match cache.restore_file(&mut system, &TicketFactory::from_str("apples\n").result(), "apples.txt")
+        match cache.restore_file(&TicketFactory::from_str("apples\n").result(), "apples.txt")
         {
             RestoreResult::Done => panic!("Restore reported success when no backup was made"),
             RestoreResult::NotThere => {},
@@ -227,49 +223,9 @@ mod test
     }
 
     #[test]
-    fn restore_file_from_nonexistent_cache()
-    {
-        let mut system = FakeSystem::new(10);
-
-        match system.create_dir(".wrong-cache")
-        {
-            Ok(()) => {},
-            Err(error) => panic!("Failed to initialize file situation: {}", error),
-        }
-
-        let cache = LocalCache::new(".ruler-cache");
-
-        match write_str_to_file(&mut system, "apples.txt", "wrong content\n")
-        {
-            Ok(()) => {},
-            Err(error) => panic!("Failed to initialize file situation: {}", error),
-        }
-
-        assert!(system.is_file("apples.txt"));
-
-        match cache.restore_file(&mut system, &TicketFactory::from_str("apples\n").result(), "apples.txt")
-        {
-            RestoreResult::Done => panic!("Restore reported success when no backup was made"),
-            RestoreResult::NotThere => panic!("Backup successfully reported not to be present, when an error was expected"),
-            RestoreResult::CacheDirectoryMissing => {},
-            RestoreResult::SystemError(_error) => panic!("Error when cache was nonexistent"),
-        }
-
-        assert!(system.is_file("apples.txt"));
-    }
-
-    #[test]
     fn back_up_twice_and_restore()
     {
-        let mut system = FakeSystem::new(10);
-
-        match system.create_dir(".ruler-cache")
-        {
-            Ok(()) => {},
-            Err(error) => panic!("Failed to initialize file situation: {}", error),
-        }
-
-        let cache = LocalCache::new(".ruler-cache");
+        let (mut system, mut cache) = make_fake_system_and_cache();
 
         match write_str_to_file(&mut system, "apples.txt", "apples\n")
         {
@@ -279,7 +235,7 @@ mod test
 
         assert!(system.is_file("apples.txt"));
 
-        match cache.back_up_file(&mut system, "apples.txt")
+        match cache.back_up_file("apples.txt")
         {
             Ok(()) => {},
             Err(error) => panic!("Backup failed unexpectedly: {}", error),
@@ -295,7 +251,7 @@ mod test
 
         assert!(system.is_file("apples.txt"));
 
-        match cache.back_up_file(&mut system, "apples.txt")
+        match cache.back_up_file("apples.txt")
         {
             Ok(()) => {},
             Err(error) => panic!("Backup failed unexpectedly: {}", error),
@@ -303,7 +259,7 @@ mod test
 
         assert!(!system.is_file("apples.txt"));
 
-        match cache.restore_file(&mut system, &TicketFactory::from_str("apples\n").result(), "apples.txt")
+        match cache.restore_file(&TicketFactory::from_str("apples\n").result(), "apples.txt")
         {
             RestoreResult::Done => {},
             RestoreResult::NotThere => panic!("Back up not there when expected"),
