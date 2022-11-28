@@ -517,7 +517,7 @@ pub fn clean<SystemType : System + Clone + Send + 'static>
         }
 
         let mut system_clone = system.clone();
-        let local_cache_clone = cache.clone();
+        let mut local_cache_clone = cache.clone();
 
         match node.rule_ticket
         {
@@ -529,7 +529,7 @@ pub fn clean<SystemType : System + Clone + Send + 'static>
                             clean_targets(
                                 target_infos,
                                 &mut system_clone,
-                                &local_cache_clone)
+                                &mut local_cache_clone)
                         }
                     )
                 ),
@@ -590,7 +590,7 @@ mod test
     };
     use crate::work::WorkError;
     use crate::ticket::TicketFactory;
-    use crate::cache::LocalCache;
+    use crate::cache::SysCache;
     use crate::system::util::
     {
         write_str_to_file,
@@ -848,8 +848,8 @@ poem.txt
             Err(_) => panic!("Poem failed to be utf8?"),
         }
 
-        let cache = LocalCache::new(".ruler/cache");
-        cache.restore_file(&mut system, &ticket, "temp-poem.txt");
+        let mut cache = SysCache::new(system.clone(), ".ruler/cache");
+        cache.restore_file(&ticket, "temp-poem.txt");
 
         match read_file_to_string(&mut system, "temp-poem.txt")
         {
@@ -857,7 +857,7 @@ poem.txt
             Err(_) => panic!("Poem failed to be utf8?"),
         }
 
-        match cache.back_up_file_with_ticket(&mut system, &ticket, "temp-poem.txt")
+        match cache.back_up_file_with_ticket(&ticket, "temp-poem.txt")
         {
             Ok(_) => {},
             Err(_) => panic!("Failed to back up temp-poem"),

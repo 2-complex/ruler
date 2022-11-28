@@ -18,7 +18,11 @@ use crate::memory::
     TargetHistory,
     RuleHistoryInsertError
 };
-use crate::cache::{LocalCache, RestoreResult};
+use crate::cache::
+{
+    SysCache,
+    RestoreResult
+};
 
 use std::sync::mpsc::{Sender, Receiver, RecvError};
 use std::fmt;
@@ -251,7 +255,7 @@ impl fmt::Display for WorkError
 fn resolve_single_target<SystemType : System>
 (
     system : &mut SystemType,
-    cache : &LocalCache,
+    cache : &mut SysCache<SystemType>,
     remembered_ticket : &Ticket,
     target_info : &TargetFileInfo
 )
@@ -268,7 +272,6 @@ Result<FileResolution, WorkError>
             }
 
             match cache.back_up_file_with_ticket(
-                system,
                 &current_target_ticket,
                 &target_info.path)
             {
@@ -281,7 +284,6 @@ Result<FileResolution, WorkError>
             }
 
             match cache.restore_file(
-                system,
                 &remembered_ticket,
                 &target_info.path)
             {
@@ -304,7 +306,6 @@ Result<FileResolution, WorkError>
         Ok(None) =>
         {
             match cache.restore_file(
-                system,
                 &remembered_ticket,
                 &target_info.path)
             {
@@ -339,7 +340,7 @@ Result<FileResolution, WorkError>
 fn resolve_with_cache<SystemType : System>
 (
     system : &mut SystemType,
-    cache : &LocalCache,
+    cache : &mut SysCache<SystemType>,
     rule_history : &RuleHistory,
     sources_ticket : &Ticket,
     target_infos : &Vec<TargetFileInfo>,
@@ -383,7 +384,6 @@ Result<Vec<FileResolution>, WorkError>
                     Ok(Some(current_target_ticket)) =>
                     {
                         match cache.back_up_file_with_ticket(
-                            system,
                             &current_target_ticket,
                             &target_info.path)
                         {
@@ -638,7 +638,7 @@ pub fn handle_node<SystemType: System>
     mut system : SystemType,
     senders : Vec<(usize, Sender<Packet>)>,
     receivers : Vec<Receiver<Packet>>,
-    cache : LocalCache
+    mut cache : SysCache<SystemType>
 )
 ->
 Result<WorkResult, WorkError>
@@ -663,7 +663,7 @@ Result<WorkResult, WorkError>
         {
             match resolve_with_cache(
                 &mut system,
-                &cache,
+                &mut cache,
                 &rule_history,
                 &sources_ticket,
                 &target_infos)
@@ -723,7 +723,7 @@ pub fn clean_targets<SystemType: System>
 (
     target_infos : Vec<TargetFileInfo>,
     system : &mut SystemType,
-    cache : &LocalCache
+    cache : &mut SysCache<SystemType>
 )
 -> Result<(), WorkError>
 {
@@ -737,7 +737,6 @@ pub fn clean_targets<SystemType: System>
                 {
                     {
                         match cache.back_up_file_with_ticket(
-                            system,
                             &current_target_ticket,
                             &target_info.path)
                         {
@@ -751,7 +750,6 @@ pub fn clean_targets<SystemType: System>
                 Ok(None)=>
                 {
                     match cache.back_up_file(
-                        system,
                         &target_info.path)
                     {
                         Ok(_) => {},
@@ -791,7 +789,7 @@ mod test
     };
     use crate::memory::{RuleHistory, TargetHistory};
     use crate::packet::Packet;
-    use crate::cache::LocalCache;
+    use crate::cache::SysCache;
     use crate::system::util::
     {
         write_str_to_file,
@@ -1143,7 +1141,7 @@ mod test
             system.clone(),
             Vec::new(),
             Vec::new(),
-            LocalCache::new(".ruler-cache"))
+            SysCache::new(system.clone(), ".ruler-cache"))
         {
             Ok(result) =>
             {
@@ -1203,7 +1201,7 @@ mod test
             system.clone(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
-            LocalCache::new(".ruler-cache"))
+            SysCache::new(system.clone(), ".ruler-cache"))
         {
             Ok(result) =>
             {
@@ -1277,7 +1275,7 @@ mod test
             system.clone(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
-            LocalCache::new(".ruler-cache"))
+            SysCache::new(system.clone(), ".ruler-cache"))
         {
             Ok(_) => panic!("Unexpected command success"),
             Err(WorkError::CommandExecutedButErrored) =>
@@ -1338,7 +1336,7 @@ mod test
             system.clone(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
-            LocalCache::new(".ruler-cache"))
+            SysCache::new(system.clone(), ".ruler-cache"))
         {
             Ok(_) => panic!("Unexpected command success"),
             Err(WorkError::TargetFileNotGenerated(path)) =>
@@ -1394,7 +1392,7 @@ mod test
             system.clone(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
-            LocalCache::new(".ruler-cache"))
+            SysCache::new(system.clone(), ".ruler-cache"))
         {
             Ok(result) =>
             {
@@ -1500,7 +1498,7 @@ mod test
             system.clone(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
-            LocalCache::new(".ruler-cache"))
+            SysCache::new(system.clone(), ".ruler-cache"))
         {
             Ok(result) =>
             {
@@ -1619,7 +1617,7 @@ mod test
             system.clone(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
-            LocalCache::new(".ruler-cache"))
+            SysCache::new(system.clone(), ".ruler-cache"))
         {
             Ok(_result) =>
             {
@@ -1701,7 +1699,7 @@ mod test
             system.clone(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
-            LocalCache::new(".ruler-cache"))
+            SysCache::new(system.clone(), ".ruler-cache"))
         {
             Ok(result) =>
             {
@@ -1764,7 +1762,7 @@ mod test
             system.clone(),
             vec![],
             vec![],
-            LocalCache::new(".ruler-cache"))
+            SysCache::new(system.clone(), ".ruler-cache"))
         {
             Ok(_) =>
             {
@@ -1800,7 +1798,7 @@ mod test
             system.clone(),
             vec![],
             vec![],
-            LocalCache::new(".rule-cache"))
+            SysCache::new(system.clone(), ".rule-cache"))
         {
             Ok(_) =>
             {
@@ -1835,10 +1833,10 @@ mod test
                     target_infos,
                     command,
                     rule_history_opt,
-                    system,
+                    system.clone(),
                     senders,
                     receivers,
-                    LocalCache::new(".ruler-cache"))
+                    SysCache::new(system.clone(), ".ruler-cache"))
             }
         )
     }

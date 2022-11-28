@@ -1,7 +1,7 @@
 use std::fmt;
 
 use crate::memory::{Memory, MemoryError};
-use crate::cache::LocalCache;
+use crate::cache::SysCache;
 
 use crate::system::
 {
@@ -40,7 +40,7 @@ pub fn init<SystemType : System + Clone + Send + 'static>
     directory : &str
 )
 ->
-Result<(Memory, LocalCache, String), InitDirectoryError>
+Result<(Memory, SysCache<SystemType>, String), InitDirectoryError>
 {
     if ! system.is_dir(directory)
     {
@@ -70,7 +70,7 @@ Result<(Memory, LocalCache, String), InitDirectoryError>
             Ok(memory) => memory,
             Err(error) => return Err(InitDirectoryError::FailedToReadMemoryFile(error)),
         },
-        LocalCache::new(&cache_path),
+        SysCache::new(system.clone(), &cache_path),
         memoryfile
     ))
 }
