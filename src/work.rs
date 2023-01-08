@@ -726,7 +726,7 @@ mod test
                     None => panic!("No ticket found where expected"),
                 }
             }
-            Err(err) => panic!(format!("Could not get ticket: {}", err)),
+            Err(err) => panic!("Could not get ticket: {}", err),
         }
     }
 
@@ -1121,10 +1121,10 @@ mod test
                         match resolutions[0]
                         {
                             FileResolution::AlreadyCorrect => {},
-                            _ => panic!("Expected poem to already be correct, was some other work option {}"),
+                            _ => panic!("Expected poem to already be correct, was some other work option"),
                         }
                     },
-                    _ => panic!("Expected poem to already be resolved, was some other work option {}"),
+                    _ => panic!("Expected poem to already be resolved, was some other work option"),
                 }
 
                 match receiver_c.recv()
