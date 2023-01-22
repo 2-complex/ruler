@@ -59,7 +59,6 @@ impl TicketFactory
         self.dig.input(input.as_bytes());
     }
 
-
     /*  Create a ticket from the bytes incorporated so far. */
     pub fn result(&mut self) -> Ticket
     {

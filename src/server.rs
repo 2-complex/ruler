@@ -28,6 +28,7 @@ use actix_web::
 //    Responder,
     rt,
     http::StatusCode,
+    httpcodes,
 };
 
 use crate::system::
@@ -72,41 +73,55 @@ pub fn serve
         Err(error) => panic!("Failed to init directory error: {}", error)
     };
 
+    HttpServer::new(
+    || Application::new()
+         .resource("/", |r| r.h(httpcodes::HTTPOk)))
+    .bind("127.0.0.1:0").expect("Can not bind to 127.0.0.1:0")
+    .run();
+
+/*
     let mut runtime = rt::Runtime::new().unwrap();
-    runtime.block_on(async {
-        HttpServer::new(|| {
-            App::new()
-                .route(
-                    "/files/{hash}",
-                    web::get().to(
-                        |h: web::Path<String>| async move
-                        {
-                            let status_ok = StatusCode::from_u16(200).unwrap();
-
-                            match Ticket::from_base64(&h)
+    runtime.block_on(
+        async
+        {
+            HttpServer::new(
+            ||
+            {
+                App::new()
+                    .route(
+                        "/files/{hash}",
+                        web::get().to(
+                            |h: web::Path<String>| async
                             {
-                                Ok(ticket) =>
-                                {
-                                    match cache.open(&mut system, &ticket)
-                                    {
-                                        Ok(file) =>
-                                        {
-                                            HttpResponse::new(status_ok).set_body("stuff".to_string())
-                                        },
-                                        Err(err) => 
-                                        {
-                                            HttpResponse::new(status_ok).set_body("ERROR".to_string())
-                                        }
-                                    }
-                                },
+                                let mut cache = cache.clone();
+                                let h = h.clone();
+                                let status_ok = StatusCode::from_u16(200).unwrap();
 
-                                Err(_) =>
+                                match Ticket::from_base64(&h)
                                 {
-                                    HttpResponse::new(status_ok).set_body("ERROR".to_string())
-                                },
+                                    Ok(ticket) =>
+                                    {
+                                        match cache.open(&ticket)
+                                        {
+                                            Ok(file) =>
+                                            {
+                                                HttpResponse::new(status_ok).set_body("stuff".to_string())
+                                            },
+                                            Err(err) => 
+                                            {
+                                                HttpResponse::new(status_ok).set_body("ERROR".to_string())
+                                            }
+                                        }
+                                    },
+
+                                    Err(_) =>
+                                    {
+                                        HttpResponse::new(status_ok).set_body("ERROR".to_string())
+                                    },
+                                }
                             }
-                        }
-                    ))})
+                        ))
+            })
 
 /*
                     web::get().to(
@@ -145,6 +160,7 @@ pub fn serve
         .run()
         .await
     });
+*/
 
     Err(ServerError::Weird) 
 }

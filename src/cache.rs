@@ -72,12 +72,12 @@ impl<SystemType : System> SysCache<SystemType>
         }
     }
 
-    pub fn open<SystemType : System>(
-        &self,
-        system : &mut SystemType,
+    pub fn open(
+        &mut self,
         ticket : &Ticket
     ) -> Result<SystemType::File, OpenError>
     {
+        let system = &mut (*self.system_box);
         if system.is_dir(&self.path)
         {
             let cache_path = format!("{}/{}", self.path, ticket.base64());
