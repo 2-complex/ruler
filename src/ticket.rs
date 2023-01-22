@@ -5,6 +5,11 @@ use crypto::sha2::Sha256;
 use base64::
 {
     encode_config,
+};
+
+#[cfg(test)]
+use base64::
+{
     decode_config,
     DecodeError,
 };
@@ -113,6 +118,7 @@ pub struct Ticket
     sha: Vec<u8>,
 }
 
+#[cfg(test)]
 pub enum From64Error
 {
     DecodeInvalidByte(usize, u8),
@@ -121,6 +127,7 @@ pub enum From64Error
     ShaInvalidLength
 }
 
+#[cfg(test)]
 impl fmt::Display for From64Error
 {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
@@ -150,6 +157,7 @@ impl Ticket
         format!("{}", encode_config(&self.sha, base64::URL_SAFE))
     }
 
+    #[cfg(test)]
     pub fn from_base64(base64_str: &str) ->
         Result<Ticket, From64Error>
     {
