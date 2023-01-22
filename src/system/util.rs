@@ -5,11 +5,9 @@ use crate::system::
     System,
     ReadWriteError,
 };
-use std::io::
-{
-    Read,
-    Write
-};
+#[cfg(test)]
+use std::io::Read;
+use std::io::Write;
 #[cfg(test)]
 use std::time::Duration;
 use std::time::
@@ -96,14 +94,56 @@ pub fn read_file
     }
 }
 
+pub enum FileToStringError
+{
+    IOError(io::Error),
+    NotUTF8,
+}
+
+impl fmt::Display for FileToStringError
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
+    {
+        match self
+        {
+            FileToStringError::IOError(error) =>
+                write!(formatter, "I/O Error reading file to string: {}", error),
+
+            FileToStringError::NotUTF8 =>
+                write!(formatter, "Cannot interpret as UTF8"),
+        }
+    }
+}
+
+pub fn file_to_string
+<
+    FileType : io::Read
+>
+(file : &mut FileType)
+-> Result<String, FileToStringError>
+{
+    let mut content = Vec::new();
+    match file.read_to_end(&mut content)
+    {
+        Ok(_size) =>
+        {
+            match from_utf8(&content)
+            {
+                Ok(rule_text) => Ok(rule_text.to_owned()),
+                Err(_) => return Err(FileToStringError::NotUTF8),
+            }
+        },
+        Err(error) => Err(FileToStringError::IOError(error)),
+    }
+}
+
 pub enum ReadFileToStringError
 {
     IOError(String, io::Error),
     SystemError(String, SystemError),
-    NotUTF8(String)
+    NotUTF8(String),
 }
 
-/*  Display a ReadFileToStringError by printing a reasonable error message. */
 impl fmt::Display for ReadFileToStringError
 {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
@@ -139,18 +179,11 @@ pub fn read_file_to_string
     {
         Ok(mut file) =>
         {
-            let mut content = Vec::new();
-            match file.read_to_end(&mut content)
+            match file_to_string(&mut file)
             {
-                Ok(_size) =>
-                {
-                    match from_utf8(&content)
-                    {
-                        Ok(rule_text) => Ok(rule_text.to_owned()),
-                        Err(_) => return Err(ReadFileToStringError::NotUTF8(path.to_string())),
-                    }
-                },
-                Err(error) => Err(ReadFileToStringError::IOError(path.to_string(), error)),
+                Ok(result) => Ok(result),
+                Err(FileToStringError::IOError(ioerror)) => Err(ReadFileToStringError::IOError(path.to_string(), ioerror)),
+                Err(FileToStringError::NotUTF8) => Err(ReadFileToStringError::NotUTF8(path.to_string())),
             }
         },
         Err(error) => Err(ReadFileToStringError::SystemError(path.to_string(), error)),

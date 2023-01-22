@@ -17,6 +17,14 @@ pub enum RestoreResult
     SystemError(SystemError)
 }
 
+#[cfg(test)]
+pub enum OpenError
+{
+    NotThere,
+    CacheDirectoryMissing,
+    SystemError(SystemError)
+}
+
 #[derive(Clone)]
 pub struct SysCache<SystemType : System>
 {
@@ -65,6 +73,35 @@ impl<SystemType : System> SysCache<SystemType>
         }
     }
 
+    #[cfg(test)]
+    pub fn open(
+        &mut self,
+        ticket : &Ticket
+    ) -> Result<SystemType::File, OpenError>
+    {
+        let system = &mut (*self.system_box);
+        if system.is_dir(&self.path)
+        {
+            let cache_path = format!("{}/{}", self.path, ticket.base64());
+            if system.is_file(&cache_path)
+            {
+                match system.open(&cache_path)
+                {
+                    Ok(file) => Ok(file),
+                    Err(system_error) => Err(OpenError::SystemError(system_error)),
+                }
+            }
+            else
+            {
+                Err(OpenError::NotThere)
+            }
+        }
+        else
+        {
+            Err(OpenError::CacheDirectoryMissing)
+        }
+    }
+
     /*  Creates a file with the given ticket (convertd to base64) as a name, and
         moves the file into that place. */
     pub fn back_up_file_with_ticket
@@ -108,21 +145,23 @@ impl<SystemType : System> SysCache<SystemType>
 #[cfg(test)]
 mod test
 {
+    use crate::cache::
+    {
+        SysCache,
+        RestoreResult,
+        OpenError,
+    };
     use crate::system::
     {
         System,
         fake::FakeSystem
     };
     use crate::ticket::TicketFactory;
-    use crate::cache::
-    {
-        SysCache,
-        RestoreResult
-    };
     use crate::system::util::
     {
         write_str_to_file,
-        read_file_to_string
+        read_file_to_string,
+        file_to_string,
     };
 
     fn make_fake_system_and_cache() -> (FakeSystem, SysCache<FakeSystem>)
@@ -273,6 +312,69 @@ mod test
         {
             Ok(content) => assert_eq!(content, "apples\n"),
             Err(_) => panic!("Restored file was not there"),
+        }
+    }
+
+    #[test]
+    fn back_up_and_reopen()
+    {
+        let (mut system, mut cache) = make_fake_system_and_cache();
+
+        match write_str_to_file(&mut system, "apples.txt", "apples\n")
+        {
+            Ok(()) => {},
+            Err(error) => panic!("Failed to initialize file situation: {}", error),
+        }
+
+        assert!(system.is_file("apples.txt"));
+
+        match cache.back_up_file("apples.txt")
+        {
+            Ok(()) => {},
+            Err(error) => panic!("Backup failed unexpectedly: {}", error),
+        }
+
+        assert!(!system.is_file("apples.txt"));
+
+        let mut file =
+        match cache.open(&TicketFactory::from_str("apples\n").result())
+        {
+            Ok(file) => file,
+            Err(OpenError::NotThere) => panic!("Back up not there when expected"),
+            Err(OpenError::CacheDirectoryMissing) => panic!("Cache directory missing, but we just made it"),
+            Err(OpenError::SystemError(error)) => panic!("File error in the middle of legit reopen: {}", error),
+        };
+
+        match file_to_string(&mut file)
+        {
+            Ok(content) => assert_eq!(content, "apples\n"),
+            Err(error) => panic!("Reopened file failed to read into string: {}", error),
+        }
+    }
+
+    #[test]
+    fn open_nonexistent_file()
+    {
+        let (mut _system, mut cache) = make_fake_system_and_cache();
+        match cache.open(&TicketFactory::from_str("apples\n").result())
+        {
+            Ok(_file) => panic!("File present when no file was expected"),
+            Err(OpenError::NotThere) => {},
+            Err(OpenError::CacheDirectoryMissing) => panic!("Cache directory missing, but we just made it"),
+            Err(OpenError::SystemError(error)) => panic!("File error in the middle of legit reopen: {}", error),
+        }
+    }
+
+    #[test]
+    fn open_file_with_directory_not_there()
+    {
+        let mut cache = SysCache::new(FakeSystem::new(11), "files");
+        match cache.open(&TicketFactory::from_str("apples\n").result())
+        {
+            Ok(_file) => panic!("File present when no file was expected"),
+            Err(OpenError::NotThere) => panic!("Cache operating as if the directory is there, but directory was never created"),
+            Err(OpenError::CacheDirectoryMissing) => {},
+            Err(OpenError::SystemError(error)) => panic!("File error in the middle of legit reopen: {}", error),
         }
     }
 }
