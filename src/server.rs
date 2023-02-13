@@ -12,24 +12,16 @@ use std::io::
 // use crate::cache::LocalCache;
 use crate::printer::Printer;
 use crate::directory;
+/*
 use crate::ticket::
 {
     Ticket,
     // From64Error,
 };
+*/
 // use termcolor::Color;
 
-use actix_web::
-{
-    web,
-    App,
-    HttpServer,
-    HttpResponse,
-//    Responder,
-    rt,
-    http::StatusCode,
-    httpcodes,
-};
+use warp::Filter;
 
 use crate::system::
 {
@@ -53,8 +45,8 @@ impl fmt::Display for ServerError
     }
 }
 
-/*  Creates an HTTP server */
-pub fn serve
+#[tokio::main]
+pub async fn serve
 <
     SystemType : System + Clone + Send + 'static,
     PrinterType : Printer,
@@ -73,94 +65,13 @@ pub fn serve
         Err(error) => panic!("Failed to init directory error: {}", error)
     };
 
-    HttpServer::new(
-    || Application::new()
-         .resource("/", |r| r.h(httpcodes::HTTPOk)))
-    .bind("127.0.0.1:0").expect("Can not bind to 127.0.0.1:0")
-    .run();
+    // GET /hello/warp => 200 OK with body "Hello, warp!"
+    let hello = warp::path!("hello" / String)
+        .map(|name| format!("Hello, {}!", name));
 
-/*
-    let mut runtime = rt::Runtime::new().unwrap();
-    runtime.block_on(
-        async
-        {
-            HttpServer::new(
-            ||
-            {
-                App::new()
-                    .route(
-                        "/files/{hash}",
-                        web::get().to(
-                            |h: web::Path<String>| async
-                            {
-                                let mut cache = cache.clone();
-                                let h = h.clone();
-                                let status_ok = StatusCode::from_u16(200).unwrap();
-
-                                match Ticket::from_base64(&h)
-                                {
-                                    Ok(ticket) =>
-                                    {
-                                        match cache.open(&ticket)
-                                        {
-                                            Ok(file) =>
-                                            {
-                                                HttpResponse::new(status_ok).set_body("stuff".to_string())
-                                            },
-                                            Err(err) => 
-                                            {
-                                                HttpResponse::new(status_ok).set_body("ERROR".to_string())
-                                            }
-                                        }
-                                    },
-
-                                    Err(_) =>
-                                    {
-                                        HttpResponse::new(status_ok).set_body("ERROR".to_string())
-                                    },
-                                }
-                            }
-                        ))
-            })
-
-/*
-                    web::get().to(
-                        |hash: web::Path<String>| async move
-                        {
-                            let status_ok = StatusCode::from_u16(200).unwrap();
-                            HttpResponse::new(status_ok).set_body("something that should be the file");
-
-                            let status_ok = StatusCode::from_u16(200).unwrap();
-                            let status_not_found = StatusCode::from_u16(404).unwrap();
-                            match Ticket::from_base64(&hash)
-                            {
-                                Ok(ticket) =>
-                                {
-                                    match cache.open(&mut system, &ticket)
-                                    {
-                                        Ok(file) =>
-                                            HttpResponse::new(status_ok).set_body("something that should be the file"),
-                                        Err(error) =>
-                                            HttpResponse::new(status_not_found).set_body(""),
-                                    }
-                                },
-
-                                Err(error) =>
-                                {
-                                    println!("{}", error);
-                                    HttpResponse::new(status_not_found).set_body("")
-                                },
-                            }
-                        }
-                    )
-                )
-        })
-                            */
-        .bind(("127.0.0.1", 8080))?
-        .run()
-        .await
-    });
-*/
+    warp::serve(hello)
+        .run(([127, 0, 0, 1], 3030))
+        .await;
 
     Err(ServerError::Weird) 
 }

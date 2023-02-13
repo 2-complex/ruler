@@ -30,6 +30,10 @@ use crate::system::util::
 };
 use crate::system::real::RealSystem;
 use crate::printer::StandardPrinter;
+use futures::executor::
+{
+    block_on,
+};
 
 mod cache;
 mod directory;
