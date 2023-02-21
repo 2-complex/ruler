@@ -7,7 +7,7 @@ use crate::system::
 
 use crate::cache::
 {
-    LocalCache,
+    SysCache,
     RestoreResult,
 };
 
@@ -340,7 +340,7 @@ impl fmt::Display for ResolutionError
 pub fn resolve_single_target<SystemType : System>
 (
     system : &mut SystemType,
-    cache : &LocalCache,
+    cache : &mut SysCache<SystemType>,
     remembered_ticket : &Ticket,
     target_info : &TargetFileInfo
 )
@@ -357,7 +357,6 @@ Result<FileResolution, ResolutionError>
             }
 
             match cache.back_up_file_with_ticket(
-                system,
                 &current_target_ticket,
                 &target_info.path)
             {
@@ -370,7 +369,6 @@ Result<FileResolution, ResolutionError>
             }
 
             match cache.restore_file(
-                system,
                 &remembered_ticket,
                 &target_info.path)
             {
@@ -393,7 +391,6 @@ Result<FileResolution, ResolutionError>
         Ok(None) =>
         {
             match cache.restore_file(
-                system,
                 &remembered_ticket,
                 &target_info.path)
             {
@@ -419,7 +416,7 @@ Result<FileResolution, ResolutionError>
 pub fn resolve_remembered_target_tickets<SystemType : System>
 (
     system : &mut SystemType,
-    cache : &LocalCache,
+    cache : &mut SysCache<SystemType>,
     target_infos : &Vec<TargetFileInfo>,
     remembered_tickets : &TargetTickets,
 )
@@ -446,7 +443,7 @@ Result<Vec<FileResolution>, ResolutionError>
 pub fn resolve_with_no_memory<SystemType : System>
 (
     system : &mut SystemType,
-    cache : &LocalCache,
+    cache : &mut SysCache<SystemType>,
     target_infos : &Vec<TargetFileInfo>,
 )
 ->
@@ -460,7 +457,6 @@ Result<Vec<FileResolution>, ResolutionError>
             Ok(Some(current_target_ticket)) =>
             {
                 match cache.back_up_file_with_ticket(
-                    system,
                     &current_target_ticket,
                     &target_info.path)
                 {

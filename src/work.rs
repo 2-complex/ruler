@@ -16,10 +16,6 @@ use crate::memory::
     RuleHistory,
     RuleHistoryInsertError,
 };
-use crate::cache::
-{
-    LocalCache,
-};
 
 use crate::blob::
 {
@@ -36,8 +32,7 @@ use crate::blob::
 };
 use crate::cache::
 {
-    SysCache,
-    RestoreResult
+    SysCache
 };
 
 use std::sync::mpsc::{Sender, Receiver, RecvError};
@@ -364,7 +359,7 @@ Result<WorkResult, WorkError>
 fn resolve_with_cache<SystemType : System>
 (
     system : &mut SystemType,
-    cache : &LocalCache,
+    cache : &mut SysCache<SystemType>,
     rule_history : &RuleHistory,
     sources_ticket : &Ticket,
     target_infos : &Vec<TargetFileInfo>,
