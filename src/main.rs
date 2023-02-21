@@ -34,6 +34,7 @@ use crate::printer::StandardPrinter;
 mod blob;
 mod build;
 mod cache;
+mod directory;
 mod memory;
 mod packet;
 mod printer;

@@ -2,14 +2,24 @@ extern crate bincode;
 extern crate serde;
 
 use crypto::sha2::Sha256;
-use base64::encode_config;
+use base64::
+{
+    encode_config,
+};
+
+#[cfg(test)]
+use base64::
+{
+    decode_config,
+    DecodeError,
+};
 use crypto::digest::Digest;
 use std::hash::{Hash, Hasher};
 use serde::{Serialize, Deserialize};
 use crate::system::
 {
     System,
-    ReadWriteError
+    ReadWriteError,
 };
 use std::fmt;
 use std::io::Read;
@@ -108,12 +118,66 @@ pub struct Ticket
     sha: Vec<u8>,
 }
 
+#[cfg(test)]
+pub enum From64Error
+{
+    DecodeInvalidByte(usize, u8),
+    DecodeInvalidLastSymbol(usize, u8),
+    DecodeInvalidLength,
+    ShaInvalidLength
+}
+
+#[cfg(test)]
+impl fmt::Display for From64Error
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
+    {
+        match self
+        {
+            From64Error::DecodeInvalidByte(location, byte) =>
+                write!(formatter, "Invalid byte: {} at location {}", byte, location),
+
+            From64Error::DecodeInvalidLastSymbol(location, byte) =>
+                write!(formatter, "Invalid last symbol: {} at location {}", byte, location),
+
+            From64Error::DecodeInvalidLength =>
+                write!(formatter, "Failed to decode base-64: invalid length"),
+
+            From64Error::ShaInvalidLength =>
+                write!(formatter, "Successful base64 conversion to data of wrong size"),
+        }
+    }
+}
+
 impl Ticket
 {
     /*  Returns a string URL-safe base64-encoded hash */
     pub fn base64(&self) -> String
     {
         format!("{}", encode_config(&self.sha, base64::URL_SAFE))
+    }
+
+    #[cfg(test)]
+    pub fn from_base64(base64_str: &str) ->
+        Result<Ticket, From64Error>
+    {
+        match decode_config(base64_str, base64::URL_SAFE)
+        {
+            Ok(sha) => 
+            {
+                if sha.len() == 32
+                {
+                    Ok(Ticket{sha:sha})
+                }
+                else
+                {
+                    Err(From64Error::ShaInvalidLength)
+                }
+            },
+            Err(DecodeError::InvalidByte(location, byte)) => Err(From64Error::DecodeInvalidByte(location, byte)),
+            Err(DecodeError::InvalidLastSymbol(location, byte)) => Err(From64Error::DecodeInvalidLastSymbol(location, byte)),
+            Err(DecodeError::InvalidLength) => Err(From64Error::DecodeInvalidLength),
+        }
     }
 
     /*  Use this function to create a ticket based on the targets, sources and command
@@ -173,7 +237,12 @@ impl Hash for Ticket
 #[cfg(test)]
 mod test
 {
-    use crate::ticket::{Ticket, TicketFactory};
+    use crate::ticket::
+    {
+        Ticket,
+        TicketFactory,
+        From64Error
+    };
     use crate::system::util::
     {
         write_str_to_file
@@ -305,5 +374,108 @@ mod test
         let decoded: Ticket = bincode::deserialize(&encoded[..]).unwrap();
         assert_eq!(ticket, decoded);
         assert_eq!(ticket.base64(), decoded.base64());
+    }
+
+    /*  Decode a valid ticket as base64, and do a round-trip check.*/
+    #[test]
+    fn ticket_from_base64()
+    {
+        match Ticket::from_base64("1-TbmtqWEoNv0OQQLb3OkYE2-f1LUOIH0SU71FP7Qo0=")
+        {
+            Ok(ticket) => 
+            {
+                assert_eq!(ticket.base64(), "1-TbmtqWEoNv0OQQLb3OkYE2-f1LUOIH0SU71FP7Qo0=");
+            },
+            Err(error) =>
+            {
+                panic!("Unexpected error getting ticket from base64: {}", error)
+            }
+        }
+    }
+
+    /*  Attempt to decode the empty string as base-64,
+        check that it fails with ShaInvalidLength. */
+    #[test]
+    fn ticket_from_base64_empty()
+    {
+        match Ticket::from_base64("")
+        {
+            Ok(_ticket) =>
+            {
+                panic!("Unexpected success getting ticket from empty string as base64")
+            },
+            Err(From64Error::ShaInvalidLength) =>
+            {
+            },
+            Err(error) =>
+            {
+                panic!("Unexpected error getting ticket from empty string as base64: {}", error)
+            }
+        }
+    }
+
+    /*  Attempt to decode a string as base-64 that is too short to represent a ticket,
+        check that it fails with ShaInvalidLength. */
+    #[test]
+    fn ticket_from_base64_short()
+    {
+        match Ticket::from_base64("abcdefg=")
+        {
+            Ok(_ticket) =>
+            {
+                panic!("Unexpected success getting ticket from short string as base64")
+            },
+            Err(From64Error::ShaInvalidLength) =>
+            {
+            },
+            Err(error) =>
+            {
+                panic!("Unexpected error getting ticket from short string as base64: {}", error)
+            }
+        }
+    }
+
+    /*  Attempt to decode a string as base-64 that has an ampersand in it,
+        check that it fails with DecodeInvalidByte. */
+    #[test]
+    fn ticket_from_base64_invalid_byte()
+    {
+        match Ticket::from_base64("abcde&ghijk=")
+        {
+            Ok(_ticket) =>
+            {
+                panic!("Unexpected success getting ticket from string with invalid character as base64")
+            },
+            Err(From64Error::DecodeInvalidByte(location, byte)) =>
+            {
+                assert_eq!(location, 5);
+                assert_eq!(byte, 38);
+            },
+            Err(error) =>
+            {
+                panic!("Unexpected error getting ticket from string with invalid character as base64: {}", error)
+            }
+        }
+    }
+
+    /*  Attempt to decode a string as base-64 that has an ampersand in it,
+        check that it fails with DecodeInvalidByte. */
+    #[test]
+    fn ticket_from_base64_invalid_length()
+    {
+        match Ticket::from_base64("0abcdef==")
+        {
+            Ok(_ticket) =>
+            {
+                panic!("Unexpected success getting ticket from string as base64")
+            },
+            Err(From64Error::DecodeInvalidLength) =>
+            {
+            },
+            Err(error) =>
+            {
+                panic!("Unexpected error getting ticket from empty string as base64: {}", error)
+            }
+        }
     }
 }
