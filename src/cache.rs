@@ -1,4 +1,5 @@
 use std::boxed::Box;
+use std::fmt;
 
 use crate::ticket::Ticket;
 use crate::ticket::TicketFactory;
@@ -17,12 +18,29 @@ pub enum RestoreResult
     SystemError(SystemError)
 }
 
-#[cfg(test)]
 pub enum OpenError
 {
     NotThere,
     CacheDirectoryMissing,
     SystemError(SystemError)
+}
+
+impl fmt::Display for OpenError
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
+    {
+        match self
+        {
+            OpenError::NotThere =>
+                write!(formatter, "File not found"),
+
+            OpenError::CacheDirectoryMissing =>
+                write!(formatter, "Cache directory missing"),
+
+            OpenError::SystemError(error) =>
+                write!(formatter, "Underlying System Error: {}", error),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -73,13 +91,12 @@ impl<SystemType : System> SysCache<SystemType>
         }
     }
 
-    #[cfg(test)]
     pub fn open(
-        &mut self,
+        &self,
         ticket : &Ticket
     ) -> Result<SystemType::File, OpenError>
     {
-        let system = &mut (*self.system_box);
+        let system = &(*self.system_box);
         if system.is_dir(&self.path)
         {
             let cache_path = format!("{}/{}", self.path, ticket.base64());
