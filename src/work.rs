@@ -2,7 +2,7 @@ use crate::packet::Packet;
 use crate::ticket::
 {
     Ticket,
-    TicketFactory
+    TicketFactory,
 };
 use crate::system::
 {
@@ -11,142 +11,32 @@ use crate::system::
     System,
     SystemError,
 };
-use crate::system::util::get_timestamp;
 use crate::memory::
 {
     RuleHistory,
+    RuleHistoryInsertError,
+};
+
+use crate::blob::
+{
     TargetHistory,
-    RuleHistoryInsertError
+    TargetTickets,
+    FileResolution,
+    TargetFileInfo,
+    ResolutionError,
+    GetFileTicketAndTimestampError,
+    get_file_ticket,
+    get_file_ticket_and_timestamp,
+    resolve_remembered_target_tickets,
+    resolve_with_no_memory,
 };
 use crate::cache::
 {
-    SysCache,
-    RestoreResult
+    SysCache
 };
 
 use std::sync::mpsc::{Sender, Receiver, RecvError};
 use std::fmt;
-use std::time::
-{
-    SystemTimeError
-};
-
-pub struct TargetFileInfo
-{
-    pub path : String,
-    pub history : TargetHistory,
-}
-
-/*  Takes a System and a filepath as a string.
-
-    If the file exists, returns a ticket.
-    If the file does not exist, returns Ok, but with no Ticket inside
-    If the file exists but does not open or some other error occurs when generating
-    the ticket, returns an error. */
-pub fn get_file_ticket_from_path<SystemType: System>
-(
-    system : &SystemType,
-    path : &str
-)
--> Result<Option<Ticket>, ReadWriteError>
-{
-    if system.is_file(&path) || system.is_dir(&path)
-    {
-        match TicketFactory::from_file(system, &path)
-        {
-            Ok(mut factory) => Ok(Some(factory.result())),
-            Err(error) => Err(error),
-        }
-    }
-    else
-    {
-        Ok(None)
-    }
-}
-
-/*  Takes a system and a TargetFileInfo, and obtains a ticket for the file described.
-    If the modified date of the file matches the one in TargetHistory exactly. */
-pub fn get_file_ticket<SystemType: System>
-(
-    system : &SystemType,
-    target_info : &TargetFileInfo
-)
--> Result<Option<Ticket>, ReadWriteError>
-{
-    /*  The body of this match looks like it has unhandled errors.  What's happening is:
-        if any error occurs with the timestamp optimization, we skip the optimization. */
-    match system.get_modified(&target_info.path)
-    {
-        Ok(system_time) =>
-        {
-            match get_timestamp(system_time)
-            {
-                Ok(timestamp) =>
-                {
-                    if timestamp == target_info.history.timestamp
-                    {
-                        return Ok(Some(target_info.history.ticket.clone()))
-                    }
-                },
-                Err(_) => {},
-            }
-        },
-        Err(_) => {},
-    }
-
-    get_file_ticket_from_path(system, &target_info.path)
-}
-
-/*  Takes a system and a TargetFileInfo, and obtains a ticket for the file described,
-    and also a timestamp.
-
-    If the modified date of the file matches the one in TargetHistory exactly, it
-    doesn't bother recomputing the ticket. */
-pub fn get_file_ticket_and_timestamp<SystemType: System>
-(
-    system : &SystemType,
-    target_info : &TargetFileInfo
-)
--> Result<(Ticket, u64), WorkError>
-{
-    match system.get_modified(&target_info.path)
-    {
-        Ok(system_time) =>
-        {
-            match get_timestamp(system_time)
-            {
-                Ok(timestamp) =>
-                {
-                    if timestamp == target_info.history.timestamp
-                    {
-                        Ok((target_info.history.ticket.clone(), timestamp))
-                    }
-                    else
-                    {
-                        match TicketFactory::from_file(system, &target_info.path)
-                        {
-                            Ok(mut factory) => Ok((factory.result(), timestamp)),
-                            Err(error) => Err(WorkError::ReadWriteError(target_info.path.clone(), error)),
-                        }
-                    }
-                },
-                Err(error) => Err(WorkError::SystemTimeError(target_info.path.clone(), error)),
-            }
-        },
-
-        // Note: possibly there are other ways get_modified can fail than the file being absent.
-        // Maybe this logic should change.
-        Err(_error) => Err(WorkError::TargetFileNotGenerated(target_info.path.clone())),
-    }
-}
-
-pub enum FileResolution
-{
-    AlreadyCorrect,
-    Recovered,
-    #[allow(dead_code)] Downloaded,
-    NeedsRebuild,
-}
 
 pub enum WorkOption
 {
@@ -172,12 +62,11 @@ pub enum WorkError
     TargetFileNotGenerated(String),
     FileNotAvailableToCache(String, ReadWriteError),
     ReadWriteError(String, ReadWriteError),
-    SystemTimeError(String, SystemTimeError),
+    ResolutionError(ResolutionError),
+    GetFileTicketAndTimestampError(GetFileTicketAndTimestampError),
     CommandExecutedButErrored,
     CommandFailedToExecute(SystemError),
     Contradiction(Vec<String>),
-    CacheDirectoryMissing,
-    CacheMalfunction(SystemError),
     CommandWithNoRuleHistory,
     Weird,
 }
@@ -212,8 +101,11 @@ impl fmt::Display for WorkError
             WorkError::ReadWriteError(path, error) =>
                 write!(formatter, "Error reading file: {}: {}", path, error),
 
-            WorkError::SystemTimeError(path, error) =>
-                write!(formatter, "Error when getting modified timestamp: {}: {}", path, error),
+            WorkError::ResolutionError(error) =>
+                write!(formatter, "Error resolving rule: {}", error),
+
+            WorkError::GetFileTicketAndTimestampError(error) =>
+                write!(formatter, "Error getting ticket and timestamp: {}", error),
 
             WorkError::CommandExecutedButErrored =>
                 write!(formatter, "Command executed but errored"),
@@ -233,12 +125,6 @@ impl fmt::Display for WorkError
                 write!(formatter, "{}", message)
             },
 
-            WorkError::CacheDirectoryMissing =>
-                write!(formatter, "Cache directory missing"),
-
-            WorkError::CacheMalfunction(error) =>
-                write!(formatter, "Cache file i/o failed: {}", error),
-
             WorkError::CommandWithNoRuleHistory =>
                 write!(formatter, "Command provided but no rule history, that should be impossible"),
 
@@ -247,172 +133,6 @@ impl fmt::Display for WorkError
         }
     }
 }
-
-/*  Given a target-info and a remembered ticket for that target file, check the current
-    ticket, and if it matches, return AlreadyCorrect.  If it doesn't match, back up the current
-    file, and then attempt to restore the remembered file from cache, if the cache doesn't have it
-    attempt to download.  If no recovery or download works, shrug and return NeedsRebuild */
-fn resolve_single_target<SystemType : System>
-(
-    system : &mut SystemType,
-    cache : &mut SysCache<SystemType>,
-    remembered_ticket : &Ticket,
-    target_info : &TargetFileInfo
-)
-->
-Result<FileResolution, WorkError>
-{
-    match get_file_ticket(system, target_info)
-    {
-        Ok(Some(current_target_ticket)) =>
-        {
-            if *remembered_ticket == current_target_ticket
-            {
-                return Ok(FileResolution::AlreadyCorrect);
-            }
-
-            match cache.back_up_file_with_ticket(
-                &current_target_ticket,
-                &target_info.path)
-            {
-                Ok(_) => {},
-                Err(error) =>
-                {
-                    return Err(WorkError::FileNotAvailableToCache(
-                        target_info.path.clone(), error));
-                },
-            }
-
-            match cache.restore_file(
-                &remembered_ticket,
-                &target_info.path)
-            {
-                RestoreResult::Done =>
-                    Ok(FileResolution::Recovered),
-
-                RestoreResult::NotThere =>
-                    Ok(FileResolution::NeedsRebuild),
-                    // TODO: attempt a download here
-
-                RestoreResult::CacheDirectoryMissing =>
-                    Err(WorkError::CacheDirectoryMissing),
-
-                RestoreResult::SystemError(error) =>
-                    Err(WorkError::CacheMalfunction(error)),
-            }
-        },
-
-        // None means the file is not there, in which case, we just try to restore/download, and then go home.
-        Ok(None) =>
-        {
-            match cache.restore_file(
-                &remembered_ticket,
-                &target_info.path)
-            {
-                RestoreResult::Done =>
-                    Ok(FileResolution::Recovered),
-
-                RestoreResult::NotThere =>
-                    Ok(FileResolution::NeedsRebuild),
-                    // TODO: attempt a download here
-
-                RestoreResult::CacheDirectoryMissing =>
-                    Err(WorkError::CacheDirectoryMissing),
-
-                RestoreResult::SystemError(error) =>
-                    Err(WorkError::CacheMalfunction(error)),
-            }
-        },
-        Err(error) =>
-            Err(WorkError::TicketAlignmentError(error)),
-    }
-}
-
-/*  Takes a vector of target_infos and attempts to resolve the targets using cache or download urls.
-
-    If there are remembered tickets, then this function appeals to resolve_single_target
-    to try to retrieve a backup copy either from the cache or from the internet (backing up the current copy
-    of each target as it goes)
-
-    If there are no remembered tickets, then this function goes through each target, backs up the current version
-    if it's there, and returns a vector full of NeedsRebuild
-*/
-fn resolve_with_cache<SystemType : System>
-(
-    system : &mut SystemType,
-    cache : &mut SysCache<SystemType>,
-    rule_history : &RuleHistory,
-    sources_ticket : &Ticket,
-    target_infos : &Vec<TargetFileInfo>,
-)
-->
-Result<Vec<FileResolution>, WorkError>
-{
-    let mut resolutions = Vec::new();
-
-    match rule_history.get_target_tickets(sources_ticket)
-    {
-        Some(remembered_target_tickets) =>
-        {
-            for (i, target_info) in target_infos.iter().enumerate()
-            {
-                let remembered_ticket =
-                match remembered_target_tickets.get(i)
-                {
-                    Some(ticket) => ticket,
-                    None => return Err(WorkError::Weird),
-                };
-
-                match resolve_single_target(
-                    system,
-                    cache,
-                    remembered_ticket,
-                    target_info)
-                {
-                    Ok(resolution) => resolutions.push(resolution),
-                    Err(error) => return Err(error),
-                }
-            }
-        },
-
-        None =>
-        {
-            for target_info in target_infos.iter()
-            {
-                match get_file_ticket(system, target_info)
-                {
-                    Ok(Some(current_target_ticket)) =>
-                    {
-                        match cache.back_up_file_with_ticket(
-                            &current_target_ticket,
-                            &target_info.path)
-                        {
-                            Ok(_) =>
-                            {
-                                // TODO: Maybe encode whether it was cached in the FileResoluton
-                                resolutions.push(FileResolution::NeedsRebuild);
-                            },
-                            Err(error) =>
-                            {
-                                return Err(
-                                    WorkError::FileNotAvailableToCache(
-                                        target_info.path.clone(), error));
-                            }
-                        }
-                    },
-
-                    Ok(None) => resolutions.push(FileResolution::NeedsRebuild),
-
-                    Err(error) =>
-                        return Err(WorkError::TicketAlignmentError(error)),
-                }
-            }
-        }
-    }
-
-    Ok(resolutions)
-}
-
 
 fn get_current_target_tickets<SystemType: System>
 (
@@ -570,7 +290,8 @@ Result<WorkResult, WorkError>
                         target_info.history = TargetHistory::new(ticket.clone(), timestamp);
                         post_command_target_tickets.push(ticket);
                     },
-                    Err(error) => return Err(error),
+                    Err(GetFileTicketAndTimestampError::TargetFileNotFound(path, _system_error)) => return Err(WorkError::TargetFileNotGenerated(path)),
+                    Err(error) => return Err(WorkError::GetFileTicketAndTimestampError(error)),
                 }
             }
 
@@ -587,7 +308,7 @@ Result<WorkResult, WorkError>
                 }
             }
 
-            match rule_history.insert(sources_ticket, post_command_target_tickets)
+            match rule_history.insert(sources_ticket, TargetTickets::from_vec(post_command_target_tickets))
             {
                 Ok(_) => {},
                 Err(error) =>
@@ -625,6 +346,44 @@ Result<WorkResult, WorkError>
         },
     }
 }
+
+/*  Takes a vector of target_infos and attempts to resolve the targets using cache or download-urls.
+
+    If there are remembered tickets, then this function appeals to resolve_single_target
+    to try to retrieve a backup copy either from the cache or from the internet (backing up the current copy
+    of each target as it goes)
+
+    If there are no remembered tickets, then this function goes through each target, backs up the current version
+    if it's there, and returns a vector full of NeedsRebuild
+*/
+fn resolve_with_cache<SystemType : System>
+(
+    system : &mut SystemType,
+    cache : &mut SysCache<SystemType>,
+    rule_history : &RuleHistory,
+    sources_ticket : &Ticket,
+    target_infos : &Vec<TargetFileInfo>,
+)
+->
+Result<Vec<FileResolution>, WorkError>
+{
+    match rule_history.get_target_tickets(sources_ticket)
+    {
+        Some(remembered_target_tickets) => match resolve_remembered_target_tickets(
+            system, cache, target_infos, remembered_target_tickets)
+        {
+            Ok(file_resolution) => Ok(file_resolution),
+            Err(resolution_error) => Err(WorkError::ResolutionError(resolution_error)),
+        },
+
+        None => match resolve_with_no_memory(system, cache, target_infos)
+        {
+            Ok(file_resolution) => Ok(file_resolution),
+            Err(resolution_error) => Err(WorkError::ResolutionError(resolution_error)),
+        },
+    }
+}
+
 
 /*  This is a central, public function for handling a node in the depednece graph.
     It is meant to be called by a dedicated thread, and as such, it eats all its arguments.
@@ -773,8 +532,6 @@ mod test
     use crate::work::
     {
         handle_node,
-        get_file_ticket_from_path,
-        get_file_ticket,
         FileResolution,
         WorkResult,
         WorkOption,
@@ -787,7 +544,17 @@ mod test
         TicketFactory,
         Ticket,
     };
-    use crate::memory::{RuleHistory, TargetHistory};
+    use crate::memory::
+    {
+        RuleHistory,
+    };
+    use crate::blob::
+    {
+        TargetHistory,
+        TargetTickets,
+        ResolutionError,
+        get_file_ticket
+    };
     use crate::packet::Packet;
     use crate::cache::SysCache;
     use crate::system::util::
@@ -879,167 +646,6 @@ mod test
         result
     }
 
-    /*  Use a fake system to create a file, and write a string to it.  Then use
-        get_file_ticket_from_path to obtain a ticket for that file, and compare
-        that against a ticket made directly from the string. */
-    #[test]
-    fn work_get_file_ticket_from_path()
-    {
-        let mut system = FakeSystem::new(10);
-
-        match write_str_to_file(&mut system, "quine.sh", "cat $0")
-        {
-            Ok(_) => {},
-            Err(why) => panic!("Failed to make fake file: {}", why),
-        }
-
-        match get_file_ticket_from_path(
-            &system,
-            "quine.sh")
-        {
-            Ok(ticket_opt) => match ticket_opt
-            {
-                Some(ticket) => assert_eq!(ticket, TicketFactory::from_str("cat $0").result()),
-                None => panic!("Could not get ticket"),
-            }
-            Err(err) => panic!("Could not get ticket: {}", err),
-        }
-    }
-
-    /*  Use the system to create a file, and write a string to it.  Then use get_file_ticket
-        to obtain a ticket for that file, and compare that against a ticket made directly
-        from the string. */
-    #[test]
-    fn work_get_tickets_from_filesystem()
-    {
-        let mut system = FakeSystem::new(10);
-
-        match write_str_to_file(&mut system, "quine.sh", "cat $0")
-        {
-            Ok(_) => {},
-            Err(why) => panic!("Failed to make fake file: {}", why),
-        }
-
-        match get_file_ticket(
-            &system,
-            &TargetFileInfo
-            {
-                path : "quine.sh".to_string(),
-                history : TargetHistory
-                {
-                    ticket : TicketFactory::new().result(),
-                    timestamp : 0,
-                }
-            })
-        {
-            Ok(ticket_opt) => match ticket_opt
-            {
-                Some(ticket) => assert_eq!(ticket, TicketFactory::from_str("cat $0").result()),
-                None => panic!("Could not get ticket"),
-            }
-            Err(err) => panic!("Could not get ticket: {}", err),
-        }
-    }
-
-    /*  Create a file and a TargetFileInfo for that file with matching timestamp.  Then fill the file
-        with some other data.  Make sure that when we get_file_ticket, we get the one from the history
-        instead of the one from the file. */
-    #[test]
-    fn work_test_timestamp_optimization()
-    {
-        // Set the clock to 11
-        let mut system = FakeSystem::new(11);
-
-        let content = "int main(){printf(\"my game\"); return 0;}";
-        let content_ticket = TicketFactory::from_str(content).result();
-
-        // Doctor a TargetFileInfo to indicate the game.cpp was written at time 11
-        let target_file_info = TargetFileInfo
-        {
-            path : "game.cpp".to_string(),
-            history : TargetHistory
-            {
-                ticket : content_ticket.clone(),
-                timestamp : 11,
-            }
-        };
-
-        // Meanwhile, in the filesystem put some incorrect rubbish in game.cpp
-        match write_str_to_file(&mut system, "game.cpp", "some rubbish")
-        {
-            Ok(_) => {},
-            Err(why) => panic!("Failed to make fake file: {}", why),
-        }
-
-        // Then get the ticket for the current target file, passing the TargetFileInfo
-        // with timestamp 11.  Check that it gives the ticket for the C++ code.
-        match get_file_ticket(
-            &system,
-            &target_file_info)
-        {
-            Ok(ticket_opt) =>
-            {
-                match ticket_opt
-                {
-                    Some(ticket) => assert_eq!(ticket, content_ticket),
-                    None => panic!("Failed to generate ticket"),
-                }
-            },
-            Err(_) => panic!("Unexpected error getting file ticket"),
-        }
-    }
-
-    /*  Create a file and a TargetFileInfo for that file with not-matching timestamp.  Fill the file
-        with new and improved code.  Make sure that when we get_file_ticket, we get the one from the
-        file because the history doesn't match. */
-    #[test]
-    fn work_test_timestamp_mismatch()
-    {
-        // Set the clock to 11
-        let mut system = FakeSystem::new(11);
-
-        let previous_content = "int main(){printf(\"my game\"); return 0;}";
-        let previous_ticket = TicketFactory::from_str(previous_content).result();
-
-        let current_content = "int main(){printf(\"my better game\"); return 0;}";
-        let current_ticket = TicketFactory::from_str(current_content).result();
-
-        // Doctor a TargetFileInfo to indicate the game.cpp was written at time 9
-        let target_file_info = TargetFileInfo
-        {
-            path : "game.cpp".to_string(),
-            history : TargetHistory
-            {
-                ticket : previous_ticket.clone(),
-                timestamp : 9,
-            }
-        };
-
-        // Meanwhile, in the filesystem, put new and improved game.cpp
-        match write_str_to_file(&mut system, "game.cpp", current_content)
-        {
-            Ok(_) => {},
-            Err(why) => panic!("Failed to make fake file: {}", why),
-        }
-
-        // Then get the ticket for the current target file, passing the TargetFileInfo
-        // with timestamp 11.  Check that it gives the ticket for the C++ code.
-        match get_file_ticket(
-            &system,
-            &target_file_info)
-        {
-            Ok(ticket_opt) =>
-            {
-                match ticket_opt
-                {
-                    Some(ticket) => assert_eq!(ticket, current_ticket),
-                    None => panic!("Failed to generate ticket"),
-                }
-            },
-            Err(_) => panic!("Unexpected error getting file ticket"),
-        }
-    }
-
     /*  Create a rule-history and populate it simulating a game having been built from a
         single C++ source file.  Get the file-ticket for the source, use that ticket to
         get a target ticket from the rule-history, and check it is what's expected. */
@@ -1059,7 +665,7 @@ mod test
         // to the target executable.
         match rule_history.insert(
             source_factory.result(),
-            vec![TicketFactory::from_str(target_content).result()])
+            TargetTickets::from_vec(vec![TicketFactory::from_str(target_content).result()]))
         {
             Ok(_) => {},
             Err(_) => panic!("Rule history failed to insert"),
@@ -1109,10 +715,10 @@ mod test
 
                         // Check that the target tickets in the history match the ones for the target
                         assert_eq!(
-                            vec![
+                            *target_tickets,
+                            TargetTickets::from_vec(vec![
                                 TicketFactory::from_str(target_content).result()
-                            ],
-                            *target_tickets
+                            ])
                         );
                     },
                     None => panic!("No ticket found where expected"),
@@ -1446,9 +1052,11 @@ mod test
 
         match rule_history.insert(
             factory.result(),
+            TargetTickets::from_vec(
             vec![
                 TicketFactory::from_str("Roses are red\nViolets are violet\n").result()
             ]
+        )
         )
         {
             Ok(_) => {},
@@ -1558,9 +1166,11 @@ mod test
 
         match rule_history.insert(
             factory.result(),
+            TargetTickets::from_vec(
             vec![
                 TicketFactory::from_str("Roses are red\nViolets are blue\n").result()
             ]
+        )
         )
         {
             Ok(_) => {},
@@ -1730,9 +1340,9 @@ mod test
                         let target_tickets = rule_history.get_target_tickets(&source_ticket).unwrap();
                         assert_eq!(
                             *target_tickets,
-                            vec![
+                            TargetTickets::from_vec(vec![
                                 TicketFactory::from_str("Roses are red\nViolets are violet\n").result()
-                            ]
+                            ])
                         );
                     },
                     None => panic!("Expected RuleHistory, got none"),
@@ -1808,7 +1418,7 @@ mod test
             {
                 match error
                 {
-                    WorkError::FileNotAvailableToCache(path, _error) => assert_eq!(path, "verse1.txt"),
+                    WorkError::ResolutionError(ResolutionError::FileNotAvailableToCache(path, _error)) => assert_eq!(path, "verse1.txt"),
                     _ => panic!("Wrong kind of error!  Incorrect error: {}", error),
                 }
             },
@@ -2225,7 +1835,10 @@ mod test
 
         match rule_history.insert(
             factory.result(),
-            vec![TicketFactory::from_str("I wish I were a windowsill").result()])
+            TargetTickets::from_vec(
+                vec![TicketFactory::from_str("I wish I were a windowsill").result()]
+            )
+        )
         {
             Ok(_) => {},
             Err(_) => panic!("Rule history failed to insert"),
@@ -2302,7 +1915,10 @@ mod test
 
         match rule_history2.insert(
             factory.result(),
-            vec![TicketFactory::from_str("I wish I were a windowsill").result()])
+            TargetTickets::from_vec(
+                vec![TicketFactory::from_str("I wish I were a windowsill").result()]
+            )
+        )
         {
             Ok(_) => {},
             Err(_) => panic!("Rule history failed to insert"),
@@ -2463,7 +2079,10 @@ mod test
 
         match rule_history2.insert(
             factory.result(),
-            vec![TicketFactory::from_str("I wish I were a windowsill").result()])
+            TargetTickets::from_vec(
+                vec![TicketFactory::from_str("I wish I were a windowsill").result()]
+            )
+        )
         {
             Ok(_) => {},
             Err(_) => panic!("Rule history failed to insert"),
@@ -2564,7 +2183,10 @@ mod test
 
         match rule_history2.insert(
             factory.result(),
-            vec![TicketFactory::from_str("I wish I were a windowsill").result()])
+            TargetTickets::from_vec(
+                vec![TicketFactory::from_str("I wish I were a windowsill").result()]
+            )
+        )
         {
             Ok(_) => {},
             Err(_) => panic!("Rule history failed to insert"),

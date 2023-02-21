@@ -31,17 +31,18 @@ use crate::system::util::
 use crate::system::real::RealSystem;
 use crate::printer::StandardPrinter;
 
+mod blob;
+mod build;
 mod cache;
 mod directory;
-mod build;
-mod server;
-mod rule;
-mod ticket;
-mod work;
 mod memory;
 mod packet;
 mod printer;
+mod rule;
+mod server;
 mod system;
+mod ticket;
+mod work;
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 struct BuildInvocation
@@ -522,7 +523,7 @@ The next time you run `ruler again`, it will repeat that `ruler build` with the 
             Some(path) =>
             {
                 let system = RealSystem::new();
-                match work::get_file_ticket_from_path(&system, &path)
+                match blob::get_file_ticket_from_path(&system, &path)
                 {
                     Ok(Some(file_ticket)) =>
                     {
