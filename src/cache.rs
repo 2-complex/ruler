@@ -372,7 +372,7 @@ mod test
     #[test]
     fn open_nonexistent_file()
     {
-        let (mut _system, mut cache) = make_fake_system_and_cache();
+        let (mut _system, cache) = make_fake_system_and_cache();
         match cache.open(&TicketFactory::from_str("apples\n").result())
         {
             Ok(_file) => panic!("File present when no file was expected"),
@@ -385,7 +385,7 @@ mod test
     #[test]
     fn open_file_with_directory_not_there()
     {
-        let mut cache = SysCache::new(FakeSystem::new(11), "files");
+        let cache = SysCache::new(FakeSystem::new(11), "files");
         match cache.open(&TicketFactory::from_str("apples\n").result())
         {
             Ok(_file) => panic!("File present when no file was expected"),

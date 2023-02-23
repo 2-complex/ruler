@@ -1,12 +1,5 @@
 use std::fmt;
-
-/*
-use std::io::
-{
-    self,
-    Read,
-};
-*/
+use std::io::Read;
 
 use warp::http::
 {
@@ -14,16 +7,12 @@ use warp::http::
     StatusCode,
 };
 
-// use crate::memory::{Memory, MemoryError};
-// use crate::cache::LocalCache;
-use crate::printer::Printer;
 use crate::directory;
 
 use crate::ticket::
 {
     Ticket,
 };
-// use termcolor::Color;
 
 use warp::Filter;
 
@@ -53,12 +42,10 @@ impl fmt::Display for ServerError
 pub async fn serve
 <
     SystemType : System + Clone + Send + 'static,
-    PrinterType : Printer,
 >
 (
     mut system : SystemType,
     directory_path : &str,
-    printer: &mut PrinterType,
 )
 -> Result<(), ServerError>
 {
@@ -69,38 +56,60 @@ pub async fn serve
         Err(error) => panic!("Failed to init directory error: {}", error)
     };
 
-    // GET /hello/warp => 200 OK with body "Hello, warp!"
     let hello = warp::path!("files" / String)
         .map(move |hash_str : String|
+        {
+            match Ticket::from_base64(&hash_str)
             {
-                match Ticket::from_base64(&hash_str)
+                Ok(ticket) =>
                 {
-                    Ok(ticket) =>
+                    match cache.open(&ticket)
                     {
-                        match cache.open(&ticket)
+                        Ok(mut file) =>
                         {
-                            Ok(file) =>
+                            let mut buffer = vec![];
+                            match file.read_to_end(&mut buffer)
                             {
-                                Response::builder()
-                                    .status(StatusCode::OK)
-                                    .body(format!("Yes").into_bytes())
-                            },
-                            Err(error) =>
-                            {
-                                Response::builder()
-                                    .status(StatusCode::NOT_FOUND)
-                                    .body(format!("Error: {}", error).into_bytes())
+                                Ok(size) =>
+                                {
+                                    println!("Serving file: {} size: {}", hash_str, size);
+                                    Response::builder()
+                                        .status(StatusCode::OK)
+                                        .body(buffer)
+                                },
+                                Err(error) =>
+                                {
+                                    let message = format!("Error: {}", error);
+                                    println!("{}", &message);
+
+                                    Response::builder()
+                                        .status(StatusCode::INTERNAL_SERVER_ERROR)
+                                        .body(message.into_bytes())
+                                },
                             }
+                        },
+                        Err(error) =>
+                        {
+                            let message = format!("Error: {}", error);
+                            println!("{}", &message);
+
+                            Response::builder()
+                                .status(StatusCode::NOT_FOUND)
+                                .body(message.into_bytes())
                         }
-                    },
-                    Err(error) =>
-                    {
-                        Response::builder()
-                            .status(StatusCode::NOT_FOUND)
-                            .body(format!("Error: {}", error).into_bytes())
                     }
+                },
+                Err(error) =>
+                {
+                    let message = format!("Error: {}", error);
+                    println!("{}", &message);
+
+                    Response::builder()
+                        .status(StatusCode::NOT_FOUND)
+                        .body(message.into_bytes())
                 }
-            });
+            }
+        });
 
     warp::serve(hello)
         .run(([127, 0, 0, 1], 8080))

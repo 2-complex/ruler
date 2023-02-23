@@ -21,6 +21,7 @@ pub trait Printer
         &mut self, text: &str);
 }
 
+#[derive(Clone)]
 pub struct StandardPrinter
 {
 }

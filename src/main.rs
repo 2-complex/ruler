@@ -503,13 +503,9 @@ The next time you run `ruler again`, it will repeat that `ruler build` with the 
             None => ".ruler",
         };
 
-        let mut system = RealSystem::new();
-        let mut printer = StandardPrinter::new();
-
         match server::serve(
-            system,
-            directory,
-            &mut printer)
+            RealSystem::new(),
+            directory)
         {
             Ok(()) => {},
             Err(error) => eprintln!("{}", error),
