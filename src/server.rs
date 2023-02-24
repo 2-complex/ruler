@@ -62,15 +62,15 @@ pub async fn serve
 )
 -> Result<(), ServerError>
 {
-    let (mut _memory, cache, _memoryfile) =
+    let (memory, cache, _memoryfile) =
     match directory::init(&mut system, directory_path)
     {
         Ok((memory, cache, memoryfile)) => (memory, cache, memoryfile),
         Err(error) => panic!("Failed to init directory error: {}", error)
     };
 
-    // GET /hello/warp => 200 OK with body "Hello, warp!"
-    let hello = warp::path!("files" / String)
+    let files_endpoint = warp::get()
+        .and(warp::path!("files" / String))
         .map(move |hash_str : String|
             {
                 match Ticket::from_base64(&hash_str)
@@ -102,7 +102,28 @@ pub async fn serve
                 }
             });
 
-    warp::serve(hello)
+    let rules_endpoint = warp::get()
+        .and(warp::path!("rules" / String))
+        .map(move |hash_str : String|
+            {
+                match Ticket::from_base64(&hash_str)
+                {
+                    Ok(ticket) =>
+                    {
+                        Response::builder()
+                            .status(StatusCode::OK)
+                            .body(format!("RESPONSE {}", ticket).into_bytes())
+                    },
+                    Err(error) =>
+                    {
+                        Response::builder()
+                            .status(StatusCode::NOT_FOUND)
+                            .body(format!("Error: {}", error).into_bytes())
+                    }
+                }
+            });
+
+    warp::serve(files_endpoint.or(rules_endpoint))
         .run(([127, 0, 0, 1], 8080))
         .await;
 
