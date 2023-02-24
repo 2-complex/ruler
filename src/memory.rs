@@ -324,26 +324,6 @@ impl Memory
     }
 }
 
-/*  Display a Memory by printing the rule-histories, nevermind about the target-histories. */
-impl fmt::Display for Memory
-{
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
-    {
-        let mut out = String::new();
-
-        out.push_str("Rule Histories:\n");
-
-        for (rule_ticket, rule_history) in self.rule_histories.iter()
-        {
-            out.push_str(&rule_ticket.base64());
-            out.push_str("\n");
-            out.push_str(&format!("{}", rule_history))
-        }
-
-        write!(formatter, "{}", out)
-    }
-}
-
 #[cfg(test)]
 mod test
 {
