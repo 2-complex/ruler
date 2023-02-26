@@ -1,6 +1,14 @@
 use std::fmt;
 
-use crate::memory::{Memory, MemoryError};
+use crate::memory::
+{
+    Memory,
+    MemoryError,
+};
+use crate::history::
+{
+    History,
+};
 use crate::cache::SysCache;
 
 use crate::system::
@@ -13,6 +21,7 @@ pub enum InitDirectoryError
 {
     FailedToCreateDirectory(SystemError),
     FailedToCreateCacheDirectory(SystemError),
+    FailedToCreateHistoryDirectory(SystemError),
     FailedToReadMemoryFile(MemoryError),
 }
 
@@ -28,6 +37,9 @@ impl fmt::Display for InitDirectoryError
             InitDirectoryError::FailedToCreateCacheDirectory(error) =>
                 write!(formatter, "Failed to create cache directory: {}", error),
 
+            InitDirectoryError::FailedToCreateHistoryDirectory(error) =>
+                write!(formatter, "Failed to create history directory: {}", error),
+
             InitDirectoryError::FailedToReadMemoryFile(error) =>
                 write!(formatter, "Failed to read memory file: {}", error),
         }
@@ -39,8 +51,7 @@ pub fn init<SystemType : System + Clone + Send + 'static>
     system : &mut SystemType,
     directory : &str
 )
-->
-Result<(Memory, SysCache<SystemType>, String), InitDirectoryError>
+-> Result<Elements<SystemType>, InitDirectoryError>
 {
     if ! system.is_dir(directory)
     {
@@ -62,17 +73,35 @@ Result<(Memory, SysCache<SystemType>, String), InitDirectoryError>
         }
     }
 
+    let history_path = format!("{}/history", directory);
+
+    if ! system.is_dir(&history_path)
+    {
+        match system.create_dir(&history_path)
+        {
+            Ok(_) => {},
+            Err(error) => return Err(InitDirectoryError::FailedToCreateHistoryDirectory(error)),
+        }
+    }
+
     let memoryfile = format!("{}/memory", directory);
 
-    Ok((
-        match Memory::from_file(system, &memoryfile)
+    Ok(Elements{
+        memory : match Memory::from_file(system.clone(), memoryfile)
         {
             Ok(memory) => memory,
             Err(error) => return Err(InitDirectoryError::FailedToReadMemoryFile(error)),
         },
-        SysCache::new(system.clone(), &cache_path),
-        memoryfile
-    ))
+        cache : SysCache::new(system.clone(), &cache_path),
+        history : History::new(system.clone(), &history_path)
+    })
+}
+
+pub struct Elements<SystemType : System>
+{
+    pub memory : Memory<SystemType>,
+    pub cache : SysCache<SystemType>,
+    pub history : History<SystemType>,
 }
 
 #[cfg(test)]
@@ -89,10 +118,10 @@ mod test
     {
         let mut system = FakeSystem::new(180);
 
-        let (mut _memory, _cache, _memoryfile) =
+        let _elements =
             match directory::init(&mut system, "ruler-directory")
             {
-                Ok((memory, cache, memoryfile)) => (memory, cache, memoryfile),
+                Ok(elements) => elements,
                 Err(error) => panic!("Failed to init directory error: {}", error)
             };
     }
