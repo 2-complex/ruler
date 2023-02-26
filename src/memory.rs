@@ -140,17 +140,24 @@ impl fmt::Display for RuleHistory
     }
 }
 
-/*  Memory includes both the rule-histories and target-histories.  Recall that:
-    rule_histories: For a given rule-hash stores the previously witnessed hashes of the targets built by that rule.
-    target_histories: For a given target (file path) stores the most recently observed hash of that target along
-        with the modified timestamp for the file at that time. */
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
-pub struct Memory
+pub struct MemoryInside
 {
     rule_histories : HashMap<Ticket, RuleHistory>,
 
     /*  Map target path to target-history */
     target_histories : HashMap<String, TargetHistory>,
+}
+
+/*  Memory includes both the rule-histories and target-histories.  Recall that:
+    rule_histories: For a given rule-hash stores the previously witnessed hashes of the targets built by that rule.
+    target_histories: For a given target (file path) stores the most recently observed hash of that target along
+        with the modified timestamp for the file at that time. */
+pub struct Memory<SystemType : System>
+{
+    system_box : Box<SystemType>,
+    path : String,
+    inside : MemoryInside,
 }
 
 /*  When accessing memory, a few things can go wrong.  Memory is stored in a file, so that file could be unreadable or
@@ -160,8 +167,7 @@ pub enum MemoryError
 {
     CannotReadMemoryFile(String),
     CannotInterpretMemoryFile(String),
-    CannotRecordHistoryFile(String),
-    CannotSerializeEmptyHistoryWeird,
+    CannotRecordHistoryFile(String)
 }
 
 /*  Display a MemoryError by printing a reasonable error message.  Of course, during everyday Ruler use, these
@@ -180,9 +186,6 @@ impl fmt::Display for MemoryError
 
             MemoryError::CannotRecordHistoryFile(path) =>
                 write!(formatter, "Cannot record history file: {}", path),
-
-            MemoryError::CannotSerializeEmptyHistoryWeird =>
-                write!(formatter, "Cannot serialize empty history... that's weird"),
         }
     }
 }
@@ -190,82 +193,89 @@ impl fmt::Display for MemoryError
 /*  Opens file at a path and deserializaes contents to create a Memory object. */
 fn read_all_memory_from_file<SystemType : System>
 (
-    system : &mut SystemType,
-    memoryfile_path : &str
+    system : SystemType,
+    memoryfile_path : String
 )
--> Result<Memory, MemoryError>
+-> Result<Memory<SystemType>, MemoryError>
 {
-    match system.open(memoryfile_path)
+    let mut file =
+    match system.open(&memoryfile_path)
     {
-        Ok(mut file) =>
-        {
-            let mut content = Vec::new();
-            match file.read_to_end(&mut content)
-            {
-                Ok(_size) =>
-                {
-                    match bincode::deserialize(&content)
-                    {
-                        Ok(memory) => Ok(memory),
-                        Err(_) => Err(MemoryError::CannotInterpretMemoryFile(memoryfile_path.to_string())),
-                    }
-                }
-                Err(_) => Err(MemoryError::CannotReadMemoryFile(memoryfile_path.to_string())),
-            }
-        },
-        Err(_) => Err(MemoryError::CannotReadMemoryFile(memoryfile_path.to_string())),
+        Ok(file) => file,
+        Err(_) => return Err(MemoryError::CannotReadMemoryFile(memoryfile_path)),
+    };
+
+    let mut content = Vec::new();
+    match file.read_to_end(&mut content)
+    {
+        Ok(_size) => {},
+        Err(_) => return Err(MemoryError::CannotReadMemoryFile(memoryfile_path)),
+    };
+
+    match bincode::deserialize(&content)
+    {
+        Ok(inside) => Ok(Memory::from_inside(system, memoryfile_path, inside)),
+        Err(_) => Err(MemoryError::CannotInterpretMemoryFile(memoryfile_path)),
     }
 }
 
-impl Memory
+impl<SystemType : System> Memory<SystemType>
 {
     /*  Create a new Memory object from a file in a filesystem, create it if it doesn't exist, and If file fails to
         open or is corrupt, generate an appropriate MemoryError. */
-    pub fn from_file<SystemType: System>(
-        system: &mut SystemType,
-        path_as_str : &str)
-        -> Result<Memory, MemoryError>
+    pub fn from_file(
+        system: SystemType,
+        path : String)
+        -> Result<Memory<SystemType>, MemoryError>
     {
-        if system.is_file(path_as_str)
+        if system.is_file(&path)
         {
-            return read_all_memory_from_file(system, path_as_str);
+            read_all_memory_from_file(system, path)
         }
         else
         {
-            let memory = Memory::new();
-            match bincode::serialize(&memory)
-            {
-                Ok(bytes) => match write_file(system, path_as_str, &bytes)
-                {
-                    Err(_) => Err(MemoryError::CannotRecordHistoryFile(path_as_str.to_string())),
-                    Ok(()) => Ok(memory),
-                },
-                Err(_error) => Err(MemoryError::CannotSerializeEmptyHistoryWeird),
-            }
+            let mut memory = Memory::new(system, path);
+            memory.to_file()?;
+            Ok(memory)
+        }
+    }
+
+    pub fn from_inside(
+        system : SystemType,
+        path : String,
+        inside : MemoryInside) -> Memory<SystemType>
+    {
+        Memory
+        {
+            system_box : Box::new(system),
+            path : path,
+            inside : inside,
         }
     }
 
     /*  Write a memory object to a file in a filesystem. */
-    pub fn to_file<SystemType: System>(
-        &self,
-        system: &mut SystemType,
-        path_as_str : &str
-    ) -> Result<(), MemoryError>
+    pub fn to_file(&mut self) -> Result<(), MemoryError>
     {
-        match write_file(system, path_as_str, &bincode::serialize(&self).unwrap())
+        let system = &mut (*self.system_box);
+        match write_file(system, &self.path, &bincode::serialize(&self.inside).unwrap())
         {
-            Err(_) => Err(MemoryError::CannotRecordHistoryFile(path_as_str.to_string())),
+            Err(_) => Err(MemoryError::CannotRecordHistoryFile(self.path.to_string())),
             Ok(_) => Ok(()),
         }
     }
 
     /*  Create a new, empty Memory */
-    fn new() -> Memory
+    fn new(system : SystemType, path : String) -> Memory<SystemType>
     {
         Memory
         {
-            rule_histories : HashMap::new(),
-            target_histories : HashMap::new(),
+            system_box : Box::new(system),
+            path : path,
+            inside : MemoryInside
+            {
+                rule_histories : HashMap::new(),
+                target_histories : HashMap::new(),
+            },
         }
     }
 
@@ -273,7 +283,7 @@ impl Memory
     #[cfg(test)]
     fn insert(&mut self, rule_ticket: Ticket, source_ticket: Ticket, target_tickets: TargetTickets)
     {
-        let rule_history = self.rule_histories.entry(rule_ticket).or_insert(
+        let rule_history = self.inside.rule_histories.entry(rule_ticket).or_insert(
             RuleHistory
             {
                 source_to_targets: HashMap::new(),
@@ -290,14 +300,14 @@ impl Memory
     /*  Insert a RuleHistory for a given rule. */
     pub fn insert_rule_history(&mut self, rule_ticket: Ticket, rule_history: RuleHistory)
     {
-        self.rule_histories.insert(rule_ticket, rule_history);
+        self.inside.rule_histories.insert(rule_ticket, rule_history);
     }
 
     /*  Retrive a RuleHisotry for a given rule.  Note: this function removes the RuleHistory from Memory, and transfers
         ownership to the caller. */
     pub fn take_rule_history(&mut self, rule_ticket: &Ticket) -> RuleHistory
     {
-        match self.rule_histories.remove(rule_ticket)
+        match self.inside.rule_histories.remove(rule_ticket)
         {
             Some(rule_history) => rule_history,
             None => RuleHistory::new(),
@@ -307,7 +317,7 @@ impl Memory
     /*  Adds the given TargetHistory to the map for the given file-path. */
     pub fn insert_target_history(&mut self, target_path: String, target_history : TargetHistory)
     {
-        self.target_histories.insert(target_path, target_history);
+        self.inside.target_histories.insert(target_path, target_history);
     }
 
     /*  Retrieve a TargetHistory by the target path.  Note: this function removes the TargetHistory from Memory,
@@ -316,7 +326,7 @@ impl Memory
         If a target history is not present in the map, this function returns a new, empty history instead. */
     pub fn take_target_history(&mut self, target_path: &str) -> TargetHistory
     {
-        match self.target_histories.remove(target_path)
+        match self.inside.target_histories.remove(target_path)
         {
             Some(target_history) => target_history,
             None => TargetHistory::empty(),
@@ -347,7 +357,8 @@ mod test
     #[test]
     fn round_trip_memory()
     {
-        let mut mem = Memory::new();
+        let system = FakeSystem::new(10);
+        let mut mem = Memory::new(system.clone(), "memory.file".to_string());
         mem.insert(
             TicketFactory::from_str("rule").result(),
             TicketFactory::from_str("source").result(),
@@ -363,12 +374,13 @@ mod test
 
         mem.insert_target_history("src/meta.c".to_string(), target_history);
 
-        let encoded: Vec<u8> = bincode::serialize(&mem).unwrap();
-        let mut decoded_mem: Memory = bincode::deserialize(&encoded[..]).unwrap();
-        assert_eq!(mem, decoded_mem);
-        assert_eq!(mem.target_histories, decoded_mem.target_histories);
+        let encoded : Vec<u8> = bincode::serialize(&mem.inside).unwrap();
+        let inside = bincode::deserialize(&encoded).unwrap();
+        let mut decoded_memory = Memory::from_inside(system, "memory.file".to_string(), inside);
 
-        let decoded_history = decoded_mem.take_target_history("src/meta.c");
+        assert_eq!(mem.inside, decoded_memory.inside);
+
+        let decoded_history = decoded_memory.take_target_history("src/meta.c");
         assert_eq!(decoded_history.ticket, TicketFactory::from_str("main(){}").result());
     }
 
@@ -378,7 +390,9 @@ mod test
     #[test]
     fn round_trip_memory_through_file()
     {
-        let mut mem = Memory::new();
+        let mut system = FakeSystem::new(10);
+
+        let mut mem = Memory::new(system.clone(), "memory.file".to_string());
         mem.insert(
             TicketFactory::from_str("rule").result(),
             TicketFactory::from_str("source").result(),
@@ -394,9 +408,7 @@ mod test
 
         mem.insert_target_history("src/meta.c".to_string(), target_history);
 
-        let mut system = FakeSystem::new(10);
-
-        let encoded: Vec<u8> = bincode::serialize(&mem).unwrap();
+        let encoded : Vec<u8> = bincode::serialize(&mem.inside).unwrap();
         match write_file(&mut system, "memory.file", &encoded)
         {
             Ok(()) =>
@@ -405,8 +417,7 @@ mod test
                 {
                     Ok(content) =>
                     {
-                        let read_mem: Memory = bincode::deserialize(&content).unwrap();
-                        assert_eq!(mem, read_mem);
+                        assert_eq!(mem.inside, bincode::deserialize(&content).unwrap());
                     },
                     Err(_) => panic!("Memory file read failed"),
                 }
@@ -421,7 +432,8 @@ mod test
     #[test]
     fn round_trip_memory_through_file_to_from()
     {
-        let mut memory = Memory::new();
+        let system = FakeSystem::new(10);
+        let mut memory = Memory::new(system.clone(), "memory.file".to_string());
         memory.insert(
             TicketFactory::from_str("rule").result(),
             TicketFactory::from_str("source").result(),
@@ -437,22 +449,18 @@ mod test
 
         memory.insert_target_history("src/meta.c".to_string(), target_history);
 
-        let mut system = FakeSystem::new(10);
 
-        match memory.to_file(&mut system, "memory.file")
+        match memory.to_file()
         {
             Ok(()) => {},
             Err(_) => panic!("Memory failed to write into file"),
         }
 
-        match Memory::from_file(&mut system, "memory.file")
+        match Memory::from_file(system, "memory.file".to_string())
         {
             Ok(mut new_memory) =>
             {
-                assert_eq!(new_memory, memory);
-
-                assert_eq!(new_memory.rule_histories, memory.rule_histories);
-                assert_eq!(new_memory.target_histories, memory.target_histories);
+                assert_eq!(new_memory.inside, memory.inside);
 
                 let new_history = new_memory.take_target_history("src/meta.c");
                 assert_eq!(new_history.ticket, TicketFactory::from_str("main(){}").result());
@@ -528,7 +536,8 @@ mod test
             Err(_) => panic!("Rule history failed to insert"),
         }
 
-        let mut memory = Memory::new();
+        let system = FakeSystem::new(10);
+        let mut memory = Memory::new(system, "memory.file".to_string());
 
         memory.insert(
             TicketFactory::from_str("ruleA").result(),
@@ -593,7 +602,8 @@ mod test
     #[test]
     fn insert_remove_target_history()
     {
-        let mut memory = Memory::new();
+        let system = FakeSystem::new(10);
+        let mut memory = Memory::new(system, "memory.file".to_string());
 
         let target_history = TargetHistory::new(
             TicketFactory::from_str("main(){}").result(), 17123);
@@ -611,7 +621,8 @@ mod test
     #[test]
     fn history_of_unknown_file_empty()
     {
-        let mut memory = Memory::new();
+        let system = FakeSystem::new(10);
+        let mut memory = Memory::new(system, "memory.file".to_string());
 
         let target_history = TargetHistory::new(
             TicketFactory::from_str("main(){}").result(), 17123);
