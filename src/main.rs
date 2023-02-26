@@ -36,6 +36,7 @@ mod build;
 mod cache;
 mod directory;
 mod memory;
+mod history;
 mod packet;
 mod printer;
 mod rule;

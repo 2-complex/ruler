@@ -41,7 +41,14 @@ use crate::work::
     clean_targets,
 };
 
-use crate::memory::{MemoryError};
+use crate::memory::
+{
+    MemoryError
+};
+use crate::history::
+{
+    RuleHistory
+};
 use crate::printer::Printer;
 
 use termcolor::
@@ -240,10 +247,10 @@ pub fn build
 )
 -> Result<(), BuildError>
 {
-    let (mut memory, cache, memoryfile) =
+    let mut elements =
     match directory::init(&mut system, directory_path)
     {
-        Ok((memory, cache, memoryfile)) => (memory, cache, memoryfile),
+        Ok(elements) => elements,
         Err(error) =>
         {
             return match error
@@ -281,18 +288,26 @@ pub fn build
             target_infos.push(
                 TargetFileInfo
                 {
-                    history : memory.take_target_history(&target_path),
+                    history : elements.memory.take_target_history(&target_path),
                     path : target_path,
                 }
             );
         }
 
-        let local_cache_clone = cache.clone();
+        let local_cache_clone = elements.cache.clone();
 
         let command = node.command;
-        let rule_history =  match &node.rule_ticket
+        let rule_history : Option<RuleHistory> =
+        match &node.rule_ticket
         {
-            Some(ticket) => Some(memory.take_rule_history(&ticket)),
+            Some(ticket) =>
+            {
+                match elements.history.read_rule_history(&ticket)
+                {
+                    Ok(rule_history) => Some(rule_history),
+                    Err(_error) => None,
+                }
+            }
             None => None,
         };
         let system_clone = system.clone();
@@ -401,7 +416,14 @@ pub fn build
                             {
                                 match work_result.rule_history
                                 {
-                                    Some(history) => memory.insert_rule_history(ticket, history),
+                                    Some(history) =>
+                                    {
+                                        match elements.history.write_rule_history(ticket, history)
+                                        {
+                                            Ok(()) => {},
+                                            Err(error) => panic!("Fatal Error: {}", error),
+                                        }
+                                    },
                                     None => {},
                                 }
                             }
@@ -410,16 +432,15 @@ pub fn build
 
                         for target_info in work_result.target_infos.drain(..)
                         {
-                            memory.insert_target_history(target_info.path, target_info.history);
+                            elements.memory.insert_target_history(target_info.path, target_info.history);
                         }
                     },
                     Err(work_error) =>
                     {
                         match work_error
                         {
-                            WorkError::ReceiverError(_error) => {},
-                            WorkError::SenderError => {},
-
+                            WorkError::ReceiverError(error) =>  panic!("Fatal Error: ReceiverError: {}", error),
+                            WorkError::SenderError => panic!("Fatal Error: SenderError"),
                             _ =>
                             {
                                 work_errors.push(work_error);
@@ -431,7 +452,7 @@ pub fn build
         }
     }
 
-    match memory.to_file(&mut system, &memoryfile)
+    match elements.memory.to_file()
     {
         Ok(_) => {},
         Err(_) => printer.error("Error writing history"),
@@ -460,10 +481,10 @@ pub fn clean<SystemType : System + Clone + Send + 'static>
 )
 -> Result<(), BuildError>
 {
-    let (mut memory, cache, _memoryfile) =
+    let mut elements =
     match directory::init(&mut system, directory_path)
     {
-        Ok((memory, cache, memoryfile)) => (memory, cache, memoryfile),
+        Ok(elements) => elements,
         Err(error) =>
         {
             return match error
@@ -513,14 +534,14 @@ pub fn clean<SystemType : System + Clone + Send + 'static>
             target_infos.push(
                 TargetFileInfo
                 {
-                    history : memory.take_target_history(&target_path),
+                    history : elements.memory.take_target_history(&target_path),
                     path : target_path,
                 }
             );
         }
 
         let mut system_clone = system.clone();
-        let mut local_cache_clone = cache.clone();
+        let mut local_cache_clone = elements.cache.clone();
 
         match node.rule_ticket
         {
@@ -927,16 +948,16 @@ poem.txt
         }
 
         {
-            let (mut memory, _cache, _memoryfile) =
+            let mut elements =
             match directory::init(&mut system, "ruler-directory")
             {
-                Ok((memory, cache, memoryfile)) => (memory, cache, memoryfile),
+                Ok(elements) => elements,
                 Err(error) => panic!("Failed to init directory error: {}", error)
             };
 
-            let target_history_before = memory.take_target_history("poem.txt");
+            let target_history_before = elements.memory.take_target_history("poem.txt");
             assert_eq!(target_history_before, TargetHistory::empty());
-            memory.insert_target_history("poem.txt".to_string(), target_history_before);
+            elements.memory.insert_target_history("poem.txt".to_string(), target_history_before);
         }
 
         match build(
@@ -957,20 +978,20 @@ poem.txt
         }
 
         {
-            let (mut memory, _cache, _memoryfile) =
+            let mut elements =
             match directory::init(&mut system, "ruler-directory")
             {
-                Ok((memory, cache, memoryfile)) => (memory, cache, memoryfile),
+                Ok(elements) => elements,
                 Err(error) => panic!("Failed to init directory error: {}", error)
             };
 
-            let target_history = memory.take_target_history("poem.txt");
+            let target_history = elements.memory.take_target_history("poem.txt");
 
             let exemplar_target_history = TargetHistory::new(
                 TicketFactory::from_str("Roses are red.\nViolets are violet.\n").result(), 17);
 
             assert_eq!(target_history, exemplar_target_history);
-            memory.insert_target_history("poem.txt".to_string(), target_history);
+            elements.memory.insert_target_history("poem.txt".to_string(), target_history);
         }
 
     }
