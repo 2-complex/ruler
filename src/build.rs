@@ -187,7 +187,7 @@ fn read_all_rules<SystemType : System>
     It opens the rulefile, parses it, and returns the vector of rule Nodes. */
 pub fn get_nodes
 <
-    SystemType : System + Clone + Send + 'static,
+    SystemType : System,
 >
 (
     system : &SystemType,
@@ -235,7 +235,7 @@ pub fn get_nodes
     in the dependence graph. */
 pub fn build
 <
-    SystemType : System + Clone + Send + 'static,
+    SystemType : System + 'static,
     PrinterType : Printer,
 >
 (
@@ -472,7 +472,7 @@ pub fn build
     It takes a rulefile, parses it and either removes all targets to the cache,
     or, if goal_target_opt is Some, removes only those targets that are acnestors
     of goal_target_opt in the depdnece-graph. */
-pub fn clean<SystemType : System + Clone + Send + 'static>
+pub fn clean<SystemType : System + 'static>
 (
     mut system : SystemType,
     directory_path : &str,

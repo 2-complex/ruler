@@ -576,7 +576,7 @@ mod test
         through and getting a source ticket using wait_for_sources_ticket */
     fn current_sources_ticket
     <
-        SystemType : System + Clone + Send + 'static,
+        SystemType : System + 'static,
     >
     (
         system : &SystemType,
@@ -1425,7 +1425,7 @@ mod test
         }
     }
 
-    fn spawn_command<SystemType: System + Send + 'static>
+    fn spawn_command<SystemType: System + 'static>
     (
         target_infos : Vec<TargetFileInfo>,
         command : Vec<String>,
@@ -1446,7 +1446,7 @@ mod test
                     system.clone(),
                     senders,
                     receivers,
-                    SysCache::new(system.clone(), ".ruler-cache"))
+                    SysCache::new(system, ".ruler-cache"))
             }
         )
     }
