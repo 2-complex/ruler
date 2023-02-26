@@ -52,7 +52,7 @@ pub enum BlobError
 /*  The target of a rule can be more than one file, and maybe one day, it can be a directory
     or a combination of those things.  A RuleHistory contains a map from source-ticket to this struct.
     This struct represents: whatever tickets we need to recover the target files. */
-#[derive(Serialize, Deserialize, Eq, PartialEq, Debug)]
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
 pub struct TargetTickets
 {
     tickets : Vec<Ticket>,
