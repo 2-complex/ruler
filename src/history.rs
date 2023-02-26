@@ -127,11 +127,7 @@ impl fmt::Display for RuleHistory
     }
 }
 
-/*  History includes both the rule-histories and target-histories.  Recall that:
-    rule_histories: For a given rule-hash stores the previously witnessed hashes of the targets built by that rule.
-    target_histories: For a given target (file path) stores the most recently observed hash of that target along
-        with the modified timestamp for the file at that time. */
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
+/*  History represents RuleHistories stored in persistent storage. */
 pub struct History<SystemType : System>
 {
     system_box : Box<SystemType>,
@@ -248,17 +244,158 @@ mod test
     {
         RuleHistory,
         History,
+        HistoryError,
+        RuleHistoryInsertError
     };
     use crate::blob::
     {
         TargetTickets,
     };
-    use crate::ticket::{TicketFactory};
+    use crate::ticket::TicketFactory;
     use crate::system::
     {
         System,
         fake::FakeSystem
     };
+    use std::io::
+    {
+        Write,
+    };
+
+    /*  Create a RuleHistory, populate with some mock target tickets, serialize the RuleHistory, then make a new
+        RuleHistory by deserializing.  Read the target tickets and check that they're the same as what we started
+        with. */
+    #[test]
+    fn round_trip_rule_history()
+    {
+        let mut rule_history = RuleHistory::new();
+
+        let source_ticket = TicketFactory::from_str("source").result();
+        let target_tickets = TargetTickets::from_vec(vec![
+            TicketFactory::from_str("target1").result(),
+            TicketFactory::from_str("target2").result(),
+            TicketFactory::from_str("target3").result(),
+        ]);
+
+        match rule_history.insert(source_ticket.clone(), target_tickets.clone())
+        {
+            Ok(_) => {},
+            Err(_) => panic!("Rule history failed to insert"),
+        }
+
+        let encoded: Vec<u8> = bincode::serialize(&rule_history).unwrap();
+        let decoded: RuleHistory = bincode::deserialize(&encoded[..]).unwrap();
+        assert_eq!(rule_history, decoded);
+
+        let target_tickets2 =
+        match rule_history.get_target_tickets(&source_ticket)
+        {
+            Some(target_tickets) => target_tickets,
+            None => panic!("Targets not found"),
+        };
+
+        assert_eq!(target_tickets, *target_tickets2);
+    }
+
+    /*  Create a RuleHistory insert a source/target pair, then attempt to insert a different
+        source/target pair, expecting a contradiction error */
+    #[test]
+    fn rule_history_contradiction()
+    {
+        let mut rule_history = RuleHistory::new();
+
+        let source_ticket = TicketFactory::from_str("source").result();
+        let target_tickets1 = TargetTickets::from_vec(vec![
+            TicketFactory::from_str("target1").result(),
+            TicketFactory::from_str("target2").result(),
+            TicketFactory::from_str("target3").result(),
+        ]);
+        let target_tickets2 = TargetTickets::from_vec(vec![
+            TicketFactory::from_str("target1").result(),
+            TicketFactory::from_str("targetX").result(),
+            TicketFactory::from_str("target3").result(),
+        ]);
+
+        match rule_history.insert(source_ticket.clone(), target_tickets1.clone())
+        {
+            Ok(_) => {},
+            Err(_) => panic!("Rule history failed to insert"),
+        }
+
+        match rule_history.insert(source_ticket.clone(), target_tickets2.clone())
+        {
+            Ok(_) => panic!("Rule history allowed insert when not expected"),
+            Err(RuleHistoryInsertError::Contradiction(indices)) =>
+            {
+                assert_eq!(indices, [1]);
+            },
+            Err(_) => panic!("Wrong error encountered, expected contradiction"),
+        }
+    }
+
+    /*  Create a RuleHistory insert a source/target pair, then attempt to insert a different
+        source/target pair, expecting a contradiction error */
+    #[test]
+    fn rule_history_sizes_differ()
+    {
+        let mut rule_history = RuleHistory::new();
+
+        let source_ticket = TicketFactory::from_str("source").result();
+        let target_tickets1 = TargetTickets::from_vec(vec![
+            TicketFactory::from_str("target1").result(),
+            TicketFactory::from_str("target2").result(),
+            TicketFactory::from_str("target3").result(),
+        ]);
+        let target_tickets2 = TargetTickets::from_vec(vec![
+            TicketFactory::from_str("target1").result(),
+            TicketFactory::from_str("target2").result(),
+        ]);
+
+        match rule_history.insert(source_ticket.clone(), target_tickets1.clone())
+        {
+            Ok(_) => {},
+            Err(_) => panic!("Rule history failed to insert"),
+        }
+
+        match rule_history.insert(source_ticket.clone(), target_tickets2.clone())
+        {
+            Ok(_) => panic!("Rule history allowed insert when not expected"),
+            Err(RuleHistoryInsertError::TargetSizesDifferWeird) => {},
+            Err(_) => panic!("Wrong error encountered, expected contradiction"),
+        }
+    }
+
+    /*  Create a RuleHistory insert a source/target pair, then attempt to insert a the same
+        pair, and check that it succeeds. */
+    #[test]
+    fn rule_history_reinsert_identical_history()
+    {
+        let mut rule_history = RuleHistory::new();
+
+        let source_ticket = TicketFactory::from_str("source").result();
+        let target_tickets1 = TargetTickets::from_vec(vec![
+            TicketFactory::from_str("target1").result(),
+            TicketFactory::from_str("target2").result(),
+            TicketFactory::from_str("target3").result(),
+        ]);
+        let target_tickets2 = TargetTickets::from_vec(vec![
+            TicketFactory::from_str("target1").result(),
+            TicketFactory::from_str("target2").result(),
+            TicketFactory::from_str("target3").result(),
+        ]);
+
+        match rule_history.insert(source_ticket.clone(), target_tickets1.clone())
+        {
+            Ok(_) => {},
+            Err(_) => panic!("Rule history failed to insert"),
+        }
+
+        match rule_history.insert(source_ticket.clone(), target_tickets2.clone())
+        {
+            Ok(_) => {},
+            Err(_) => panic!("Rule history failed to insert a second time"),
+        }
+    }
 
     /*  Create a History, get a RuleHistory from it, insert source/target tickets, then write it back to the filesystem,
         read back to create a new History, get back the same RuleHistory and check that its contents are the same */
@@ -317,5 +454,43 @@ mod test
         };
 
         assert_eq!(target_tickets, *target_tickets2);
+    }
+
+    /*  Plant a RuleHistory file with wrong data in it.  Attempt to load that  */
+    #[test]
+    fn history_with_file_tampering()
+    {
+        let mut system = FakeSystem::new(10);
+        match system.create_dir("history")
+        {
+            Ok(()) => {},
+            Err(error) => panic!("Failed to initialize file situation: {}", error),
+        }
+
+        let rule_ticket = TicketFactory::from_str("rule").result();
+        let path = format!("history/{}", rule_ticket.base64());
+        let mut file =
+        match system.create_file(&path)
+        {
+            Ok(file) => file,
+            Err(error) => panic!("File system refused to create file: {}", error),
+        };
+
+        match file.write_all(&[1u8,2u8])
+        {
+            Ok(_) => {},
+            Err(error) => panic!("Could not write to file: {}", error),
+        }
+
+        let mut history = History::new(system.clone(), "history");
+        match history.read_rule_history(&rule_ticket)
+        {
+            Ok(_rule_history) => panic!("Rule history read when error expected."),
+            Err(HistoryError::CannotInterpretRuleHistoryFile(rule_history_file_path)) =>
+            {
+                assert_eq!(rule_history_file_path, path)
+            },
+            Err(error) => panic!("Reading RuleHistory errored but with the wrong error: {}", error),
+        }
     }
 }
