@@ -41,7 +41,14 @@ use crate::work::
     clean_targets,
 };
 
-use crate::memory::{MemoryError};
+use crate::memory::
+{
+    MemoryError
+};
+use crate::history::
+{
+    RuleHistory
+};
 use crate::printer::Printer;
 
 use termcolor::
@@ -290,9 +297,17 @@ pub fn build
         let local_cache_clone = elements.cache.clone();
 
         let command = node.command;
-        let rule_history =  match &node.rule_ticket
+        let rule_history : Option<RuleHistory> =
+        match &node.rule_ticket
         {
-            Some(ticket) => Some(elements.memory.take_rule_history(&ticket)),
+            Some(ticket) =>
+            {
+                match elements.history.read_rule_history(&ticket)
+                {
+                    Ok(rule_history) => Some(rule_history),
+                    Err(_error) => None,
+                }
+            }
             None => None,
         };
         let system_clone = system.clone();
@@ -401,7 +416,14 @@ pub fn build
                             {
                                 match work_result.rule_history
                                 {
-                                    Some(history) => elements.memory.insert_rule_history(ticket, history),
+                                    Some(history) =>
+                                    {
+                                        match elements.history.write_rule_history(ticket, history)
+                                        {
+                                            Ok(()) => {},
+                                            Err(error) => panic!("Fatal Error: {}", error),
+                                        }
+                                    },
                                     None => {},
                                 }
                             }
@@ -417,9 +439,8 @@ pub fn build
                     {
                         match work_error
                         {
-                            WorkError::ReceiverError(_error) => {},
-                            WorkError::SenderError => {},
-
+                            WorkError::ReceiverError(error) =>  panic!("Fatal Error: ReceiverError: {}", error),
+                            WorkError::SenderError => panic!("Fatal Error: SenderError"),
                             _ =>
                             {
                                 work_errors.push(work_error);

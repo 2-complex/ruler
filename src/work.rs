@@ -11,7 +11,7 @@ use crate::system::
     System,
     SystemError,
 };
-use crate::memory::
+use crate::history::
 {
     RuleHistory,
     RuleHistoryInsertError,
@@ -544,7 +544,7 @@ mod test
         TicketFactory,
         Ticket,
     };
-    use crate::memory::
+    use crate::history::
     {
         RuleHistory,
     };
