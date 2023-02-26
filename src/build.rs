@@ -120,10 +120,10 @@ impl fmt::Display for BuildError
                 write!(formatter, "Dependence search failed: {}", error),
 
             BuildError::RuleFileFailedToRead(path, error) =>
-                write!(formatter, "Build file {} failed to read with error: {}", path, error),
+                write!(formatter, "Rules file {} failed to read with error: {}", path, error),
 
             BuildError::RuleFileFailedToOpen(path, error) =>
-                write!(formatter, "Build file {} failed to open with error: {}", path, error),
+                write!(formatter, "Rules file {} failed to open with error: {}", path, error),
 
             BuildError::WorkErrors(work_errors) =>
             {
