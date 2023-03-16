@@ -49,12 +49,14 @@ pub async fn serve
 )
 -> Result<(), ServerError>
 {
-    let (memory, cache, _memoryfile) =
+    let elements =
     match directory::init(&mut system, directory_path)
     {
-        Ok((memory, cache, memoryfile)) => (memory, cache, memoryfile),
+        Ok(elements) => elements,
         Err(error) => panic!("Failed to init directory error: {}", error)
     };
+
+    let cache = elements.cache;
 
     let files_endpoint = warp::get()
         .and(warp::path!("files" / String))
