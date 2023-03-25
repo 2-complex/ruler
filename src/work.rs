@@ -408,7 +408,7 @@ Result<WorkResult, WorkError>
         Err(error) => return Err(error),
     };
 
-    /*  If there's a rule-history that means the node is rule,
+    /*  If there's a rule-history that means the node is a rule,
         otherwise, it is a plain source file. */
     match rule_history_opt
     {
