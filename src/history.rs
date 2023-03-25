@@ -128,6 +128,7 @@ impl fmt::Display for RuleHistory
 }
 
 /*  History represents RuleHistories stored in persistent storage. */
+#[derive(Clone)]
 pub struct History<SystemType : System>
 {
     system_box : Box<SystemType>,
@@ -210,9 +211,9 @@ impl<SystemType : System> History<SystemType>
     }
 
     /*  Retrive a RuleHisotry for a given rule.  If it can't openthe file, it just makes a new RuleHistory */
-    pub fn read_rule_history(&mut self, rule_ticket: &Ticket) -> Result<RuleHistory, HistoryError>
+    pub fn read_rule_history(&self, rule_ticket: &Ticket) -> Result<RuleHistory, HistoryError>
     {
-        let system = &mut (*self.system_box);
+        let system = &(*self.system_box);
         let rule_history_file_path = format!("{}/{}", self.path, rule_ticket);
 
         let mut file = 

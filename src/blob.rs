@@ -134,6 +134,19 @@ impl TargetTickets
         }
         out
     }
+
+    /*  Currently used by a display function, hence the formatting. */
+    pub fn download_string(&self)
+    -> String
+    {
+        let mut out = String::new();
+        for ticket in self.tickets.iter()
+        {
+            out.push_str(&ticket.base64());
+            out.push_str("\n");
+        }
+        out
+    }
 }
 
 /*  Takes a System and a filepath as a string.

@@ -68,71 +68,105 @@ pub async fn serve
                     {
                         match cache.open(&ticket)
                         {
-                        Ok(mut file) =>
-                        {
-                            let mut buffer = vec![];
-                            match file.read_to_end(&mut buffer)
+                            Ok(mut file) =>
                             {
-                                Ok(size) =>
+                                let mut buffer = vec![];
+                                match file.read_to_end(&mut buffer)
                                 {
-                                    println!("Serving file: {} size: {}", hash_str, size);
+                                    Ok(size) =>
+                                    {
+                                        println!("Serving file: {} size: {}", hash_str, size);
+                                        Response::builder()
+                                            .status(StatusCode::OK)
+                                                .body(buffer)
+                                    },
+                                    Err(error) =>
+                                    {
+                                        let message = format!("Error: {}", error);
+                                        println!("{}", &message);
+                                        Response::builder()
+                                            .status(StatusCode::INTERNAL_SERVER_ERROR)
+                                            .body(message.into_bytes())
+                                    },
+                                }
+                            },
+                            Err(error) =>
+                            {
+                                let message = format!("Error: {}", error);
+                                println!("{}", &message);
+
                                 Response::builder()
-                                    .status(StatusCode::OK)
-                                        .body(buffer)
-                                },
-                                Err(error) =>
-                                {
-                                    let message = format!("Error: {}", error);
-                                    println!("{}", &message);
-
-                                    Response::builder()
-                                        .status(StatusCode::INTERNAL_SERVER_ERROR)
-                                        .body(message.into_bytes())
-                                },
+                                    .status(StatusCode::NOT_FOUND)
+                                    .body(message.into_bytes())
                             }
-                        },
-                        Err(error) =>
-                        {
-                            let message = format!("Error: {}", error);
-                            println!("{}", &message);
-
-                            Response::builder()
-                                .status(StatusCode::NOT_FOUND)
-                                .body(message.into_bytes())
                         }
-                    }
-                },
-                Err(error) =>
-                {
-                    let message = format!("Error: {}", error);
-                    println!("{}", &message);
-
-                    Response::builder()
-                        .status(StatusCode::NOT_FOUND)
-                        .body(message.into_bytes())
-                    }
-                }
-            });
-
-    let rules_endpoint = warp::get()
-        .and(warp::path!("rules" / String))
-        .map(move |hash_str : String|
-            {
-                match Ticket::from_base64(&hash_str)
-                {
-                    Ok(ticket) =>
-                    {
-                        Response::builder()
-                            .status(StatusCode::OK)
-                            .body(format!("RESPONSE {}", ticket).into_bytes())
                     },
                     Err(error) =>
                     {
+                        let message = format!("Error: {}", error);
+                        println!("{}", &message);
+
                         Response::builder()
+                            .status(StatusCode::NOT_FOUND)
+                            .body(message.into_bytes())
+                    }
+                }
+            }
+        );
+
+    let history = elements.history;
+    let rules_endpoint = warp::get()
+        .and(warp::path!("rules" / String / String))
+        .map(
+            move |rule_hash_str : String, source_hash_str : String|
+            {
+                let rule_ticket =
+                match Ticket::from_base64(&rule_hash_str)
+                {
+                    Ok(ticket) => ticket,
+                    Err(error) =>
+                    {
+                        return Response::builder()
                             .status(StatusCode::NOT_FOUND)
                             .body(format!("Error: {}", error).into_bytes())
                     }
-                }
+                };
+
+                let source_ticket =
+                match Ticket::from_base64(&source_hash_str)
+                {
+                    Ok(ticket) => ticket,
+                    Err(error) =>
+                    {
+                        return Response::builder()
+                            .status(StatusCode::NOT_FOUND)
+                            .body(format!("Error: {}", error).into_bytes())
+                    }
+                };
+
+                let rule_history =
+                match history.read_rule_history(&rule_ticket)
+                {
+                    Ok(rule_history) => rule_history,
+                    Err(error) => return
+                        Response::builder()
+                            .status(StatusCode::NOT_FOUND)
+                            .body(format!("Error: {}", error).into_bytes()),
+                };
+
+                let target_tickets =
+                match rule_history.get_target_tickets(&source_ticket)
+                {
+                    Some(target_tickets) => target_tickets,
+                    None => return
+                        Response::builder()
+                            .status(StatusCode::NOT_FOUND)
+                            .body(format!("No entry for source: {}", source_ticket).into_bytes()),
+                };
+
+                Response::builder()
+                    .status(StatusCode::OK)
+                    .body(format!("{}", target_tickets.download_string()).into_bytes())
             });
 
     warp::serve(files_endpoint.or(rules_endpoint))
