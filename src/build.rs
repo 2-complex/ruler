@@ -295,6 +295,7 @@ pub fn build
         }
 
         let local_cache_clone = elements.cache.clone();
+        let downloader_cache_clone = elements.downloader_cache.clone();
 
         let command = node.command;
         let rule_history : Option<RuleHistory> =
@@ -325,7 +326,8 @@ pub fn build
                             system_clone,
                             sender_vec,
                             receiver_vec,
-                            local_cache_clone)
+                            local_cache_clone,
+                            downloader_cache_clone)
                     }
                 )
             )

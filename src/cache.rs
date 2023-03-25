@@ -1,6 +1,5 @@
 use std::boxed::Box;
 use std::fmt;
-use futures::executor::block_on;
 
 use crate::ticket::Ticket;
 use crate::ticket::TicketFactory;
@@ -10,6 +9,10 @@ use crate::system::
     SystemError,
     ReadWriteError,
 };
+use crate::downloader::
+{
+    download,
+};
 
 pub enum RestoreResult
 {
@@ -17,6 +20,12 @@ pub enum RestoreResult
     NotThere,
     CacheDirectoryMissing,
     SystemError(SystemError)
+}
+
+pub enum DownloadResult
+{
+    Done,
+    NotThere
 }
 
 pub enum OpenError
@@ -47,35 +56,39 @@ impl fmt::Display for OpenError
 #[derive(Clone)]
 pub struct DownloaderCache
 {
-    base_url : String,
+    base_urls : Vec<String>,
 }
 
 impl DownloaderCache
 {
-    pub fn new(system : SystemType, base_url : &str)
-    -> DownloaderCache
+    pub fn new(
+        base_urls : Vec<String>
+    ) -> DownloaderCache
     {
         DownloaderCache
         {
-            system_box : Box::new(system),
-            url : path.to_string(),
+            base_urls : base_urls,
         }
     }
 
     pub fn restore_file<SystemType : System>(
-        &mut self,
+        &self,
         ticket : &Ticket,
-        &mut system : SystemType,
+        system : &mut SystemType,
         target_path : &str
-    ) -> RestoreResult
+    ) -> DownloadResult
     {
-        let url = format!("{}/{}", self.base_url, ticket.base64());
-
-        match block_on(downloader::download(system, url, path))
+        for base_url in &self.base_urls
         {
-            Ok(()) => {},
-            Err(error) => println!("{}", error),
+            let url = format!("{}/{}", base_url, ticket.base64());
+            match download(system, &url, target_path)
+            {
+                Ok(()) => return DownloadResult::Done,
+                Err(_error) => {},
+            }
         }
+
+        DownloadResult::NotThere
     }
 }
 

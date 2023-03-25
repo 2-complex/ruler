@@ -9,7 +9,11 @@ use crate::history::
 {
     History,
 };
-use crate::cache::SysCache;
+use crate::cache::
+{
+    SysCache,
+    DownloaderCache,
+};
 
 use crate::system::
 {
@@ -93,6 +97,7 @@ pub fn init<SystemType : System + Clone + Send + 'static>
             Err(error) => return Err(InitDirectoryError::FailedToReadMemoryFile(error)),
         },
         cache : SysCache::new(system.clone(), &cache_path),
+        downloader_cache : DownloaderCache::new(vec!["http://127.0.0.1:8080/files".to_string()]),
         history : History::new(system.clone(), &history_path)
     })
 }
@@ -101,6 +106,7 @@ pub struct Elements<SystemType : System>
 {
     pub memory : Memory<SystemType>,
     pub cache : SysCache<SystemType>,
+    pub downloader_cache : DownloaderCache,
     pub history : History<SystemType>,
 }
 

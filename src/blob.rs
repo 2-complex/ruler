@@ -8,7 +8,9 @@ use crate::system::
 use crate::cache::
 {
     SysCache,
+    DownloaderCache,
     RestoreResult,
+    DownloadResult,
 };
 
 use crate::system::util::get_timestamp;
@@ -347,6 +349,45 @@ impl fmt::Display for ResolutionError
     }
 }
 
+fn restore_or_download<SystemType : System>
+(
+    system : &mut SystemType,
+    cache : &mut SysCache<SystemType>,
+    downloader_cache : &DownloaderCache,
+    remembered_ticket : &Ticket,
+    path : &str,
+)
+-> Result<FileResolution, ResolutionError>
+{
+    match cache.restore_file(
+        &remembered_ticket,
+        path)
+    {
+        RestoreResult::Done =>
+            return Ok(FileResolution::Recovered),
+
+        RestoreResult::NotThere => {},
+
+        RestoreResult::CacheDirectoryMissing =>
+            return Err(ResolutionError::CacheDirectoryMissing),
+
+        RestoreResult::SystemError(error) =>
+            return Err(ResolutionError::CacheMalfunction(error)),
+    }
+
+    match downloader_cache.restore_file(
+        &remembered_ticket,
+        system,
+        path)
+    {
+        DownloadResult::Done =>
+            Ok(FileResolution::Downloaded),
+
+        DownloadResult::NotThere =>
+            Ok(FileResolution::NeedsRebuild),
+    }
+}
+
 /*  Given a target-info and a remembered ticket for that target file, check the current
     ticket, and if it matches, return AlreadyCorrect.  If it doesn't match, back up the current
     file, and then attempt to restore the remembered file from cache, if the cache doesn't have it
@@ -383,46 +424,23 @@ Result<FileResolution, ResolutionError>
                 },
             }
 
-            match cache.restore_file(
-                &remembered_ticket,
+            restore_or_download(
+                system,
+                cache,
+                downloader_cache,
+                remembered_ticket,
                 &target_info.path)
-            {
-                RestoreResult::Done =>
-                    Ok(FileResolution::Recovered),
-
-                RestoreResult::NotThere =>
-                    Ok(FileResolution::NeedsRebuild),
-                    // TODO: attempt a download here
-
-                RestoreResult::CacheDirectoryMissing =>
-                    Err(ResolutionError::CacheDirectoryMissing),
-
-                RestoreResult::SystemError(error) =>
-                    Err(ResolutionError::CacheMalfunction(error)),
-            }
         },
 
         // None means the file is not there, in which case, we just try to restore/download, and then go home.
         Ok(None) =>
-        {
-            match cache.restore_file(
-                &remembered_ticket,
-                &target_info.path)
-            {
-                RestoreResult::Done =>
-                    Ok(FileResolution::Recovered),
+            restore_or_download(
+                system,
+                cache,
+                downloader_cache,
+                remembered_ticket,
+                &target_info.path),
 
-                RestoreResult::NotThere =>
-                    Ok(FileResolution::NeedsRebuild),
-                    // TODO: attempt a download here
-
-                RestoreResult::CacheDirectoryMissing =>
-                    Err(ResolutionError::CacheDirectoryMissing),
-
-                RestoreResult::SystemError(error) =>
-                    Err(ResolutionError::CacheMalfunction(error)),
-            }
-        },
         Err(error) =>
             Err(ResolutionError::TicketAlignmentError(error)),
     }
@@ -432,6 +450,7 @@ pub fn resolve_remembered_target_tickets<SystemType : System>
 (
     system : &mut SystemType,
     cache : &mut SysCache<SystemType>,
+    downloader_cache : &DownloaderCache,
     target_infos : &Vec<TargetFileInfo>,
     remembered_tickets : &TargetTickets,
 )
@@ -444,6 +463,7 @@ Result<Vec<FileResolution>, ResolutionError>
         match resolve_single_target(
             system,
             cache,
+            downloader_cache,
             &remembered_tickets.get(i),
             target_info)
         {

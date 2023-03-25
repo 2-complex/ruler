@@ -32,7 +32,8 @@ use crate::blob::
 };
 use crate::cache::
 {
-    SysCache
+    SysCache,
+    DownloaderCache,
 };
 
 use std::sync::mpsc::{Sender, Receiver, RecvError};
@@ -360,6 +361,7 @@ fn resolve_with_cache<SystemType : System>
 (
     system : &mut SystemType,
     cache : &mut SysCache<SystemType>,
+    downloader_cache : &DownloaderCache,
     rule_history : &RuleHistory,
     sources_ticket : &Ticket,
     target_infos : &Vec<TargetFileInfo>,
@@ -370,7 +372,7 @@ Result<Vec<FileResolution>, WorkError>
     match rule_history.get_target_tickets(sources_ticket)
     {
         Some(remembered_target_tickets) => match resolve_remembered_target_tickets(
-            system, cache, target_infos, remembered_target_tickets)
+            system, cache, downloader_cache, target_infos, remembered_target_tickets)
         {
             Ok(file_resolution) => Ok(file_resolution),
             Err(resolution_error) => Err(WorkError::ResolutionError(resolution_error)),
@@ -397,7 +399,8 @@ pub fn handle_node<SystemType: System>
     mut system : SystemType,
     senders : Vec<(usize, Sender<Packet>)>,
     receivers : Vec<Receiver<Packet>>,
-    mut cache : SysCache<SystemType>
+    mut cache : SysCache<SystemType>,
+    downloader_cache : DownloaderCache,
 )
 ->
 Result<WorkResult, WorkError>
@@ -423,6 +426,7 @@ Result<WorkResult, WorkError>
             match resolve_with_cache(
                 &mut system,
                 &mut cache,
+                &downloader_cache,
                 &rule_history,
                 &sources_ticket,
                 &target_infos)

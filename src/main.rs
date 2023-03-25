@@ -8,8 +8,7 @@ use clap::
     Arg,
     App,
     SubCommand,
-    AppSettings,
-    ArgMatches
+    AppSettings
 };
 use serde::
 {
@@ -17,6 +16,7 @@ use serde::
     Deserialize
 };
 use std::fmt;
+
 use crate::system::
 {
     System,
@@ -154,38 +154,6 @@ Result<Config, ConfigError>
             },
             Err(error) => Err(ConfigError::TomlSerError(error)),
         }
-    }
-}
-
-async fn do_download(matches : &ArgMatches)
-{
-    let path =
-    match matches.value_of("path")
-    {
-        Some(value) => value.to_string(),
-        None =>
-        {
-            println!("need path");
-            return;
-        },
-    };
-
-    let url =
-    match matches.value_of("url")
-    {
-        Some(value) => value.to_string(),
-        None =>
-        {
-            println!("need url");
-            return;
-        },
-    };
-
-    let mut system = RealSystem::new();
-    match downloader::download(&mut system, url, path).await
-    {
-        Ok(()) => {},
-        Err(error) => println!("{}", error),
     }
 }
 
@@ -482,7 +450,34 @@ The next time you run `ruler again`, it will repeat that `ruler build` with the 
 
     if let Some(matches) = big_matches.subcommand_matches("download")
     {
-        do_download(matches);
+        let path =
+        match matches.value_of("path")
+        {
+            Some(value) => value.to_string(),
+            None =>
+            {
+                println!("need path");
+                return;
+            },
+        };
+
+        let url =
+        match matches.value_of("url")
+        {
+            Some(value) => value.to_string(),
+            None =>
+            {
+                println!("need url");
+                return;
+            },
+        };
+
+        let mut system = RealSystem::new();
+        match downloader::download(&mut system, &url, &path)
+        {
+            Ok(()) => {},
+            Err(error) => println!("{}", error),
+        }
     }
 
     if let Some(matches) = big_matches.subcommand_matches("build")

@@ -42,21 +42,21 @@ pub async fn download
     SystemType : System
 >(
     system : &mut SystemType,
-    url : String,
-    path : String) -> Result<(), DownloadError>
+    url : &str,
+    path : &str) -> Result<(), DownloadError>
 {
     let mut file =
-    match system.create_file(&path)
+    match system.create_file(path)
     {
         Ok(file) => file,
-        Err(_error) => return Err(DownloadError::FileWouldNotCreate(path)),
+        Err(_error) => return Err(DownloadError::FileWouldNotCreate(path.to_string())),
     };
 
     let mut content =
-    match reqwest::get(&url).await
+    match reqwest::get(url).await
     {
         Ok(response) => response.bytes_stream(),
-        Err(_error) => return Err(DownloadError::UrlInaccessible(url)),
+        Err(_error) => return Err(DownloadError::UrlInaccessible(url.to_string())),
     };
 
     while let Some(item) = content.next().await
@@ -68,10 +68,10 @@ pub async fn download
                 match file.write(&chunk)
                 {
                     Ok(_) => {},
-                    Err(_) => return Err(DownloadError::FileWriteDidNotFinish(path)),
+                    Err(_) => return Err(DownloadError::FileWriteDidNotFinish(path.to_string())),
                 }
             }
-            Err(_) => return Err(DownloadError::FailedMidDownload(url)),
+            Err(_) => return Err(DownloadError::FailedMidDownload(url.to_string())),
         }
     }
 
