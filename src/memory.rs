@@ -212,14 +212,6 @@ mod test
         TargetHistory,
         write_file,
     };
-    use crate::history::
-    {
-        RuleHistory,
-    };
-    use crate::blob::
-    {
-        TargetTickets,
-    };
     use crate::ticket::{TicketFactory};
     use crate::system::util::read_file;
 

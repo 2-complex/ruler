@@ -262,7 +262,8 @@ impl fmt::Display for GetFileTicketAndTimestampError
 
     If the modified date of the file matches the one in TargetHistory exactly, it
     doesn't bother recomputing the ticket, instead it clones the ticket from the
-    target_info's history. */
+    target_info's history.
+*/
 pub fn get_file_ticket_and_timestamp<SystemType: System>
 (
     system : &SystemType,

@@ -94,7 +94,7 @@ impl<SystemType : System> SysCache<SystemType>
     pub fn open(
         &self,
         ticket : &Ticket
-    ) -> Result<SystemType::File, OpenError>
+    ) -> Result<impl std::io::Read, OpenError>
     {
         let system = &(*self.system_box);
         if system.is_dir(&self.path)
