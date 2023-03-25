@@ -355,6 +355,7 @@ pub fn resolve_single_target<SystemType : System>
 (
     system : &mut SystemType,
     cache : &mut SysCache<SystemType>,
+    downloader_cache : &DownloaderCache,
     remembered_ticket : &Ticket,
     target_info : &TargetFileInfo
 )

@@ -157,7 +157,6 @@ Result<Config, ConfigError>
     }
 }
 
-#[tokio::main]
 async fn do_download(matches : &ArgMatches)
 {
     let path =

@@ -1,5 +1,6 @@
 use std::boxed::Box;
 use std::fmt;
+use futures::executor::block_on;
 
 use crate::ticket::Ticket;
 use crate::ticket::TicketFactory;
@@ -39,6 +40,41 @@ impl fmt::Display for OpenError
 
             OpenError::SystemError(error) =>
                 write!(formatter, "Underlying System Error: {}", error),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct DownloaderCache
+{
+    base_url : String,
+}
+
+impl DownloaderCache
+{
+    pub fn new(system : SystemType, base_url : &str)
+    -> DownloaderCache
+    {
+        DownloaderCache
+        {
+            system_box : Box::new(system),
+            url : path.to_string(),
+        }
+    }
+
+    pub fn restore_file<SystemType : System>(
+        &mut self,
+        ticket : &Ticket,
+        &mut system : SystemType,
+        target_path : &str
+    ) -> RestoreResult
+    {
+        let url = format!("{}/{}", self.base_url, ticket.base64());
+
+        match block_on(downloader::download(system, url, path))
+        {
+            Ok(()) => {},
+            Err(error) => println!("{}", error),
         }
     }
 }

@@ -36,6 +36,7 @@ impl fmt::Display for DownloadError
     }
 }
 
+#[tokio::main]
 pub async fn download
 <
     SystemType : System
