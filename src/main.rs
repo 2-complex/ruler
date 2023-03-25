@@ -8,7 +8,8 @@ use clap::
     Arg,
     App,
     SubCommand,
-    AppSettings
+    AppSettings,
+    ArgMatches
 };
 use serde::
 {
@@ -44,6 +45,7 @@ mod server;
 mod system;
 mod ticket;
 mod work;
+mod downloader;
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 struct BuildInvocation
@@ -155,6 +157,39 @@ Result<Config, ConfigError>
     }
 }
 
+#[tokio::main]
+async fn do_download(matches : &ArgMatches)
+{
+    let path =
+    match matches.value_of("path")
+    {
+        Some(value) => value.to_string(),
+        None =>
+        {
+            println!("need path");
+            return;
+        },
+    };
+
+    let url =
+    match matches.value_of("url")
+    {
+        Some(value) => value.to_string(),
+        None =>
+        {
+            println!("need url");
+            return;
+        },
+    };
+
+    let mut system = RealSystem::new();
+    match downloader::download(&mut system, url, path).await
+    {
+        Ok(()) => {},
+        Err(error) => println!("{}", error),
+    }
+}
+
 /*  In the given directory, write the config object to toml file.  If any part of that
     goes wrong, error. */
 fn write_config<SystemType : System>
@@ -250,6 +285,27 @@ specified, the clean command removes all files listed as targets in any rule.
                 .multiple(true)
                 .help("Path to a custom rules file (default: build.rules)")
                 .takes_value(true))
+        )
+        .subcommand(
+            SubCommand::with_name("download")
+            .about("Downloads a file to a path")
+            .help("Downloads a file to a path")
+            .arg(Arg::with_name("url")
+                .short("u")
+                .long("url")
+                .value_name("url")
+                .multiple(false)
+                .help("URL to download from")
+                .required(true)
+                .takes_value(true)
+                .index(1)
+            )
+            .arg(Arg::with_name("path")
+                .help("path where the file should go")
+                .required(true)
+                .takes_value(true)
+                .index(2)
+            )
         )
         .subcommand(
             SubCommand::with_name("build")
@@ -423,6 +479,11 @@ The next time you run `ruler again`, it will repeat that `ruler build` with the 
             Ok(()) => {},
             Err(error) => eprintln!("{}", error),
         }
+    }
+
+    if let Some(matches) = big_matches.subcommand_matches("download")
+    {
+        do_download(matches);
     }
 
     if let Some(matches) = big_matches.subcommand_matches("build")
