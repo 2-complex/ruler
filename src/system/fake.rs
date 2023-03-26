@@ -445,6 +445,20 @@ impl Node
             Node::Dir(_) => Err(NodeError::IsExecutableOnDirectory),
         }
     }
+
+    pub fn set_is_executable(&mut self, path: &str, executable : bool) -> Result<(), NodeError>
+    {
+        let components = get_components(path);
+        match self.get_node_mut(&components)?
+        {
+            Node::File(info) =>
+            {
+                info.metadata.executable = executable;
+                Ok(())
+            },
+            Node::Dir(_) => Err(NodeError::IsExecutableOnDirectory),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -708,6 +722,15 @@ impl System for FakeSystem
         match self.get_root_node().is_executable(path)
         {
             Ok(executable) => Ok(executable),
+            Err(error) => Err(convert_node_error_to_system_error(error)),
+        }
+    }
+
+    fn set_is_executable(&mut self, path: &str, executable : bool) -> Result<(), SystemError>
+    {
+        match self.get_root_node_mut().set_is_executable(path, executable)
+        {
+            Ok(()) => Ok(()),
             Err(error) => Err(convert_node_error_to_system_error(error)),
         }
     }

@@ -183,6 +183,7 @@ pub trait System: Clone + Send + Sync
 
     fn get_modified(&self, path: &str) -> Result<SystemTime, SystemError>;
     fn is_executable(&self, path: &str) -> Result<bool, SystemError>;
+    fn set_is_executable(&mut self, path: &str, executable : bool) -> Result<(), SystemError>;
     fn execute_command(&mut self, command_list: Vec<String>) -> Result<CommandLineOutput, SystemError>;
 }
 

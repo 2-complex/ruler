@@ -48,6 +48,29 @@ pub fn is_executable(path: &str) -> Result<bool, SystemError>
     }
 }
 
+#[cfg(unix)]
+pub fn set_is_executable(path: &str, executable : bool) -> Result<(), SystemError>
+{
+    match fs::metadata(path)
+    {
+        Ok(metadata) =>
+        {
+            let mut permissions = metadata.permissions();
+            if executable
+            {
+                permissions.set_mode(permissions.mode() | 0o111);
+            }
+            else
+            {
+                let m = permissions.mode();
+                permissions.set_mode(m - (m & 0o111));
+            }
+            Ok(())
+        }
+        Err(_) => Err(SystemError::MetadataNotFound),
+    }
+}
+
 impl System for RealSystem
 {
     type File = fs::File;
@@ -135,6 +158,11 @@ impl System for RealSystem
     fn is_executable(&self, path: &str) -> Result<bool, SystemError>
     {
         is_executable(path)
+    }
+
+    fn set_is_executable(&mut self, path: &str, executable : bool) -> Result<(), SystemError>
+    {
+        set_is_executable(path, executable)
     }
 
     fn execute_command(&mut self, mut all_lines: Vec<String>) ->
