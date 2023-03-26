@@ -35,7 +35,7 @@ pub enum FileResolution
 {
     AlreadyCorrect,
     Recovered,
-    #[allow(dead_code)] Downloaded,
+    Downloaded,
     NeedsRebuild,
 }
 
@@ -43,6 +43,13 @@ pub struct TargetFileInfo
 {
     pub path : String,
     pub history : TargetHistory,
+}
+
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
+struct TargetContentInfo
+{
+    pub ticket : Ticket,
+    executable : bool,
 }
 
 pub enum BlobError
@@ -57,17 +64,26 @@ pub enum BlobError
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
 pub struct TargetTickets
 {
-    tickets : Vec<Ticket>,
+    infos : Vec<TargetContentInfo>,
 }
 
 impl TargetTickets
 {
     pub fn from_vec(tickets : Vec<Ticket>) -> TargetTickets
     {
-        TargetTickets
+        let mut infos = vec![];
+        for ticket in tickets
         {
-            tickets : tickets
+            infos.push(
+                TargetContentInfo
+                {
+                    ticket : ticket,
+                    executable : false,
+                }
+            );
         }
+
+        TargetTickets{infos : infos}
     }
 
     /*  Takes a TargetTickets and looks at how the lists differ.
@@ -87,9 +103,9 @@ impl TargetTickets
     ->
     Result<(), BlobError>
     {
-        let elen : usize = self.tickets.len();
+        let elen : usize = self.infos.len();
 
-        if elen != other.tickets.len()
+        if elen != other.infos.len()
         {
             Err(BlobError::TargetSizesDifferWeird)
         }
@@ -98,7 +114,7 @@ impl TargetTickets
             let mut contradicting_indices = Vec::new();
             for i in 0..elen
             {
-                if self.tickets[i] != other.tickets[i]
+                if self.infos[i].ticket != other.infos[i].ticket
                 {
                     contradicting_indices.push(i);
                 }
@@ -120,7 +136,7 @@ impl TargetTickets
         i : usize)
     -> Ticket
     {
-        self.tickets[i].clone()
+        self.infos[i].ticket.clone()
     }
 
     /*  Currently used by a display function, hence the formatting. */
@@ -128,10 +144,10 @@ impl TargetTickets
     -> String
     {
         let mut out = String::new();
-        for ticket in self.tickets.iter()
+        for info in self.infos.iter()
         {
             out.push_str("    ");
-            out.push_str(&ticket.base64());
+            out.push_str(&info.ticket.base64());
             out.push_str("\n");
         }
         out
@@ -142,9 +158,9 @@ impl TargetTickets
     -> String
     {
         let mut out = String::new();
-        for ticket in self.tickets.iter()
+        for info in self.infos.iter()
         {
-            out.push_str(&ticket.base64());
+            out.push_str(&info.ticket.base64());
             out.push_str("\n");
         }
         out

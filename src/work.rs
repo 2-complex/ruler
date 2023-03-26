@@ -1,4 +1,7 @@
-use crate::packet::Packet;
+use crate::packet::
+{
+    Packet,
+};
 use crate::ticket::
 {
     Ticket,
@@ -16,7 +19,6 @@ use crate::history::
     RuleHistory,
     RuleHistoryInsertError,
 };
-
 use crate::blob::
 {
     TargetHistory,
@@ -36,7 +38,10 @@ use crate::cache::
     DownloaderCache,
 };
 
-use std::sync::mpsc::{Sender, Receiver, RecvError};
+use std::sync::mpsc::
+{
+    Sender, Receiver, RecvError
+};
 use std::fmt;
 
 pub enum WorkOption
