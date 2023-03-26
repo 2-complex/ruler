@@ -26,9 +26,9 @@ use crate::blob::
     FileResolution,
     TargetFileInfo,
     ResolutionError,
-    GetFileCurrentInfoError,
+    GetCurrentFileInfoError,
     get_file_ticket,
-    get_file_current_info,
+    get_current_file_info,
     resolve_remembered_target_tickets,
     resolve_with_no_memory,
 };
@@ -69,7 +69,7 @@ pub enum WorkError
     FileNotAvailableToCache(String, ReadWriteError),
     ReadWriteError(String, ReadWriteError),
     ResolutionError(ResolutionError),
-    GetFileCurrentInfoError(GetFileCurrentInfoError),
+    GetCurrentFileInfoError(GetCurrentFileInfoError),
     CommandExecutedButErrored,
     CommandFailedToExecute(SystemError),
     Contradiction(Vec<String>),
@@ -110,7 +110,7 @@ impl fmt::Display for WorkError
             WorkError::ResolutionError(error) =>
                 write!(formatter, "Error resolving rule: {}", error),
 
-            WorkError::GetFileCurrentInfoError(error) =>
+            WorkError::GetCurrentFileInfoError(error) =>
                 write!(formatter, "Error getting ticket and timestamp: {}", error),
 
             WorkError::CommandExecutedButErrored =>
@@ -277,80 +277,80 @@ fn rebuild_node<SystemType : System>
 ->
 Result<WorkResult, WorkError>
 {
+    let command_result =
     match system.execute_command(command)
     {
-        Ok(command_result) =>
-        {
-            if ! command_result.success
-            {
-                return Err(WorkError::CommandExecutedButErrored);
-            }
-
-            let mut post_command_target_tickets = Vec::new();
-            for target_info in target_infos.iter_mut()
-            {
-                match get_file_current_info(system, &target_info)
-                {
-                    Ok(current_info) =>
-                    {
-                        target_info.history = TargetHistory::new(current_info.ticket.clone(), current_info.timestamp);
-                        post_command_target_tickets.push(current_info.ticket);
-                    },
-                    Err(GetFileCurrentInfoError::TargetFileNotFound(path, _system_error)) => return Err(WorkError::TargetFileNotGenerated(path)),
-                    Err(error) => return Err(WorkError::GetFileCurrentInfoError(error)),
-                }
-            }
-
-            for (sub_index, sender) in senders
-            {
-                match sender.send(Packet::from_ticket(
-                    post_command_target_tickets[sub_index].clone()))
-                {
-                    Ok(_) => {},
-                    Err(_error) =>
-                    {
-                        return Err(WorkError::SenderError);
-                    },
-                }
-            }
-
-            match rule_history.insert(sources_ticket, TargetTickets::from_vec(post_command_target_tickets))
-            {
-                Ok(_) => {},
-                Err(error) =>
-                {
-                    match error
-                    {
-                        RuleHistoryInsertError::Contradiction(contradicting_indices) =>
-                        {
-                            let mut contradicting_target_paths = Vec::new();
-                            for index in contradicting_indices
-                            {
-                                contradicting_target_paths.push(target_infos[index].path.clone())
-                            }
-                            return Err(WorkError::Contradiction(contradicting_target_paths));
-                        }
-
-                        RuleHistoryInsertError::TargetSizesDifferWeird =>
-                            return Err(WorkError::Weird),
-                    }
-                },
-            }
-
-            Ok(
-                WorkResult
-                {
-                    target_infos : target_infos,
-                    work_option : WorkOption::CommandExecuted(command_result),
-                    rule_history : Some(rule_history),
-                }
-            )
-        },
+        Ok(command_result) => command_result,
         Err(error) =>
         {
-            return Err(WorkError::CommandFailedToExecute(error))
+            return Err(WorkError::CommandFailedToExecute(error));
+        },
+    };
+
+    if ! command_result.success
+    {
+        return Err(WorkError::CommandExecutedButErrored);
+    }
+
+    let mut post_command_target_tickets = vec![];
+    for target_info in target_infos.iter_mut()
+    {
+        match get_current_file_info(system, &target_info)
+        {
+            Ok(current_info) =>
+            {
+                target_info.history = TargetHistory::new(current_info.ticket.clone(), current_info.timestamp);
+                post_command_target_tickets.push(current_info.ticket);
+            },
+            Err(GetCurrentFileInfoError::TargetFileNotFound(path, _system_error)) => return Err(WorkError::TargetFileNotGenerated(path)),
+            Err(error) => return Err(WorkError::GetCurrentFileInfoError(error)),
+        }
+    }
+
+    for (sub_index, sender) in senders
+    {
+        match sender.send(Packet::from_ticket(
+            post_command_target_tickets[sub_index].clone()))
+        {
+            Ok(_) => {},
+            Err(_error) =>
+            {
+                return Err(WorkError::SenderError);
+            },
+        }
+    }
+
+    match rule_history.insert(sources_ticket, TargetTickets::from_vec(post_command_target_tickets))
+    {
+        Ok(_) => {},
+        Err(error) =>
+        {
+            match error
+            {
+                RuleHistoryInsertError::Contradiction(contradicting_indices) =>
+                {
+                    let mut contradicting_target_paths = Vec::new();
+                    for index in contradicting_indices
+                    {
+                        contradicting_target_paths.push(target_infos[index].path.clone())
+                    }
+                    return Err(WorkError::Contradiction(contradicting_target_paths));
+                }
+
+                RuleHistoryInsertError::TargetSizesDifferWeird =>
+                    return Err(WorkError::Weird),
+            }
         },
     }
+
+    Ok(
+        WorkResult
+        {
+            target_infos : target_infos,
+            work_option : WorkOption::CommandExecuted(command_result),
+            rule_history : Some(rule_history),
+        }
+    )
 }
 
 /*  Takes a vector of target_infos and attempts to resolve the targets using cache or download-urls.
@@ -697,11 +697,7 @@ mod test
             &TargetFileInfo
             {
                 path : "game.cpp".to_string(),
-                history : TargetHistory
-                {
-                    ticket : TicketFactory::new().result(),
-                    timestamp : 0,
-                }
+                history : TargetHistory::new_with_ticket(TicketFactory::new().result()),
             })
         {
             Ok(ticket_opt) =>

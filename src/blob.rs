@@ -204,12 +204,6 @@ pub struct TargetHistory
 {
     pub ticket : Ticket,
     pub timestamp : u64,
-}
-
-pub struct FileCurrentInfo
-{
-    pub ticket : Ticket,
-    pub timestamp : u64,
     pub executable : bool,
 }
 
@@ -222,6 +216,7 @@ impl TargetHistory
         {
             ticket : TicketFactory::new().result(),
             timestamp : 0,
+            executable : false,
         }
     }
 
@@ -233,6 +228,30 @@ impl TargetHistory
         {
             ticket : ticket,
             timestamp : timestamp,
+            executable : false,
+        }
+    }
+
+    pub fn new_with_ticket(
+        ticket : Ticket) -> TargetHistory
+    {
+        TargetHistory
+        {
+            ticket : ticket,
+            timestamp : 0,
+            executable : false,
+        }
+    }
+
+    pub fn new_executable(
+        ticket : Ticket,
+        timestamp : u64) -> TargetHistory
+    {
+        TargetHistory
+        {
+            ticket : ticket,
+            timestamp : timestamp,
+            executable : true,
         }
     }
 }
@@ -270,7 +289,7 @@ pub fn get_file_ticket<SystemType: System>
     get_file_ticket_from_path(system, &target_info.path)
 }
 
-pub enum GetFileCurrentInfoError
+pub enum GetCurrentFileInfoError
 {
     ErrorConveratingModifiedDateToNumber(String, SystemTimeError),
     ErrorGettingFilePermissions(String, SystemError),
@@ -278,22 +297,22 @@ pub enum GetFileCurrentInfoError
     TargetFileNotFound(String, SystemError),
 }
 
-impl fmt::Display for GetFileCurrentInfoError
+impl fmt::Display for GetCurrentFileInfoError
 {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
     {
         match self
         {
-            GetFileCurrentInfoError::ErrorConveratingModifiedDateToNumber(path, error) =>
+            GetCurrentFileInfoError::ErrorConveratingModifiedDateToNumber(path, error) =>
                 write!(formatter, "Error converting from system time to number. File: {} Error: {}", path, error),
 
-            GetFileCurrentInfoError::ErrorGettingFilePermissions(path, error) =>
+            GetCurrentFileInfoError::ErrorGettingFilePermissions(path, error) =>
                 write!(formatter, "Error getting executable permission from file. File: {} Error: {}", path, error),
 
-            GetFileCurrentInfoError::ErrorGettingTicketForFile(path, error) =>
+            GetCurrentFileInfoError::ErrorGettingTicketForFile(path, error) =>
                 write!(formatter, "Read/write error while hashing file contents: File: {} Error: {}", path, error),
 
-            GetFileCurrentInfoError::TargetFileNotFound(path, error) =>
+            GetCurrentFileInfoError::TargetFileNotFound(path, error) =>
                 write!(formatter, "System error while attempting to read file: {} Error: {}", path, error),
         }
     }
@@ -306,12 +325,12 @@ impl fmt::Display for GetFileCurrentInfoError
     doesn't bother recomputing the ticket, instead it clones the ticket from the
     target_info's history.
 */
-pub fn get_file_current_info<SystemType: System>
+pub fn get_current_file_info<SystemType: System>
 (
     system : &SystemType,
     target_info : &TargetFileInfo
 )
--> Result<FileCurrentInfo, GetFileCurrentInfoError>
+-> Result<TargetHistory, GetCurrentFileInfoError>
 {
     let system_time =
     match system.get_modified(&target_info.path)
@@ -321,7 +340,7 @@ pub fn get_file_current_info<SystemType: System>
         // Note: possibly there are other ways get_modified can fail than the file being absent.
         // Maybe this logic should change.
         Err(system_error) => return Err(
-            GetFileCurrentInfoError::TargetFileNotFound(
+            GetCurrentFileInfoError::TargetFileNotFound(
                 target_info.path.clone(), system_error)),
     };
 
@@ -329,7 +348,7 @@ pub fn get_file_current_info<SystemType: System>
     match get_timestamp(system_time)
     {
         Ok(timestamp) => timestamp,
-        Err(error) => return Err(GetFileCurrentInfoError::ErrorConveratingModifiedDateToNumber(
+        Err(error) => return Err(GetCurrentFileInfoError::ErrorConveratingModifiedDateToNumber(
             target_info.path.clone(), error)),
     };
 
@@ -337,14 +356,14 @@ pub fn get_file_current_info<SystemType: System>
     match system.is_executable(&target_info.path)
     {
         Ok(executable) => executable,
-        Err(system_error) => return Err(GetFileCurrentInfoError::ErrorGettingFilePermissions(
+        Err(system_error) => return Err(GetCurrentFileInfoError::ErrorGettingFilePermissions(
             target_info.path.clone(), system_error))
     };
 
     if timestamp == target_info.history.timestamp
     {
         return Ok(
-            FileCurrentInfo
+            TargetHistory
             {
                 ticket : target_info.history.ticket.clone(),
                 timestamp : timestamp,
@@ -356,13 +375,13 @@ pub fn get_file_current_info<SystemType: System>
     match TicketFactory::from_file(system, &target_info.path)
     {
         Ok(mut factory) => Ok(
-            FileCurrentInfo
+            TargetHistory
             {
                 ticket : factory.result(),
                 timestamp : timestamp,
                 executable : executable
             }),
-        Err(read_write_error) => Err(GetFileCurrentInfoError::ErrorGettingTicketForFile(
+        Err(read_write_error) => Err(GetCurrentFileInfoError::ErrorGettingTicketForFile(
             target_info.path.clone(),
             read_write_error)),
     }
@@ -718,11 +737,7 @@ mod test
             &TargetFileInfo
             {
                 path : "quine.sh".to_string(),
-                history : TargetHistory
-                {
-                    ticket : TicketFactory::new().result(),
-                    timestamp : 0,
-                }
+                history : TargetHistory::new_with_ticket(TicketFactory::new().result())
             })
         {
             Ok(ticket_opt) => match ticket_opt
@@ -750,11 +765,7 @@ mod test
         let target_file_info = TargetFileInfo
         {
             path : "game.cpp".to_string(),
-            history : TargetHistory
-            {
-                ticket : content_ticket.clone(),
-                timestamp : 11,
-            }
+            history : TargetHistory::new(content_ticket.clone(), 11),
         };
 
         // Meanwhile, in the filesystem put some incorrect rubbish in game.cpp
@@ -801,11 +812,7 @@ mod test
         let target_file_info = TargetFileInfo
         {
             path : "game.cpp".to_string(),
-            history : TargetHistory
-            {
-                ticket : previous_ticket.clone(),
-                timestamp : 9,
-            }
+            history : TargetHistory::new(previous_ticket.clone(), 9),
         };
 
         // Meanwhile, in the filesystem, put new and improved game.cpp
