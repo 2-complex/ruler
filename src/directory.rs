@@ -50,7 +50,7 @@ impl fmt::Display for InitDirectoryError
     }
 }
 
-pub fn init<SystemType : System + Clone + Send + 'static>
+pub fn init<SystemType : System>
 (
     system : &mut SystemType,
     directory : &str
