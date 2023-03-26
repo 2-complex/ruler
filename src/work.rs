@@ -21,12 +21,12 @@ use crate::history::
 };
 use crate::blob::
 {
-    TargetHistory,
     TargetTickets,
     FileResolution,
     TargetFileInfo,
     ResolutionError,
     GetCurrentFileInfoError,
+    TargetContentInfo,
     get_file_ticket,
     get_current_file_info,
     resolve_remembered_target_tickets,
@@ -292,15 +292,20 @@ Result<WorkResult, WorkError>
         return Err(WorkError::CommandExecutedButErrored);
     }
 
-    let mut post_command_target_tickets = vec![];
+    let mut infos = vec![];
     for target_info in target_infos.iter_mut()
     {
         match get_current_file_info(system, &target_info)
         {
             Ok(current_info) =>
             {
-                target_info.history = TargetHistory::new(current_info.ticket.clone(), current_info.timestamp);
-                post_command_target_tickets.push(current_info.ticket);
+                target_info.history = current_info.clone();
+                infos.push(
+                    TargetContentInfo
+                    {
+                        ticket : current_info.ticket,
+                        executable : current_info.executable,
+                    });
             },
             Err(GetCurrentFileInfoError::TargetFileNotFound(path, _system_error)) => return Err(WorkError::TargetFileNotGenerated(path)),
             Err(error) => return Err(WorkError::GetCurrentFileInfoError(error)),
@@ -310,7 +315,7 @@ Result<WorkResult, WorkError>
     for (sub_index, sender) in senders
     {
         match sender.send(Packet::from_ticket(
-            post_command_target_tickets[sub_index].clone()))
+            infos[sub_index].ticket.clone()))
         {
             Ok(_) => {},
             Err(_error) =>
@@ -320,7 +325,7 @@ Result<WorkResult, WorkError>
         }
     }
 
-    match rule_history.insert(sources_ticket, TargetTickets::from_vec(post_command_target_tickets))
+    match rule_history.insert(sources_ticket, TargetTickets::from_infos(infos))
     {
         Ok(_) => {},
         Err(error) =>

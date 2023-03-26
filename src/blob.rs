@@ -46,10 +46,10 @@ pub struct TargetFileInfo
 }
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
-struct TargetContentInfo
+pub struct TargetContentInfo
 {
     pub ticket : Ticket,
-    executable : bool,
+    pub executable : bool,
 }
 
 pub enum BlobError
@@ -69,6 +69,7 @@ pub struct TargetTickets
 
 impl TargetTickets
 {
+    #[cfg(test)]
     pub fn from_vec(tickets : Vec<Ticket>) -> TargetTickets
     {
         let mut infos = vec![];
@@ -83,6 +84,11 @@ impl TargetTickets
             );
         }
 
+        TargetTickets{infos : infos}
+    }
+
+    pub fn from_infos(infos : Vec<TargetContentInfo>) -> TargetTickets
+    {
         TargetTickets{infos : infos}
     }
 
@@ -131,12 +137,12 @@ impl TargetTickets
         }
     }
 
-    fn get(
+    fn get_info(
         &self,
         i : usize)
-    -> Ticket
+    -> TargetContentInfo
     {
-        self.infos[i].ticket.clone()
+        self.infos[i].clone()
     }
 
     /*  Currently used by a display function, hence the formatting. */
@@ -199,7 +205,7 @@ pub fn get_file_ticket_from_path<SystemType: System>
 
     TargetHistory is a small struct meant to be the type of a value in the map 'target_histories' whose purpose is to
     help ruler tell if a target is up-to-date */
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub struct TargetHistory
 {
     pub ticket : Ticket,
@@ -220,6 +226,7 @@ impl TargetHistory
         }
     }
 
+    #[cfg(test)]
     pub fn new(
         ticket : Ticket,
         timestamp : u64) -> TargetHistory
@@ -232,6 +239,7 @@ impl TargetHistory
         }
     }
 
+    #[cfg(test)]
     pub fn new_with_ticket(
         ticket : Ticket) -> TargetHistory
     {
@@ -240,18 +248,6 @@ impl TargetHistory
             ticket : ticket,
             timestamp : 0,
             executable : false,
-        }
-    }
-
-    pub fn new_executable(
-        ticket : Ticket,
-        timestamp : u64) -> TargetHistory
-    {
-        TargetHistory
-        {
-            ticket : ticket,
-            timestamp : timestamp,
-            executable : true,
         }
     }
 }
@@ -421,14 +417,14 @@ fn restore_or_download<SystemType : System>
     system : &mut SystemType,
     cache : &mut SysCache<SystemType>,
     downloader_cache : &DownloaderCache,
-    remembered_ticket : &Ticket,
-    path : &str,
+    remembered_target_content_info : &TargetContentInfo,
+    target_info : &TargetFileInfo
 )
 -> Result<FileResolution, ResolutionError>
 {
     match cache.restore_file(
-        &remembered_ticket,
-        path)
+        &remembered_target_content_info.ticket,
+        &target_info.path)
     {
         RestoreResult::Done =>
             return Ok(FileResolution::Recovered),
@@ -443,15 +439,23 @@ fn restore_or_download<SystemType : System>
     }
 
     match downloader_cache.restore_file(
-        &remembered_ticket,
+        &remembered_target_content_info.ticket,
         system,
-        path)
+        &target_info.path)
     {
-        DownloadResult::Done =>
-            Ok(FileResolution::Downloaded),
-
+        DownloadResult::Done => {}
         DownloadResult::NotThere =>
-            Ok(FileResolution::NeedsRebuild),
+            return Ok(FileResolution::NeedsRebuild),
+    }
+
+    match system.set_is_executable(&target_info.path, remembered_target_content_info.executable)
+    {
+        Err(_) =>
+        {
+            println!("Warning: failed to set executable");
+            Ok(FileResolution::Downloaded)
+        },
+        Ok(_) => Ok(FileResolution::Downloaded)
     }
 }
 
@@ -464,7 +468,7 @@ pub fn resolve_single_target<SystemType : System>
     system : &mut SystemType,
     cache : &mut SysCache<SystemType>,
     downloader_cache : &DownloaderCache,
-    remembered_ticket : &Ticket,
+    remembered_target_content_info : &TargetContentInfo,
     target_info : &TargetFileInfo
 )
 ->
@@ -474,7 +478,7 @@ Result<FileResolution, ResolutionError>
     {
         Ok(Some(current_target_ticket)) =>
         {
-            if *remembered_ticket == current_target_ticket
+            if remembered_target_content_info.ticket == current_target_ticket
             {
                 return Ok(FileResolution::AlreadyCorrect);
             }
@@ -495,8 +499,8 @@ Result<FileResolution, ResolutionError>
                 system,
                 cache,
                 downloader_cache,
-                remembered_ticket,
-                &target_info.path)
+                remembered_target_content_info,
+                target_info)
         },
 
         // None means the file is not there, in which case, we just try to restore/download, and then go home.
@@ -505,8 +509,8 @@ Result<FileResolution, ResolutionError>
                 system,
                 cache,
                 downloader_cache,
-                remembered_ticket,
-                &target_info.path),
+                remembered_target_content_info,
+                target_info),
 
         Err(error) =>
             Err(ResolutionError::TicketAlignmentError(error)),
@@ -531,7 +535,7 @@ Result<Vec<FileResolution>, ResolutionError>
             system,
             cache,
             downloader_cache,
-            &remembered_tickets.get(i),
+            &remembered_tickets.get_info(i),
             target_info)
         {
             Ok(resolution) => resolutions.push(resolution),

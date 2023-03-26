@@ -55,15 +55,14 @@ pub fn set_is_executable(path: &str, executable : bool) -> Result<(), SystemErro
     {
         Ok(metadata) =>
         {
-            let mut permissions = metadata.permissions();
+            let m = metadata.permissions().mode();
             if executable
             {
-                permissions.set_mode(permissions.mode() | 0o111);
+                fs::set_permissions(path, fs::Permissions::from_mode(m | 0o111)).unwrap();
             }
             else
             {
-                let m = permissions.mode();
-                permissions.set_mode(m - (m & 0o111));
+                fs::set_permissions(path, fs::Permissions::from_mode(m - (m & 0o111))).unwrap();
             }
             Ok(())
         }
