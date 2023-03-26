@@ -439,7 +439,7 @@ mod test
         }
         drop(history);
 
-        let mut history2 = History::new(system, "history");
+        let history2 = History::new(system, "history");
         let rule_history2 =
         match history2.read_rule_history(&rule_ticket)
         {
@@ -483,7 +483,7 @@ mod test
             Err(error) => panic!("Could not write to file: {}", error),
         }
 
-        let mut history = History::new(system.clone(), "history");
+        let history = History::new(system.clone(), "history");
         match history.read_rule_history(&rule_ticket)
         {
             Ok(_rule_history) => panic!("Rule history read when error expected."),

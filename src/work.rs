@@ -535,12 +535,12 @@ mod test
 {
     use crate::work::
     {
-        handle_node,
         FileResolution,
         WorkResult,
         WorkOption,
         WorkError,
         TargetFileInfo,
+        handle_node,
         wait_for_sources_ticket,
     };
     use crate::ticket::
@@ -560,7 +560,11 @@ mod test
         get_file_ticket
     };
     use crate::packet::Packet;
-    use crate::cache::SysCache;
+    use crate::cache::
+    {
+        SysCache,
+        DownloaderCache,
+    };
     use crate::system::util::
     {
         write_str_to_file,
@@ -751,7 +755,8 @@ mod test
             system.clone(),
             Vec::new(),
             Vec::new(),
-            SysCache::new(system.clone(), ".ruler-cache"))
+            SysCache::new(system.clone(), ".ruler-cache"),
+            DownloaderCache::new(vec![]))
         {
             Ok(result) =>
             {
@@ -811,7 +816,8 @@ mod test
             system.clone(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
-            SysCache::new(system.clone(), ".ruler-cache"))
+            SysCache::new(system.clone(), ".ruler-cache"),
+            DownloaderCache::new(vec![]))
         {
             Ok(result) =>
             {
@@ -885,7 +891,8 @@ mod test
             system.clone(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
-            SysCache::new(system.clone(), ".ruler-cache"))
+            SysCache::new(system.clone(), ".ruler-cache"),
+            DownloaderCache::new(vec![]))
         {
             Ok(_) => panic!("Unexpected command success"),
             Err(WorkError::CommandExecutedButErrored) =>
@@ -946,7 +953,8 @@ mod test
             system.clone(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
-            SysCache::new(system.clone(), ".ruler-cache"))
+            SysCache::new(system.clone(), ".ruler-cache"),
+            DownloaderCache::new(vec![]))
         {
             Ok(_) => panic!("Unexpected command success"),
             Err(WorkError::TargetFileNotGenerated(path)) =>
@@ -1002,7 +1010,8 @@ mod test
             system.clone(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
-            SysCache::new(system.clone(), ".ruler-cache"))
+            SysCache::new(system.clone(), ".ruler-cache"),
+            DownloaderCache::new(vec![]))
         {
             Ok(result) =>
             {
@@ -1110,7 +1119,8 @@ mod test
             system.clone(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
-            SysCache::new(system.clone(), ".ruler-cache"))
+            SysCache::new(system.clone(), ".ruler-cache"),
+            DownloaderCache::new(vec![]))
         {
             Ok(result) =>
             {
@@ -1231,7 +1241,8 @@ mod test
             system.clone(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
-            SysCache::new(system.clone(), ".ruler-cache"))
+            SysCache::new(system.clone(), ".ruler-cache"),
+            DownloaderCache::new(vec![]))
         {
             Ok(_result) =>
             {
@@ -1313,7 +1324,8 @@ mod test
             system.clone(),
             vec![(0, sender_c)],
             vec![receiver_a, receiver_b],
-            SysCache::new(system.clone(), ".ruler-cache"))
+            SysCache::new(system.clone(), ".ruler-cache"),
+            DownloaderCache::new(vec![]))
         {
             Ok(result) =>
             {
@@ -1376,7 +1388,8 @@ mod test
             system.clone(),
             vec![],
             vec![],
-            SysCache::new(system.clone(), ".ruler-cache"))
+            SysCache::new(system.clone(), ".ruler-cache"),
+            DownloaderCache::new(vec![]))
         {
             Ok(_) =>
             {
@@ -1412,7 +1425,8 @@ mod test
             system.clone(),
             vec![],
             vec![],
-            SysCache::new(system.clone(), ".rule-cache"))
+            SysCache::new(system.clone(), ".rule-cache"),
+            DownloaderCache::new(vec![]))
         {
             Ok(_) =>
             {
@@ -1450,7 +1464,8 @@ mod test
                     system.clone(),
                     senders,
                     receivers,
-                    SysCache::new(system.clone(), ".ruler-cache"))
+                    SysCache::new(system.clone(), ".ruler-cache"),
+                    DownloaderCache::new(vec![]))
             }
         )
     }
