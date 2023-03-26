@@ -206,6 +206,13 @@ pub struct TargetHistory
     pub timestamp : u64,
 }
 
+pub struct FileCurrentInfo
+{
+    pub ticket : Ticket,
+    pub timestamp : u64,
+    pub executable : bool,
+}
+
 impl TargetHistory
 {
     /*  Create a new empty TargetHistory */
@@ -263,26 +270,30 @@ pub fn get_file_ticket<SystemType: System>
     get_file_ticket_from_path(system, &target_info.path)
 }
 
-pub enum GetFileTicketAndTimestampError
+pub enum GetFileCurrentInfoError
 {
     ErrorConveratingModifiedDateToNumber(String, SystemTimeError),
+    ErrorGettingFilePermissions(String, SystemError),
     ErrorGettingTicketForFile(String, ReadWriteError),
     TargetFileNotFound(String, SystemError),
 }
 
-impl fmt::Display for GetFileTicketAndTimestampError
+impl fmt::Display for GetFileCurrentInfoError
 {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
     {
         match self
         {
-            GetFileTicketAndTimestampError::ErrorConveratingModifiedDateToNumber(path, error) =>
+            GetFileCurrentInfoError::ErrorConveratingModifiedDateToNumber(path, error) =>
                 write!(formatter, "Error converting from system time to number. File: {} Error: {}", path, error),
 
-            GetFileTicketAndTimestampError::ErrorGettingTicketForFile(path, error) =>
+            GetFileCurrentInfoError::ErrorGettingFilePermissions(path, error) =>
+                write!(formatter, "Error getting executable permission from file. File: {} Error: {}", path, error),
+
+            GetFileCurrentInfoError::ErrorGettingTicketForFile(path, error) =>
                 write!(formatter, "Read/write error while hashing file contents: File: {} Error: {}", path, error),
 
-            GetFileTicketAndTimestampError::TargetFileNotFound(path, error) =>
+            GetFileCurrentInfoError::TargetFileNotFound(path, error) =>
                 write!(formatter, "System error while attempting to read file: {} Error: {}", path, error),
         }
     }
@@ -295,44 +306,65 @@ impl fmt::Display for GetFileTicketAndTimestampError
     doesn't bother recomputing the ticket, instead it clones the ticket from the
     target_info's history.
 */
-pub fn get_file_ticket_and_timestamp<SystemType: System>
+pub fn get_file_current_info<SystemType: System>
 (
     system : &SystemType,
     target_info : &TargetFileInfo
 )
--> Result<(Ticket, u64), GetFileTicketAndTimestampError>
+-> Result<FileCurrentInfo, GetFileCurrentInfoError>
 {
+    let system_time =
     match system.get_modified(&target_info.path)
     {
-        Ok(system_time) =>
-        {
-            match get_timestamp(system_time)
-            {
-                Ok(timestamp) =>
-                {
-                    if timestamp == target_info.history.timestamp
-                    {
-                        Ok((target_info.history.ticket.clone(), timestamp))
-                    }
-                    else
-                    {
-                        match TicketFactory::from_file(system, &target_info.path)
-                        {
-                            Ok(mut factory) => Ok((factory.result(), timestamp)),
-                            Err(read_write_error) => Err(GetFileTicketAndTimestampError::ErrorGettingTicketForFile(
-                                target_info.path.clone(),
-                                read_write_error)),
-                        }
-                    }
-                },
-                Err(error) => Err(GetFileTicketAndTimestampError::ErrorConveratingModifiedDateToNumber(
-                    target_info.path.clone(), error)),
-            }
-        },
+        Ok(system_time) => system_time,
 
         // Note: possibly there are other ways get_modified can fail than the file being absent.
         // Maybe this logic should change.
-        Err(system_error) => Err(GetFileTicketAndTimestampError::TargetFileNotFound(target_info.path.clone(), system_error)),
+        Err(system_error) => return Err(
+            GetFileCurrentInfoError::TargetFileNotFound(
+                target_info.path.clone(), system_error)),
+    };
+
+    let timestamp =
+    match get_timestamp(system_time)
+    {
+        Ok(timestamp) => timestamp,
+        Err(error) => return Err(GetFileCurrentInfoError::ErrorConveratingModifiedDateToNumber(
+            target_info.path.clone(), error)),
+    };
+
+    let executable =
+    match system.is_executable(&target_info.path)
+    {
+        Ok(executable) => executable,
+        Err(system_error) => return Err(GetFileCurrentInfoError::ErrorGettingFilePermissions(
+            target_info.path.clone(), system_error))
+    };
+
+    if timestamp == target_info.history.timestamp
+    {
+        return Ok(
+            FileCurrentInfo
+            {
+                ticket : target_info.history.ticket.clone(),
+                timestamp : timestamp,
+                executable : executable
+            }
+        )
+    }
+
+    match TicketFactory::from_file(system, &target_info.path)
+    {
+        Ok(mut factory) => Ok(
+            FileCurrentInfo
+            {
+                ticket : factory.result(),
+                timestamp : timestamp,
+                executable : executable
+            }),
+        Err(read_write_error) => Err(GetFileCurrentInfoError::ErrorGettingTicketForFile(
+            target_info.path.clone(),
+            read_write_error)),
     }
 }
 

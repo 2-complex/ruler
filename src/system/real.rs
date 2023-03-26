@@ -35,6 +35,18 @@ fn convert_io_error_to_system_error(error : std::io::Error) -> SystemError
     }
 }
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
+#[cfg(unix)]
+pub fn is_executable(path: &str) -> Result<bool, SystemError>
+{
+    match fs::metadata(path)
+    {
+        Ok(metadata) => Ok(metadata.permissions().mode() & 0o111 != 0),
+        Err(_) => Err(SystemError::MetadataNotFound),
+    }
+}
 
 impl System for RealSystem
 {
@@ -118,6 +130,11 @@ impl System for RealSystem
             },
             Err(_) => Err(SystemError::MetadataNotFound)
         }
+    }
+
+    fn is_executable(&self, path: &str) -> Result<bool, SystemError>
+    {
+        is_executable(path)
     }
 
     fn execute_command(&mut self, mut all_lines: Vec<String>) ->

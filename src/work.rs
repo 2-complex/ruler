@@ -26,9 +26,9 @@ use crate::blob::
     FileResolution,
     TargetFileInfo,
     ResolutionError,
-    GetFileTicketAndTimestampError,
+    GetFileCurrentInfoError,
     get_file_ticket,
-    get_file_ticket_and_timestamp,
+    get_file_current_info,
     resolve_remembered_target_tickets,
     resolve_with_no_memory,
 };
@@ -69,7 +69,7 @@ pub enum WorkError
     FileNotAvailableToCache(String, ReadWriteError),
     ReadWriteError(String, ReadWriteError),
     ResolutionError(ResolutionError),
-    GetFileTicketAndTimestampError(GetFileTicketAndTimestampError),
+    GetFileCurrentInfoError(GetFileCurrentInfoError),
     CommandExecutedButErrored,
     CommandFailedToExecute(SystemError),
     Contradiction(Vec<String>),
@@ -110,7 +110,7 @@ impl fmt::Display for WorkError
             WorkError::ResolutionError(error) =>
                 write!(formatter, "Error resolving rule: {}", error),
 
-            WorkError::GetFileTicketAndTimestampError(error) =>
+            WorkError::GetFileCurrentInfoError(error) =>
                 write!(formatter, "Error getting ticket and timestamp: {}", error),
 
             WorkError::CommandExecutedButErrored =>
@@ -289,15 +289,15 @@ Result<WorkResult, WorkError>
             let mut post_command_target_tickets = Vec::new();
             for target_info in target_infos.iter_mut()
             {
-                match get_file_ticket_and_timestamp(system, &target_info)
+                match get_file_current_info(system, &target_info)
                 {
-                    Ok((ticket, timestamp)) =>
+                    Ok(current_info) =>
                     {
-                        target_info.history = TargetHistory::new(ticket.clone(), timestamp);
-                        post_command_target_tickets.push(ticket);
+                        target_info.history = TargetHistory::new(current_info.ticket.clone(), current_info.timestamp);
+                        post_command_target_tickets.push(current_info.ticket);
                     },
-                    Err(GetFileTicketAndTimestampError::TargetFileNotFound(path, _system_error)) => return Err(WorkError::TargetFileNotGenerated(path)),
-                    Err(error) => return Err(WorkError::GetFileTicketAndTimestampError(error)),
+                    Err(GetFileCurrentInfoError::TargetFileNotFound(path, _system_error)) => return Err(WorkError::TargetFileNotGenerated(path)),
+                    Err(error) => return Err(WorkError::GetFileCurrentInfoError(error)),
                 }
             }
 
