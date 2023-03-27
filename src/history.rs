@@ -457,7 +457,7 @@ mod test
         assert_eq!(target_tickets, *target_tickets2);
     }
 
-    /*  Plant a RuleHistory file with wrong data in it.  Attempt to load that  */
+    /*  Plant a RuleHistory file with wrong data in it.  Attempt to load that, and check we get the expected error. */
     #[test]
     fn history_with_file_tampering()
     {
