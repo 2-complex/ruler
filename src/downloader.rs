@@ -2,7 +2,11 @@ use crate::system::
 {
     System,
 };
-use reqwest;
+use reqwest::
+{
+    get,
+    StatusCode
+};
 use std::fmt;
 use futures::StreamExt;
 use std::io::Write;
@@ -53,9 +57,16 @@ pub async fn download
     };
 
     let mut content =
-    match reqwest::get(url).await
+    match get(url).await
     {
-        Ok(response) => response.bytes_stream(),
+        Ok(response) =>
+        {
+            if response.status() != StatusCode::OK
+            {
+                return Err(DownloadError::UrlInaccessible(url.to_string()));
+            }
+            response.bytes_stream()
+        },
         Err(_error) => return Err(DownloadError::UrlInaccessible(url.to_string())),
     };
 
