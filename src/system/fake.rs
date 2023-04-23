@@ -63,7 +63,8 @@ impl Content
 #[derive(Debug, Clone)]
 struct Metadata
 {
-    modified : SystemTime
+    modified : SystemTime,
+    executable : bool,
 }
 
 impl Metadata
@@ -72,7 +73,8 @@ impl Metadata
     {
         Metadata
         {
-            modified : timestamp_to_system_time(timestamp)
+            modified : timestamp_to_system_time(timestamp),
+            executable : false,
         }
     }
 }
@@ -125,6 +127,7 @@ enum NodeError
     RenameFromNonExistent,
     RenameToNonExistent,
     GetModifiedOnDirectory,
+    IsExecutableOnDirectory,
     Weird,
 }
 
@@ -167,6 +170,9 @@ impl fmt::Display for NodeError
 
             NodeError::GetModifiedOnDirectory
                 => write!(formatter, "Attempt to get modified time for a directory (that is not implemented)"),
+
+            NodeError::IsExecutableOnDirectory
+                => write!(formatter, "Attempt to ask whether a directory is an executable"),
 
             NodeError::Weird
                 => write!(formatter, "Weird error, this happens when internal logic fails in a way the programmer didn't think was possible"),
@@ -429,6 +435,30 @@ impl Node
             Node::Dir(_) => Err(NodeError::GetModifiedOnDirectory),
         }
     }
+
+    pub fn is_executable(&self, path: &str) -> Result<bool, NodeError>
+    {
+        let components = get_components(path);
+        match self.get_node(&components)?
+        {
+            Node::File(info) => Ok(info.metadata.executable),
+            Node::Dir(_) => Err(NodeError::IsExecutableOnDirectory),
+        }
+    }
+
+    pub fn set_is_executable(&mut self, path: &str, executable : bool) -> Result<(), NodeError>
+    {
+        let components = get_components(path);
+        match self.get_node_mut(&components)?
+        {
+            Node::File(info) =>
+            {
+                info.metadata.executable = executable;
+                Ok(())
+            },
+            Node::Dir(_) => Err(NodeError::IsExecutableOnDirectory),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -570,6 +600,9 @@ fn convert_node_error_to_system_error(error : NodeError) -> SystemError
         NodeError::GetModifiedOnDirectory
             => SystemError::NotImplemented,
 
+        NodeError::IsExecutableOnDirectory
+            => SystemError::NotImplemented,
+
         NodeError::Weird
             => SystemError::Weird,
     }
@@ -680,6 +713,24 @@ impl System for FakeSystem
         match self.get_root_node().get_modified(path)
         {
             Ok(system_time) => Ok(system_time),
+            Err(error) => Err(convert_node_error_to_system_error(error)),
+        }
+    }
+
+    fn is_executable(&self, path: &str) -> Result<bool, SystemError>
+    {
+        match self.get_root_node().is_executable(path)
+        {
+            Ok(executable) => Ok(executable),
+            Err(error) => Err(convert_node_error_to_system_error(error)),
+        }
+    }
+
+    fn set_is_executable(&mut self, path: &str, executable : bool) -> Result<(), SystemError>
+    {
+        match self.get_root_node_mut().set_is_executable(path, executable)
+        {
+            Ok(()) => Ok(()),
             Err(error) => Err(convert_node_error_to_system_error(error)),
         }
     }

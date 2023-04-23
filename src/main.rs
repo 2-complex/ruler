@@ -16,6 +16,7 @@ use serde::
     Deserialize
 };
 use std::fmt;
+
 use crate::system::
 {
     System,
@@ -44,6 +45,7 @@ mod server;
 mod system;
 mod ticket;
 mod work;
+mod downloader;
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 struct BuildInvocation

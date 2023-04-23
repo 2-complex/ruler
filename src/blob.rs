@@ -8,7 +8,9 @@ use crate::system::
 use crate::cache::
 {
     SysCache,
+    DownloaderCache,
     RestoreResult,
+    DownloadResult,
 };
 
 use crate::system::util::get_timestamp;
@@ -33,7 +35,7 @@ pub enum FileResolution
 {
     AlreadyCorrect,
     Recovered,
-    #[allow(dead_code)] Downloaded,
+    Downloaded,
     NeedsRebuild,
 }
 
@@ -41,6 +43,13 @@ pub struct TargetFileInfo
 {
     pub path : String,
     pub history : TargetHistory,
+}
+
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
+pub struct TargetContentInfo
+{
+    pub ticket : Ticket,
+    pub executable : bool,
 }
 
 pub enum BlobError
@@ -55,17 +64,32 @@ pub enum BlobError
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
 pub struct TargetTickets
 {
-    tickets : Vec<Ticket>,
+    infos : Vec<TargetContentInfo>,
 }
 
 impl TargetTickets
 {
+    #[cfg(test)]
     pub fn from_vec(tickets : Vec<Ticket>) -> TargetTickets
     {
-        TargetTickets
+        let mut infos = vec![];
+        for ticket in tickets
         {
-            tickets : tickets
+            infos.push(
+                TargetContentInfo
+                {
+                    ticket : ticket,
+                    executable : false,
+                }
+            );
         }
+
+        TargetTickets{infos : infos}
+    }
+
+    pub fn from_infos(infos : Vec<TargetContentInfo>) -> TargetTickets
+    {
+        TargetTickets{infos : infos}
     }
 
     /*  Takes a TargetTickets and looks at how the lists differ.
@@ -85,9 +109,9 @@ impl TargetTickets
     ->
     Result<(), BlobError>
     {
-        let elen : usize = self.tickets.len();
+        let elen : usize = self.infos.len();
 
-        if elen != other.tickets.len()
+        if elen != other.infos.len()
         {
             Err(BlobError::TargetSizesDifferWeird)
         }
@@ -96,7 +120,7 @@ impl TargetTickets
             let mut contradicting_indices = Vec::new();
             for i in 0..elen
             {
-                if self.tickets[i] != other.tickets[i]
+                if self.infos[i].ticket != other.infos[i].ticket
                 {
                     contradicting_indices.push(i);
                 }
@@ -113,12 +137,12 @@ impl TargetTickets
         }
     }
 
-    fn get(
+    fn get_info(
         &self,
         i : usize)
-    -> Ticket
+    -> TargetContentInfo
     {
-        self.tickets[i].clone()
+        self.infos[i].clone()
     }
 
     /*  Currently used by a display function, hence the formatting. */
@@ -126,10 +150,10 @@ impl TargetTickets
     -> String
     {
         let mut out = String::new();
-        for ticket in self.tickets.iter()
+        for info in self.infos.iter()
         {
             out.push_str("    ");
-            out.push_str(&ticket.base64());
+            out.push_str(&info.ticket.base64());
             out.push_str("\n");
         }
         out
@@ -140,9 +164,9 @@ impl TargetTickets
     -> String
     {
         let mut out = String::new();
-        for ticket in self.tickets.iter()
+        for info in self.infos.iter()
         {
-            out.push_str(&ticket.base64());
+            out.push_str(&info.ticket.base64());
             out.push_str("\n");
         }
         out
@@ -181,11 +205,12 @@ pub fn get_file_ticket_from_path<SystemType: System>
 
     TargetHistory is a small struct meant to be the type of a value in the map 'target_histories' whose purpose is to
     help ruler tell if a target is up-to-date */
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub struct TargetHistory
 {
     pub ticket : Ticket,
     pub timestamp : u64,
+    pub executable : bool,
 }
 
 impl TargetHistory
@@ -197,9 +222,11 @@ impl TargetHistory
         {
             ticket : TicketFactory::new().result(),
             timestamp : 0,
+            executable : false,
         }
     }
 
+    #[cfg(test)]
     pub fn new(
         ticket : Ticket,
         timestamp : u64) -> TargetHistory
@@ -208,6 +235,19 @@ impl TargetHistory
         {
             ticket : ticket,
             timestamp : timestamp,
+            executable : false,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn new_with_ticket(
+        ticket : Ticket) -> TargetHistory
+    {
+        TargetHistory
+        {
+            ticket : ticket,
+            timestamp : 0,
+            executable : false,
         }
     }
 }
@@ -245,26 +285,30 @@ pub fn get_file_ticket<SystemType: System>
     get_file_ticket_from_path(system, &target_info.path)
 }
 
-pub enum GetFileTicketAndTimestampError
+pub enum GetCurrentFileInfoError
 {
     ErrorConveratingModifiedDateToNumber(String, SystemTimeError),
+    ErrorGettingFilePermissions(String, SystemError),
     ErrorGettingTicketForFile(String, ReadWriteError),
     TargetFileNotFound(String, SystemError),
 }
 
-impl fmt::Display for GetFileTicketAndTimestampError
+impl fmt::Display for GetCurrentFileInfoError
 {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
     {
         match self
         {
-            GetFileTicketAndTimestampError::ErrorConveratingModifiedDateToNumber(path, error) =>
+            GetCurrentFileInfoError::ErrorConveratingModifiedDateToNumber(path, error) =>
                 write!(formatter, "Error converting from system time to number. File: {} Error: {}", path, error),
 
-            GetFileTicketAndTimestampError::ErrorGettingTicketForFile(path, error) =>
+            GetCurrentFileInfoError::ErrorGettingFilePermissions(path, error) =>
+                write!(formatter, "Error getting executable permission from file. File: {} Error: {}", path, error),
+
+            GetCurrentFileInfoError::ErrorGettingTicketForFile(path, error) =>
                 write!(formatter, "Read/write error while hashing file contents: File: {} Error: {}", path, error),
 
-            GetFileTicketAndTimestampError::TargetFileNotFound(path, error) =>
+            GetCurrentFileInfoError::TargetFileNotFound(path, error) =>
                 write!(formatter, "System error while attempting to read file: {} Error: {}", path, error),
         }
     }
@@ -275,45 +319,67 @@ impl fmt::Display for GetFileTicketAndTimestampError
 
     If the modified date of the file matches the one in TargetHistory exactly, it
     doesn't bother recomputing the ticket, instead it clones the ticket from the
-    target_info's history. */
-pub fn get_file_ticket_and_timestamp<SystemType: System>
+    target_info's history.
+*/
+pub fn get_current_file_info<SystemType: System>
 (
     system : &SystemType,
     target_info : &TargetFileInfo
 )
--> Result<(Ticket, u64), GetFileTicketAndTimestampError>
+-> Result<TargetHistory, GetCurrentFileInfoError>
 {
+    let system_time =
     match system.get_modified(&target_info.path)
     {
-        Ok(system_time) =>
-        {
-            match get_timestamp(system_time)
-            {
-                Ok(timestamp) =>
-                {
-                    if timestamp == target_info.history.timestamp
-                    {
-                        Ok((target_info.history.ticket.clone(), timestamp))
-                    }
-                    else
-                    {
-                        match TicketFactory::from_file(system, &target_info.path)
-                        {
-                            Ok(mut factory) => Ok((factory.result(), timestamp)),
-                            Err(read_write_error) => Err(GetFileTicketAndTimestampError::ErrorGettingTicketForFile(
-                                target_info.path.clone(),
-                                read_write_error)),
-                        }
-                    }
-                },
-                Err(error) => Err(GetFileTicketAndTimestampError::ErrorConveratingModifiedDateToNumber(
-                    target_info.path.clone(), error)),
-            }
-        },
+        Ok(system_time) => system_time,
 
         // Note: possibly there are other ways get_modified can fail than the file being absent.
         // Maybe this logic should change.
-        Err(system_error) => Err(GetFileTicketAndTimestampError::TargetFileNotFound(target_info.path.clone(), system_error)),
+        Err(system_error) => return Err(
+            GetCurrentFileInfoError::TargetFileNotFound(
+                target_info.path.clone(), system_error)),
+    };
+
+    let timestamp =
+    match get_timestamp(system_time)
+    {
+        Ok(timestamp) => timestamp,
+        Err(error) => return Err(GetCurrentFileInfoError::ErrorConveratingModifiedDateToNumber(
+            target_info.path.clone(), error)),
+    };
+
+    let executable =
+    match system.is_executable(&target_info.path)
+    {
+        Ok(executable) => executable,
+        Err(system_error) => return Err(GetCurrentFileInfoError::ErrorGettingFilePermissions(
+            target_info.path.clone(), system_error))
+    };
+
+    if timestamp == target_info.history.timestamp
+    {
+        return Ok(
+            TargetHistory
+            {
+                ticket : target_info.history.ticket.clone(),
+                timestamp : timestamp,
+                executable : executable
+            }
+        )
+    }
+
+    match TicketFactory::from_file(system, &target_info.path)
+    {
+        Ok(mut factory) => Ok(
+            TargetHistory
+            {
+                ticket : factory.result(),
+                timestamp : timestamp,
+                executable : executable
+            }),
+        Err(read_write_error) => Err(GetCurrentFileInfoError::ErrorGettingTicketForFile(
+            target_info.path.clone(),
+            read_write_error)),
     }
 }
 
@@ -346,6 +412,53 @@ impl fmt::Display for ResolutionError
     }
 }
 
+fn restore_or_download<SystemType : System>
+(
+    system : &mut SystemType,
+    cache : &mut SysCache<SystemType>,
+    downloader_cache : &DownloaderCache,
+    remembered_target_content_info : &TargetContentInfo,
+    target_info : &TargetFileInfo
+)
+-> Result<FileResolution, ResolutionError>
+{
+    match cache.restore_file(
+        &remembered_target_content_info.ticket,
+        &target_info.path)
+    {
+        RestoreResult::Done =>
+            return Ok(FileResolution::Recovered),
+
+        RestoreResult::NotThere => {},
+
+        RestoreResult::CacheDirectoryMissing =>
+            return Err(ResolutionError::CacheDirectoryMissing),
+
+        RestoreResult::SystemError(error) =>
+            return Err(ResolutionError::CacheMalfunction(error)),
+    }
+
+    match downloader_cache.restore_file(
+        &remembered_target_content_info.ticket,
+        system,
+        &target_info.path)
+    {
+        DownloadResult::Done => {}
+        DownloadResult::NotThere =>
+            return Ok(FileResolution::NeedsRebuild),
+    }
+
+    match system.set_is_executable(&target_info.path, remembered_target_content_info.executable)
+    {
+        Err(_) =>
+        {
+            println!("Warning: failed to set executable");
+            Ok(FileResolution::Downloaded)
+        },
+        Ok(_) => Ok(FileResolution::Downloaded)
+    }
+}
+
 /*  Given a target-info and a remembered ticket for that target file, check the current
     ticket, and if it matches, return AlreadyCorrect.  If it doesn't match, back up the current
     file, and then attempt to restore the remembered file from cache, if the cache doesn't have it
@@ -354,7 +467,8 @@ pub fn resolve_single_target<SystemType : System>
 (
     system : &mut SystemType,
     cache : &mut SysCache<SystemType>,
-    remembered_ticket : &Ticket,
+    downloader_cache : &DownloaderCache,
+    remembered_target_content_info : &TargetContentInfo,
     target_info : &TargetFileInfo
 )
 ->
@@ -364,7 +478,7 @@ Result<FileResolution, ResolutionError>
     {
         Ok(Some(current_target_ticket)) =>
         {
-            if *remembered_ticket == current_target_ticket
+            if remembered_target_content_info.ticket == current_target_ticket
             {
                 return Ok(FileResolution::AlreadyCorrect);
             }
@@ -381,46 +495,23 @@ Result<FileResolution, ResolutionError>
                 },
             }
 
-            match cache.restore_file(
-                &remembered_ticket,
-                &target_info.path)
-            {
-                RestoreResult::Done =>
-                    Ok(FileResolution::Recovered),
-
-                RestoreResult::NotThere =>
-                    Ok(FileResolution::NeedsRebuild),
-                    // TODO: attempt a download here
-
-                RestoreResult::CacheDirectoryMissing =>
-                    Err(ResolutionError::CacheDirectoryMissing),
-
-                RestoreResult::SystemError(error) =>
-                    Err(ResolutionError::CacheMalfunction(error)),
-            }
+            restore_or_download(
+                system,
+                cache,
+                downloader_cache,
+                remembered_target_content_info,
+                target_info)
         },
 
         // None means the file is not there, in which case, we just try to restore/download, and then go home.
         Ok(None) =>
-        {
-            match cache.restore_file(
-                &remembered_ticket,
-                &target_info.path)
-            {
-                RestoreResult::Done =>
-                    Ok(FileResolution::Recovered),
+            restore_or_download(
+                system,
+                cache,
+                downloader_cache,
+                remembered_target_content_info,
+                target_info),
 
-                RestoreResult::NotThere =>
-                    Ok(FileResolution::NeedsRebuild),
-                    // TODO: attempt a download here
-
-                RestoreResult::CacheDirectoryMissing =>
-                    Err(ResolutionError::CacheDirectoryMissing),
-
-                RestoreResult::SystemError(error) =>
-                    Err(ResolutionError::CacheMalfunction(error)),
-            }
-        },
         Err(error) =>
             Err(ResolutionError::TicketAlignmentError(error)),
     }
@@ -430,6 +521,7 @@ pub fn resolve_remembered_target_tickets<SystemType : System>
 (
     system : &mut SystemType,
     cache : &mut SysCache<SystemType>,
+    downloader_cache : &DownloaderCache,
     target_infos : &Vec<TargetFileInfo>,
     remembered_tickets : &TargetTickets,
 )
@@ -442,7 +534,8 @@ Result<Vec<FileResolution>, ResolutionError>
         match resolve_single_target(
             system,
             cache,
-            &remembered_tickets.get(i),
+            downloader_cache,
+            &remembered_tickets.get_info(i),
             target_info)
         {
             Ok(resolution) => resolutions.push(resolution),
@@ -648,11 +741,7 @@ mod test
             &TargetFileInfo
             {
                 path : "quine.sh".to_string(),
-                history : TargetHistory
-                {
-                    ticket : TicketFactory::new().result(),
-                    timestamp : 0,
-                }
+                history : TargetHistory::new_with_ticket(TicketFactory::new().result())
             })
         {
             Ok(ticket_opt) => match ticket_opt
@@ -680,11 +769,7 @@ mod test
         let target_file_info = TargetFileInfo
         {
             path : "game.cpp".to_string(),
-            history : TargetHistory
-            {
-                ticket : content_ticket.clone(),
-                timestamp : 11,
-            }
+            history : TargetHistory::new(content_ticket.clone(), 11),
         };
 
         // Meanwhile, in the filesystem put some incorrect rubbish in game.cpp
@@ -731,11 +816,7 @@ mod test
         let target_file_info = TargetFileInfo
         {
             path : "game.cpp".to_string(),
-            history : TargetHistory
-            {
-                ticket : previous_ticket.clone(),
-                timestamp : 9,
-            }
+            history : TargetHistory::new(previous_ticket.clone(), 9),
         };
 
         // Meanwhile, in the filesystem, put new and improved game.cpp

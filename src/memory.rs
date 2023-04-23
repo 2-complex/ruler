@@ -305,7 +305,7 @@ mod test
         }
     }
 
-    /*  Make a Memory and insert a target-history.  Then take out the target history, and make sure it matches when was
+    /*  Make a Memory and insert a target-history.  Then take out the target history, and make sure it matches what was
         inserted. */
     #[test]
     fn insert_remove_target_history()
