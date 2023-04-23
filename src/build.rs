@@ -37,6 +37,7 @@ use crate::work::
     WorkOption,
     WorkResult,
     WorkError,
+    HandleNodeInfo,
     handle_node,
     clean_targets,
 };
@@ -319,15 +320,19 @@ pub fn build
                 thread::spawn(
                     move || -> Result<WorkResult, WorkError>
                     {
-                        handle_node(
-                            target_infos,
-                            command,
-                            rule_history,
-                            system_clone,
-                            sender_vec,
-                            receiver_vec,
-                            local_cache_clone,
-                            downloader_cache_clone)
+                        let info = HandleNodeInfo
+                        {
+                            target_infos : target_infos,
+                            command : command,
+                            rule_history_opt : rule_history,
+                            system : system_clone,
+                            senders : sender_vec,
+                            receivers : receiver_vec,
+                            cache : local_cache_clone,
+                            downloader_cache : downloader_cache_clone
+                        };
+
+                        handle_node(info)
                     }
                 )
             )

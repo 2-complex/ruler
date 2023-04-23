@@ -381,21 +381,38 @@ Result<Vec<FileResolution>, WorkError>
 {
     match rule_history.get_target_tickets(sources_ticket)
     {
-        Some(remembered_target_tickets) => match resolve_remembered_target_tickets(
-            system, cache, downloader_cache, target_infos, remembered_target_tickets)
+        Some(remembered_target_tickets) =>
         {
-            Ok(file_resolution) => Ok(file_resolution),
-            Err(resolution_error) => Err(WorkError::ResolutionError(resolution_error)),
+            match resolve_remembered_target_tickets(
+                system, cache, downloader_cache, target_infos, remembered_target_tickets)
+            {
+                Ok(file_resolution) => Ok(file_resolution),
+                Err(resolution_error) => Err(WorkError::ResolutionError(resolution_error)),
+            }
         },
 
-        None => match resolve_with_no_memory(system, cache, target_infos)
+        None => 
         {
-            Ok(file_resolution) => Ok(file_resolution),
-            Err(resolution_error) => Err(WorkError::ResolutionError(resolution_error)),
+            match resolve_with_no_memory(system, cache, target_infos)
+            {
+                Ok(file_resolution) => Ok(file_resolution),
+                Err(resolution_error) => Err(WorkError::ResolutionError(resolution_error)),
+            }
         },
     }
 }
 
+pub struct HandleNodeInfo<SystemType: System>
+{
+    pub target_infos : Vec<TargetFileInfo>,
+    pub command : Vec<String>,
+    pub rule_history_opt : Option<RuleHistory>,
+    pub system : SystemType,
+    pub senders : Vec<(usize, Sender<Packet>)>,
+    pub receivers : Vec<Receiver<Packet>>,
+    pub cache : SysCache<SystemType>,
+    pub downloader_cache : DownloaderCache,
+}
 
 /*  This is a central, public function for handling a node in the depednece graph.
     It is meant to be called by a dedicated thread, and as such, it eats all its arguments.
@@ -403,19 +420,12 @@ Result<Vec<FileResolution>, WorkError>
     The RuleHistory gets modified when appropriate, and gets returned as part of the result. */
 pub fn handle_node<SystemType: System>
 (
-    target_infos : Vec<TargetFileInfo>,
-    command : Vec<String>,
-    rule_history_opt : Option<RuleHistory>,
-    mut system : SystemType,
-    senders : Vec<(usize, Sender<Packet>)>,
-    receivers : Vec<Receiver<Packet>>,
-    mut cache : SysCache<SystemType>,
-    downloader_cache : DownloaderCache,
+    mut info : HandleNodeInfo<SystemType>
 )
 ->
 Result<WorkResult, WorkError>
 {
-    let sources_ticket = match wait_for_sources_ticket(receivers)
+    let sources_ticket = match wait_for_sources_ticket(info.receivers)
     {
         Ok(ticket) => ticket,
         Err(error) => return Err(error),
@@ -423,48 +433,48 @@ Result<WorkResult, WorkError>
 
     /*  If there's a rule-history that means the node is a rule,
         otherwise, it is a plain source file. */
-    match rule_history_opt
+    match info.rule_history_opt
     {
         None => handle_source_only_node(
-            target_infos,
-            command,
-            system,
-            senders),
+            info.target_infos,
+            info.command,
+            info.system,
+            info.senders),
 
         Some(rule_history) =>
         {
             match resolve_with_cache(
-                &mut system,
-                &mut cache,
-                &downloader_cache,
+                &mut info.system,
+                &mut info.cache,
+                &info.downloader_cache,
                 &rule_history,
                 &sources_ticket,
-                &target_infos)
+                &info.target_infos)
             {
                 Ok(resolutions) =>
                 {
                     if needs_rebuild(&resolutions)
                     {
                         rebuild_node(
-                            &mut system,
+                            &mut info.system,
                             rule_history,
                             sources_ticket,
-                            command,
-                            senders,
-                            target_infos
+                            info.command,
+                            info.senders,
+                            info.target_infos
                         )
                     }
                     else
                     {
                         let target_tickets = match get_current_target_tickets(
-                            &system,
-                            &target_infos)
+                            &info.system,
+                            &info.target_infos)
                         {
                             Ok(target_tickets) => target_tickets,
                             Err(error) => return Err(error),
                         };
 
-                        for (sub_index, sender) in senders
+                        for (sub_index, sender) in info.senders
                         {
                             match sender.send(
                                 Packet::from_ticket(target_tickets[sub_index].clone()))
@@ -477,7 +487,7 @@ Result<WorkResult, WorkError>
                         Ok(
                             WorkResult
                             {
-                                target_infos : target_infos,
+                                target_infos : info.target_infos,
                                 work_option : WorkOption::Resolutions(resolutions),
                                 rule_history : Some(rule_history),
                             }
@@ -490,7 +500,6 @@ Result<WorkResult, WorkError>
         },
     }
 }
-
 
 pub fn clean_targets<SystemType: System>
 (
@@ -550,6 +559,7 @@ mod test
         WorkOption,
         WorkError,
         TargetFileInfo,
+        HandleNodeInfo,
         handle_node,
         wait_for_sources_ticket,
     };
@@ -754,15 +764,19 @@ mod test
             Err(_) => panic!("File write operation failed"),
         }
 
-        match handle_node(
-            to_info(vec!["A".to_string()]),
-            vec![],
-            None,
-            system.clone(),
-            Vec::new(),
-            Vec::new(),
-            SysCache::new(system.clone(), ".ruler-cache"),
-            DownloaderCache::new(vec![]))
+        let info = HandleNodeInfo
+        {
+            target_infos : to_info(vec!["A".to_string()]),
+            command : vec![],
+            rule_history_opt : None,
+            system : system.clone(),
+            senders : Vec::new(),
+            receivers : Vec::new(),
+            cache : SysCache::new(system.clone(), ".ruler-cache"),
+            downloader_cache : DownloaderCache::new(vec![])
+        };
+
+        match handle_node(info)
         {
             Ok(result) =>
             {
@@ -815,15 +829,19 @@ mod test
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        match handle_node(
-            to_info(vec!["A.txt".to_string()]),
-            vec!["mycat".to_string(), "A-source.txt".to_string(), "A.txt".to_string()],
-            Some(RuleHistory::new()),
-            system.clone(),
-            vec![(0, sender_c)],
-            vec![receiver_a, receiver_b],
-            SysCache::new(system.clone(), ".ruler-cache"),
-            DownloaderCache::new(vec![]))
+        let info = HandleNodeInfo
+        {
+            target_infos : to_info(vec!["A.txt".to_string()]),
+            command : vec!["mycat".to_string(), "A-source.txt".to_string(), "A.txt".to_string()],
+            rule_history_opt : Some(RuleHistory::new()),
+            system : system.clone(),
+            senders : vec![(0, sender_c)],
+            receivers : vec![receiver_a, receiver_b],
+            cache : SysCache::new(system.clone(), ".ruler-cache"),
+            downloader_cache : DownloaderCache::new(vec![])
+        };
+
+        match handle_node(info)
         {
             Ok(result) =>
             {
@@ -890,15 +908,19 @@ mod test
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        match handle_node(
-            to_info(vec!["poem.txt".to_string()]),
-            vec!["error".to_string()],
-            Some(RuleHistory::new()),
-            system.clone(),
-            vec![(0, sender_c)],
-            vec![receiver_a, receiver_b],
-            SysCache::new(system.clone(), ".ruler-cache"),
-            DownloaderCache::new(vec![]))
+        let info = HandleNodeInfo
+        {
+            target_infos : to_info(vec!["poem.txt".to_string()]),
+            command : vec!["error".to_string()],
+            rule_history_opt : Some(RuleHistory::new()),
+            system : system.clone(),
+            senders : vec![(0, sender_c)],
+            receivers : vec![receiver_a, receiver_b],
+            cache : SysCache::new(system.clone(), ".ruler-cache"),
+            downloader_cache : DownloaderCache::new(vec![])
+        };
+
+        match handle_node(info)
         {
             Ok(_) => panic!("Unexpected command success"),
             Err(WorkError::CommandExecutedButErrored) =>
@@ -947,20 +969,19 @@ mod test
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        match handle_node(
-            to_info(vec!["poem.txt".to_string()]),
-            vec![
-                "mycat".to_string(),
-                "verse1.txt".to_string(),
-                "verse2.txt".to_string(),
-                "wrong.txt".to_string()
-            ],
-            Some(RuleHistory::new()),
-            system.clone(),
-            vec![(0, sender_c)],
-            vec![receiver_a, receiver_b],
-            SysCache::new(system.clone(), ".ruler-cache"),
-            DownloaderCache::new(vec![]))
+        let info = HandleNodeInfo
+        {
+            target_infos : to_info(vec!["poem.txt".to_string()]),
+            command : vec!["mycat".to_string(),"verse1.txt".to_string(),"verse2.txt".to_string(),"wrong.txt".to_string()],
+            rule_history_opt : Some(RuleHistory::new()),
+            system : system.clone(),
+            senders : vec![(0, sender_c)],
+            receivers : vec![receiver_a, receiver_b],
+            cache : SysCache::new(system.clone(), ".ruler-cache"),
+            downloader_cache : DownloaderCache::new(vec![])
+        };
+
+        match handle_node(info)
         {
             Ok(_) => panic!("Unexpected command success"),
             Err(WorkError::TargetFileNotGenerated(path)) =>
@@ -1004,20 +1025,19 @@ mod test
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        match handle_node(
-            to_info(vec!["poem.txt".to_string()]),
-            vec![
-                "mycat".to_string(),
-                "verse1.txt".to_string(),
-                "verse2.txt".to_string(),
-                "poem.txt".to_string()
-            ],
-            Some(RuleHistory::new()),
-            system.clone(),
-            vec![(0, sender_c)],
-            vec![receiver_a, receiver_b],
-            SysCache::new(system.clone(), ".ruler-cache"),
-            DownloaderCache::new(vec![]))
+        let info = HandleNodeInfo
+        {
+            target_infos : to_info(vec!["poem.txt".to_string()]),
+            command : vec!["mycat".to_string(),"verse1.txt".to_string(),"verse2.txt".to_string(),"poem.txt".to_string()],
+            rule_history_opt : Some(RuleHistory::new()),
+            system : system.clone(),
+            senders : vec![(0, sender_c)],
+            receivers : vec![receiver_a, receiver_b],
+            cache : SysCache::new(system.clone(), ".ruler-cache"),
+            downloader_cache : DownloaderCache::new(vec![])
+        };
+
+        match handle_node(info)
         {
             Ok(result) =>
             {
@@ -1056,6 +1076,11 @@ mod test
     }
 
 
+    /*  Create sourcefiles with the two lines in a two-line poem.  Fabricate a rule history
+        that recalls the two lines concatinated as the result In the fake file system, make
+        the source files and create poem with already correct content.  Then called handle_node.
+        Check that handle_node behaves as if the poem is already correct.
+    */
     #[test]
     fn poem_already_correct()
     {
@@ -1068,14 +1093,13 @@ mod test
         let mut factory = TicketFactory::new();
         factory.input_ticket(TicketFactory::from_str("Roses are red\n").result());
         factory.input_ticket(TicketFactory::from_str("Violets are violet\n").result());
+        let sources_ticket = factory.result();
 
         match rule_history.insert(
-            factory.result(),
-            TargetTickets::from_vec(
-            vec![
+            sources_ticket,
+            TargetTickets::from_vec(vec![
                 TicketFactory::from_str("Roses are red\nViolets are violet\n").result()
-            ]
-        )
+            ])
         )
         {
             Ok(_) => {},
@@ -1083,6 +1107,12 @@ mod test
         }
 
         let mut system = FakeSystem::new(10);
+
+        match system.create_dir(".ruler-cache")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("Failed to make cache directory"),
+        }
 
         match write_str_to_file(&mut system, "verse1.txt", "Roses are red\n")
         {
@@ -1114,19 +1144,19 @@ mod test
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        match handle_node(
-            to_info(vec!["poem.txt".to_string()]),
-            vec![
-                "error".to_string(),
-                "poem is already correct".to_string(),
-                "this command should not run".to_string(),
-                "the end".to_string()],
-            Some(rule_history),
-            system.clone(),
-            vec![(0, sender_c)],
-            vec![receiver_a, receiver_b],
-            SysCache::new(system.clone(), ".ruler-cache"),
-            DownloaderCache::new(vec![]))
+        let info = HandleNodeInfo
+        {
+            target_infos : to_info(vec!["poem.txt".to_string()]),
+            command : vec!["mycat".to_string(), "verse1.txt".to_string(), "verse2.txt".to_string(), "poem.txt".to_string()],
+            rule_history_opt : Some(rule_history),
+            system : system.clone(),
+            senders : vec![(0, sender_c)],
+            receivers : vec![receiver_a, receiver_b],
+            cache : SysCache::new(system.clone(), ".ruler-cache"),
+            downloader_cache : DownloaderCache::new(vec![])
+        };
+
+        match handle_node(info)
         {
             Ok(result) =>
             {
@@ -1235,20 +1265,19 @@ mod test
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        match handle_node(
-            to_info(vec!["poem.txt".to_string()]),
-            vec![
-                "mycat".to_string(),
-                "verse1.txt".to_string(),
-                "verse2.txt".to_string(),
-                "poem.txt".to_string()
-            ],
-            Some(rule_history),
-            system.clone(),
-            vec![(0, sender_c)],
-            vec![receiver_a, receiver_b],
-            SysCache::new(system.clone(), ".ruler-cache"),
-            DownloaderCache::new(vec![]))
+        let info = HandleNodeInfo
+        {
+            target_infos : to_info(vec!["poem.txt".to_string()]),
+            command : vec!["mycat".to_string(), "verse1.txt".to_string(), "verse2.txt".to_string(), "poem.txt".to_string()],
+            rule_history_opt : Some(rule_history),
+            system : system.clone(),
+            senders : vec![(0, sender_c)],
+            receivers : vec![receiver_a, receiver_b],
+            cache : SysCache::new(system.clone(), ".ruler-cache"),
+            downloader_cache : DownloaderCache::new(vec![])
+        };
+
+        match handle_node(info)
         {
             Ok(_result) =>
             {
@@ -1318,20 +1347,19 @@ mod test
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        match handle_node(
-            to_info(vec!["poem.txt".to_string()]),
-            vec![
-                "mycat".to_string(),
-                "verse1.txt".to_string(),
-                "verse2.txt".to_string(),
-                "poem.txt".to_string()
-            ],
-            Some(rule_history),
-            system.clone(),
-            vec![(0, sender_c)],
-            vec![receiver_a, receiver_b],
-            SysCache::new(system.clone(), ".ruler-cache"),
-            DownloaderCache::new(vec![]))
+        let info = HandleNodeInfo
+        {
+            target_infos : to_info(vec!["poem.txt".to_string()]),
+            command : vec!["mycat".to_string(), "verse1.txt".to_string(), "verse2.txt".to_string(), "poem.txt".to_string()],
+            rule_history_opt : Some(rule_history),
+            system : system.clone(),
+            senders : vec![(0, sender_c)],
+            receivers : vec![receiver_a, receiver_b],
+            cache : SysCache::new(system.clone(), ".ruler-cache"),
+            downloader_cache : DownloaderCache::new(vec![])
+        };
+
+        match handle_node(info)
         {
             Ok(result) =>
             {
@@ -1387,15 +1415,19 @@ mod test
             Err(_) => panic!("File write operation failed"),
         }
 
-        match handle_node(
-            to_info(vec!["verse1.txt".to_string()]),
-            vec![],
-            None,
-            system.clone(),
-            vec![],
-            vec![],
-            SysCache::new(system.clone(), ".ruler-cache"),
-            DownloaderCache::new(vec![]))
+        let info = HandleNodeInfo
+        {
+            target_infos : to_info(vec!["verse1.txt".to_string()]),
+            command : vec![],
+            rule_history_opt : None,
+            system : system.clone(),
+            senders : vec![],
+            receivers : vec![],
+            cache : SysCache::new(system.clone(), ".ruler-cache"),
+            downloader_cache : DownloaderCache::new(vec![])
+        };
+
+        match handle_node(info)
         {
             Ok(_) =>
             {
@@ -1424,15 +1456,19 @@ mod test
             Err(_) => panic!("File write operation failed"),
         }
 
-        match handle_node(
-            to_info(vec!["verse1.txt".to_string()]),
-            vec!["rm".to_string(), "verse1.txt".to_string()],
-            Some(RuleHistory::new()),
-            system.clone(),
-            vec![],
-            vec![],
-            SysCache::new(system.clone(), ".rule-cache"),
-            DownloaderCache::new(vec![]))
+        let info = HandleNodeInfo
+        {
+            target_infos : to_info(vec!["verse1.txt".to_string()]),
+            command : vec!["rm".to_string(), "verse1.txt".to_string()],
+            rule_history_opt : Some(RuleHistory::new()),
+            system : system.clone(),
+            senders : vec![],
+            receivers : vec![],
+            cache : SysCache::new(system.clone(), ".rule-cache"),
+            downloader_cache : DownloaderCache::new(vec![])
+        };
+
+        match handle_node(info)
         {
             Ok(_) =>
             {
@@ -1463,15 +1499,18 @@ mod test
         thread::spawn(
             move || -> Result<WorkResult, WorkError>
             {
-                handle_node(
-                    target_infos,
-                    command,
-                    rule_history_opt,
-                    system.clone(),
-                    senders,
-                    receivers,
-                    SysCache::new(system, ".ruler-cache"),
-                    DownloaderCache::new(vec![]))
+                let info = HandleNodeInfo
+                {
+                    target_infos : target_infos,
+                    command : command,
+                    rule_history_opt : rule_history_opt,
+                    system : system.clone(),
+                    senders : senders,
+                    receivers : receivers,
+                    cache : SysCache::new(system, ".ruler-cache"),
+                    downloader_cache : DownloaderCache::new(vec![])
+                };
+                handle_node(info)
             }
         )
     }
