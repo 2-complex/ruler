@@ -320,17 +320,13 @@ pub fn build
                 thread::spawn(
                     move || -> Result<WorkResult, WorkError>
                     {
-                        let info = HandleNodeInfo
-                        {
-                            target_infos : target_infos,
-                            command : command,
-                            rule_history_opt : rule_history,
-                            system : system_clone,
-                            senders : sender_vec,
-                            receivers : receiver_vec,
-                            cache : local_cache_clone,
-                            downloader_cache_opt : Some(downloader_cache_clone)
-                        };
+                        let mut info = HandleNodeInfo::new(system_clone, local_cache_clone);
+                        info.target_infos = target_infos;
+                        info.command = command;
+                        info.rule_history_opt = rule_history;
+                        info.senders = sender_vec;
+                        info.receivers = receiver_vec;
+                        info.downloader_cache_opt = Some(downloader_cache_clone);
 
                         handle_node(info)
                     }
