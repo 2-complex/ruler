@@ -371,7 +371,7 @@ fn resolve_with_cache<SystemType : System>
 (
     system : &mut SystemType,
     cache : &mut SysCache<SystemType>,
-    downloader_cache : &DownloaderCache,
+    downloader_cache_opt : &Option<DownloaderCache>,
     rule_history : &RuleHistory,
     sources_ticket : &Ticket,
     target_infos : &Vec<TargetFileInfo>,
@@ -384,7 +384,7 @@ Result<Vec<FileResolution>, WorkError>
         Some(remembered_target_tickets) =>
         {
             match resolve_remembered_target_tickets(
-                system, cache, downloader_cache, target_infos, remembered_target_tickets)
+                system, cache, downloader_cache_opt, target_infos, remembered_target_tickets)
             {
                 Ok(file_resolution) => Ok(file_resolution),
                 Err(resolution_error) => Err(WorkError::ResolutionError(resolution_error)),
@@ -404,20 +404,42 @@ Result<Vec<FileResolution>, WorkError>
 
 pub struct HandleNodeInfo<SystemType: System>
 {
+    pub system : SystemType,
     pub target_infos : Vec<TargetFileInfo>,
     pub command : Vec<String>,
     pub rule_history_opt : Option<RuleHistory>,
-    pub system : SystemType,
     pub senders : Vec<(usize, Sender<Packet>)>,
     pub receivers : Vec<Receiver<Packet>>,
     pub cache : SysCache<SystemType>,
-    pub downloader_cache : DownloaderCache,
+    pub downloader_cache_opt : Option<DownloaderCache>,
+}
+
+impl<SystemType: System> HandleNodeInfo<SystemType>
+{
+    pub fn new(system : SystemType, cache : SysCache<SystemType>) -> HandleNodeInfo<SystemType>
+    {
+        HandleNodeInfo
+        {
+            system : system,
+            cache : cache,
+            target_infos : Vec::new(),
+            command : Vec::new(),
+            rule_history_opt : None,
+            senders : Vec::new(),
+            receivers : Vec::new(),
+            downloader_cache_opt : None,
+        }
+    }
 }
 
 /*  This is a central, public function for handling a node in the depednece graph.
     It is meant to be called by a dedicated thread, and as such, it eats all its arguments.
 
-    The RuleHistory gets modified when appropriate, and gets returned as part of the result. */
+    The RuleHistory gets modified when appropriate, and gets returned as part of the result.
+
+    The possible parameters to this function are so many that they warrant a dedicated struct:
+    HandleNodeInfo.
+*/
 pub fn handle_node<SystemType: System>
 (
     mut info : HandleNodeInfo<SystemType>
@@ -446,7 +468,7 @@ Result<WorkResult, WorkError>
             match resolve_with_cache(
                 &mut info.system,
                 &mut info.cache,
-                &info.downloader_cache,
+                &info.downloader_cache_opt,
                 &rule_history,
                 &sources_ticket,
                 &info.target_infos)
@@ -583,7 +605,6 @@ mod test
     use crate::cache::
     {
         SysCache,
-        DownloaderCache,
     };
     use crate::system::util::
     {
@@ -764,17 +785,10 @@ mod test
             Err(_) => panic!("File write operation failed"),
         }
 
-        let info = HandleNodeInfo
-        {
-            target_infos : to_info(vec!["A".to_string()]),
-            command : vec![],
-            rule_history_opt : None,
-            system : system.clone(),
-            senders : Vec::new(),
-            receivers : Vec::new(),
-            cache : SysCache::new(system.clone(), ".ruler-cache"),
-            downloader_cache : DownloaderCache::new(vec![])
-        };
+        let mut info = HandleNodeInfo::new(
+            system.clone(), SysCache::new(system.clone(), ".ruler-cache"));
+
+        info.target_infos = to_info(vec!["A".to_string()]);
 
         match handle_node(info)
         {
@@ -829,17 +843,13 @@ mod test
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        let info = HandleNodeInfo
-        {
-            target_infos : to_info(vec!["A.txt".to_string()]),
-            command : vec!["mycat".to_string(), "A-source.txt".to_string(), "A.txt".to_string()],
-            rule_history_opt : Some(RuleHistory::new()),
-            system : system.clone(),
-            senders : vec![(0, sender_c)],
-            receivers : vec![receiver_a, receiver_b],
-            cache : SysCache::new(system.clone(), ".ruler-cache"),
-            downloader_cache : DownloaderCache::new(vec![])
-        };
+        let mut info = HandleNodeInfo::new(system.clone(), SysCache::new(system.clone(), ".ruler-cache"));
+        info.target_infos = to_info(vec!["A.txt".to_string()]);
+        info.command = vec!["mycat".to_string(), "A-source.txt".to_string(), "A.txt".to_string()];
+        info.rule_history_opt = Some(RuleHistory::new());
+        info.senders.push((0, sender_c));
+        info.receivers.push(receiver_a);
+        info.receivers.push(receiver_b);
 
         match handle_node(info)
         {
@@ -908,17 +918,12 @@ mod test
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        let info = HandleNodeInfo
-        {
-            target_infos : to_info(vec!["poem.txt".to_string()]),
-            command : vec!["error".to_string()],
-            rule_history_opt : Some(RuleHistory::new()),
-            system : system.clone(),
-            senders : vec![(0, sender_c)],
-            receivers : vec![receiver_a, receiver_b],
-            cache : SysCache::new(system.clone(), ".ruler-cache"),
-            downloader_cache : DownloaderCache::new(vec![])
-        };
+        let mut info = HandleNodeInfo::new(system.clone(), SysCache::new(system.clone(), ".ruler-cache"));
+        info.target_infos = to_info(vec!["poem.txt".to_string()]);
+        info.command = vec!["error".to_string()];
+        info.rule_history_opt = Some(RuleHistory::new());
+        info.senders = vec![(0, sender_c)];
+        info.receivers = vec![receiver_a, receiver_b];
 
         match handle_node(info)
         {
@@ -969,17 +974,12 @@ mod test
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        let info = HandleNodeInfo
-        {
-            target_infos : to_info(vec!["poem.txt".to_string()]),
-            command : vec!["mycat".to_string(),"verse1.txt".to_string(),"verse2.txt".to_string(),"wrong.txt".to_string()],
-            rule_history_opt : Some(RuleHistory::new()),
-            system : system.clone(),
-            senders : vec![(0, sender_c)],
-            receivers : vec![receiver_a, receiver_b],
-            cache : SysCache::new(system.clone(), ".ruler-cache"),
-            downloader_cache : DownloaderCache::new(vec![])
-        };
+        let mut info = HandleNodeInfo::new(system.clone(), SysCache::new(system.clone(), ".ruler-cache"));
+        info.target_infos = to_info(vec!["poem.txt".to_string()]);
+        info.command = vec!["mycat".to_string(),"verse1.txt".to_string(),"verse2.txt".to_string(),"wrong.txt".to_string()];
+        info.rule_history_opt = Some(RuleHistory::new());
+        info.senders = vec![(0, sender_c)];
+        info.receivers = vec![receiver_a, receiver_b];
 
         match handle_node(info)
         {
@@ -1025,17 +1025,12 @@ mod test
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        let info = HandleNodeInfo
-        {
-            target_infos : to_info(vec!["poem.txt".to_string()]),
-            command : vec!["mycat".to_string(),"verse1.txt".to_string(),"verse2.txt".to_string(),"poem.txt".to_string()],
-            rule_history_opt : Some(RuleHistory::new()),
-            system : system.clone(),
-            senders : vec![(0, sender_c)],
-            receivers : vec![receiver_a, receiver_b],
-            cache : SysCache::new(system.clone(), ".ruler-cache"),
-            downloader_cache : DownloaderCache::new(vec![])
-        };
+        let mut info = HandleNodeInfo::new(system.clone(), SysCache::new(system.clone(), ".ruler-cache"));
+        info.target_infos = to_info(vec!["poem.txt".to_string()]);
+        info.command = vec!["mycat".to_string(),"verse1.txt".to_string(),"verse2.txt".to_string(),"poem.txt".to_string()];
+        info.rule_history_opt = Some(RuleHistory::new());
+        info.senders = vec![(0, sender_c)];
+        info.receivers = vec![receiver_a, receiver_b];
 
         match handle_node(info)
         {
@@ -1144,17 +1139,12 @@ mod test
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        let info = HandleNodeInfo
-        {
-            target_infos : to_info(vec!["poem.txt".to_string()]),
-            command : vec!["mycat".to_string(), "verse1.txt".to_string(), "verse2.txt".to_string(), "poem.txt".to_string()],
-            rule_history_opt : Some(rule_history),
-            system : system.clone(),
-            senders : vec![(0, sender_c)],
-            receivers : vec![receiver_a, receiver_b],
-            cache : SysCache::new(system.clone(), ".ruler-cache"),
-            downloader_cache : DownloaderCache::new(vec![])
-        };
+        let mut info = HandleNodeInfo::new(system.clone(), SysCache::new(system.clone(), ".ruler-cache"));
+        info.target_infos = to_info(vec!["poem.txt".to_string()]);
+        info.command = vec!["mycat".to_string(), "verse1.txt".to_string(), "verse2.txt".to_string(), "poem.txt".to_string()];
+        info.rule_history_opt = Some(rule_history);
+        info.senders = vec![(0, sender_c)];
+        info.receivers = vec![receiver_a, receiver_b];
 
         match handle_node(info)
         {
@@ -1201,6 +1191,14 @@ mod test
     }
 
 
+    /*  Create source files for a two-line poem.  Fabricate a hisotry which describes
+        a different result when the two source files are compiled.
+
+        Populate poem.txt with arbitrary content, so that it mush rebuild.  Send the
+        tickets for the file-system contents of the source files through the channels.
+
+        Check that handle_node produces the correct contradiction error.
+    */
     #[test]
     fn poem_contradicts_history()
     {
@@ -1208,20 +1206,17 @@ mod test
         let (sender_b, receiver_b) = mpsc::channel();
         let (sender_c, _receiver_c) = mpsc::channel();
 
-        let mut rule_history = RuleHistory::new();
-
         let mut factory = TicketFactory::new();
         factory.input_ticket(TicketFactory::from_str("Roses are red\n").result());
         factory.input_ticket(TicketFactory::from_str("Violets are violet\n").result());
+        let source_ticket = factory.result();
 
+        let mut rule_history = RuleHistory::new();
         match rule_history.insert(
-            factory.result(),
+            source_ticket,
             TargetTickets::from_vec(
-            vec![
-                TicketFactory::from_str("Roses are red\nViolets are blue\n").result()
-            ]
-        )
-        )
+                vec![TicketFactory::from_str("Roses are red\nViolets are blue\n").result()]
+            ))
         {
             Ok(_) => {},
             Err(_) => panic!("Rule history failed to insert"),
@@ -1265,17 +1260,12 @@ mod test
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        let info = HandleNodeInfo
-        {
-            target_infos : to_info(vec!["poem.txt".to_string()]),
-            command : vec!["mycat".to_string(), "verse1.txt".to_string(), "verse2.txt".to_string(), "poem.txt".to_string()],
-            rule_history_opt : Some(rule_history),
-            system : system.clone(),
-            senders : vec![(0, sender_c)],
-            receivers : vec![receiver_a, receiver_b],
-            cache : SysCache::new(system.clone(), ".ruler-cache"),
-            downloader_cache : DownloaderCache::new(vec![])
-        };
+        let mut info = HandleNodeInfo::new(system.clone(), SysCache::new(system.clone(), ".ruler-cache"));
+        info.target_infos = to_info(vec!["poem.txt".to_string()]);
+        info.command = vec!["mycat".to_string(), "verse1.txt".to_string(), "verse2.txt".to_string(), "poem.txt".to_string()];
+        info.rule_history_opt = Some(rule_history);
+        info.senders = vec![(0, sender_c)];
+        info.receivers = vec![receiver_a, receiver_b];
 
         match handle_node(info)
         {
@@ -1347,17 +1337,12 @@ mod test
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        let info = HandleNodeInfo
-        {
-            target_infos : to_info(vec!["poem.txt".to_string()]),
-            command : vec!["mycat".to_string(), "verse1.txt".to_string(), "verse2.txt".to_string(), "poem.txt".to_string()],
-            rule_history_opt : Some(rule_history),
-            system : system.clone(),
-            senders : vec![(0, sender_c)],
-            receivers : vec![receiver_a, receiver_b],
-            cache : SysCache::new(system.clone(), ".ruler-cache"),
-            downloader_cache : DownloaderCache::new(vec![])
-        };
+        let mut info = HandleNodeInfo::new(system.clone(), SysCache::new(system.clone(), ".ruler-cache"));
+        info.target_infos = to_info(vec!["poem.txt".to_string()]);
+        info.command = vec!["mycat".to_string(), "verse1.txt".to_string(), "verse2.txt".to_string(), "poem.txt".to_string()];
+        info.rule_history_opt = Some(rule_history);
+        info.senders = vec![(0, sender_c)];
+        info.receivers = vec![receiver_a, receiver_b];
 
         match handle_node(info)
         {
@@ -1415,17 +1400,8 @@ mod test
             Err(_) => panic!("File write operation failed"),
         }
 
-        let info = HandleNodeInfo
-        {
-            target_infos : to_info(vec!["verse1.txt".to_string()]),
-            command : vec![],
-            rule_history_opt : None,
-            system : system.clone(),
-            senders : vec![],
-            receivers : vec![],
-            cache : SysCache::new(system.clone(), ".ruler-cache"),
-            downloader_cache : DownloaderCache::new(vec![])
-        };
+        let mut info = HandleNodeInfo::new(system.clone(), SysCache::new(system.clone(), ".ruler-cache"));
+        info.target_infos = to_info(vec!["verse1.txt".to_string()]);
 
         match handle_node(info)
         {
@@ -1456,17 +1432,10 @@ mod test
             Err(_) => panic!("File write operation failed"),
         }
 
-        let info = HandleNodeInfo
-        {
-            target_infos : to_info(vec!["verse1.txt".to_string()]),
-            command : vec!["rm".to_string(), "verse1.txt".to_string()],
-            rule_history_opt : Some(RuleHistory::new()),
-            system : system.clone(),
-            senders : vec![],
-            receivers : vec![],
-            cache : SysCache::new(system.clone(), ".rule-cache"),
-            downloader_cache : DownloaderCache::new(vec![])
-        };
+        let mut info = HandleNodeInfo::new(system.clone(), SysCache::new(system.clone(), ".rule-cache"));
+        info.target_infos = to_info(vec!["verse1.txt".to_string()]);
+        info.command = vec!["rm".to_string(), "verse1.txt".to_string()];
+        info.rule_history_opt = Some(RuleHistory::new());
 
         match handle_node(info)
         {
@@ -1499,17 +1468,12 @@ mod test
         thread::spawn(
             move || -> Result<WorkResult, WorkError>
             {
-                let info = HandleNodeInfo
-                {
-                    target_infos : target_infos,
-                    command : command,
-                    rule_history_opt : rule_history_opt,
-                    system : system.clone(),
-                    senders : senders,
-                    receivers : receivers,
-                    cache : SysCache::new(system, ".ruler-cache"),
-                    downloader_cache : DownloaderCache::new(vec![])
-                };
+                let mut info = HandleNodeInfo::new(system.clone(), SysCache::new(system, ".ruler-cache"));
+                info.target_infos = target_infos;
+                info.command = command;
+                info.rule_history_opt = rule_history_opt;
+                info.senders = senders;
+                info.receivers = receivers;
                 handle_node(info)
             }
         )

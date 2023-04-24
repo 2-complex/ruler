@@ -329,7 +329,7 @@ pub fn build
                             senders : sender_vec,
                             receivers : receiver_vec,
                             cache : local_cache_clone,
-                            downloader_cache : downloader_cache_clone
+                            downloader_cache_opt : Some(downloader_cache_clone)
                         };
 
                         handle_node(info)

@@ -416,7 +416,7 @@ fn restore_or_download<SystemType : System>
 (
     system : &mut SystemType,
     cache : &mut SysCache<SystemType>,
-    downloader_cache : &DownloaderCache,
+    downloader_cache_opt : &Option<DownloaderCache>,
     remembered_target_content_info : &TargetContentInfo,
     target_info : &TargetFileInfo
 )
@@ -438,25 +438,35 @@ fn restore_or_download<SystemType : System>
             return Err(ResolutionError::CacheMalfunction(error)),
     }
 
-    match downloader_cache.restore_file(
-        &remembered_target_content_info.ticket,
-        system,
-        &target_info.path)
+    match downloader_cache_opt
     {
-        DownloadResult::Done => {}
-        DownloadResult::NotThere =>
-            return Ok(FileResolution::NeedsRebuild),
+        Some(downloader_cache) =>
+        {
+            match downloader_cache.restore_file(
+                &remembered_target_content_info.ticket,
+                system,
+                &target_info.path)
+            {
+                DownloadResult::Done => {}
+                DownloadResult::NotThere =>
+                    return Ok(FileResolution::NeedsRebuild),
+            }
+
+            return match system.set_is_executable(&target_info.path, remembered_target_content_info.executable)
+            {
+                Err(_) =>
+                {
+                    println!("Warning: failed to set executable");
+                    Ok(FileResolution::Downloaded)
+                },
+                Ok(_) => Ok(FileResolution::Downloaded)
+            };
+        },
+
+        None => {}
     }
 
-    match system.set_is_executable(&target_info.path, remembered_target_content_info.executable)
-    {
-        Err(_) =>
-        {
-            println!("Warning: failed to set executable");
-            Ok(FileResolution::Downloaded)
-        },
-        Ok(_) => Ok(FileResolution::Downloaded)
-    }
+    Ok(FileResolution::NeedsRebuild)
 }
 
 /*  Given a target-info and a remembered ticket for that target file, check the current
@@ -467,7 +477,7 @@ pub fn resolve_single_target<SystemType : System>
 (
     system : &mut SystemType,
     cache : &mut SysCache<SystemType>,
-    downloader_cache : &DownloaderCache,
+    downloader_cache_opt : &Option<DownloaderCache>,
     remembered_target_content_info : &TargetContentInfo,
     target_info : &TargetFileInfo
 )
@@ -498,22 +508,26 @@ Result<FileResolution, ResolutionError>
             restore_or_download(
                 system,
                 cache,
-                downloader_cache,
+                downloader_cache_opt,
                 remembered_target_content_info,
                 target_info)
         },
 
         // None means the file is not there, in which case, we just try to restore/download, and then go home.
         Ok(None) =>
+        {
             restore_or_download(
                 system,
                 cache,
-                downloader_cache,
+                downloader_cache_opt,
                 remembered_target_content_info,
-                target_info),
+                target_info)
+        },
 
         Err(error) =>
-            Err(ResolutionError::TicketAlignmentError(error)),
+        {
+            Err(ResolutionError::TicketAlignmentError(error))
+        },
     }
 }
 
@@ -521,7 +535,7 @@ pub fn resolve_remembered_target_tickets<SystemType : System>
 (
     system : &mut SystemType,
     cache : &mut SysCache<SystemType>,
-    downloader_cache : &DownloaderCache,
+    downloader_cache_opt : &Option<DownloaderCache>,
     target_infos : &Vec<TargetFileInfo>,
     remembered_tickets : &TargetTickets,
 )
@@ -534,7 +548,7 @@ Result<Vec<FileResolution>, ResolutionError>
         match resolve_single_target(
             system,
             cache,
-            downloader_cache,
+            downloader_cache_opt,
             &remembered_tickets.get_info(i),
             target_info)
         {
