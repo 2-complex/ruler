@@ -82,7 +82,7 @@ pub async fn serve
                                     },
                                     Err(error) =>
                                     {
-                                        let message = format!("Error: {}", error);
+                                        let message = format!("Error while reading file: {} {}", hash_str, error);
                                         println!("{}", &message);
                                         Response::builder()
                                             .status(StatusCode::INTERNAL_SERVER_ERROR)
@@ -92,7 +92,7 @@ pub async fn serve
                             },
                             Err(error) =>
                             {
-                                let message = format!("Error: {}", error);
+                                let message = format!("Error opening file: {} {}", hash_str, error);
                                 println!("{}", &message);
 
                                 Response::builder()

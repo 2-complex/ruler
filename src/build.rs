@@ -37,6 +37,7 @@ use crate::work::
     WorkOption,
     WorkResult,
     WorkError,
+    HandleNodeInfo,
     handle_node,
     clean_targets,
 };
@@ -120,10 +121,10 @@ impl fmt::Display for BuildError
                 write!(formatter, "Dependence search failed: {}", error),
 
             BuildError::RuleFileFailedToRead(path, error) =>
-                write!(formatter, "Build file {} failed to read with error: {}", path, error),
+                write!(formatter, "Rules file {} failed to read with error: {}", path, error),
 
             BuildError::RuleFileFailedToOpen(path, error) =>
-                write!(formatter, "Build file {} failed to open with error: {}", path, error),
+                write!(formatter, "Rules file {} failed to open with error: {}", path, error),
 
             BuildError::WorkErrors(work_errors) =>
             {
@@ -187,7 +188,7 @@ fn read_all_rules<SystemType : System>
     It opens the rulefile, parses it, and returns the vector of rule Nodes. */
 pub fn get_nodes
 <
-    SystemType : System + Clone + Send + 'static,
+    SystemType : System,
 >
 (
     system : &SystemType,
@@ -235,7 +236,7 @@ pub fn get_nodes
     in the dependence graph. */
 pub fn build
 <
-    SystemType : System + Clone + Send + 'static,
+    SystemType : System + 'static,
     PrinterType : Printer,
 >
 (
@@ -295,6 +296,7 @@ pub fn build
         }
 
         let local_cache_clone = elements.cache.clone();
+        let downloader_cache_clone = elements.downloader_cache.clone();
 
         let command = node.command;
         let rule_history : Option<RuleHistory> =
@@ -318,14 +320,15 @@ pub fn build
                 thread::spawn(
                     move || -> Result<WorkResult, WorkError>
                     {
-                        handle_node(
-                            target_infos,
-                            command,
-                            rule_history,
-                            system_clone,
-                            sender_vec,
-                            receiver_vec,
-                            local_cache_clone)
+                        let mut info = HandleNodeInfo::new(system_clone, local_cache_clone);
+                        info.target_infos = target_infos;
+                        info.command = command;
+                        info.rule_history_opt = rule_history;
+                        info.senders = sender_vec;
+                        info.receivers = receiver_vec;
+                        info.downloader_cache_opt = Some(downloader_cache_clone);
+
+                        handle_node(info)
                     }
                 )
             )
@@ -472,7 +475,7 @@ pub fn build
     It takes a rulefile, parses it and either removes all targets to the cache,
     or, if goal_target_opt is Some, removes only those targets that are acnestors
     of goal_target_opt in the depdnece-graph. */
-pub fn clean<SystemType : System + Clone + Send + 'static>
+pub fn clean<SystemType : System + 'static>
 (
     mut system : SystemType,
     directory_path : &str,

@@ -1,4 +1,7 @@
-use crate::packet::Packet;
+use crate::packet::
+{
+    Packet,
+};
 use crate::ticket::
 {
     Ticket,
@@ -16,26 +19,29 @@ use crate::history::
     RuleHistory,
     RuleHistoryInsertError,
 };
-
 use crate::blob::
 {
-    TargetHistory,
     TargetTickets,
     FileResolution,
     TargetFileInfo,
     ResolutionError,
-    GetFileTicketAndTimestampError,
+    GetCurrentFileInfoError,
+    TargetContentInfo,
     get_file_ticket,
-    get_file_ticket_and_timestamp,
+    get_current_file_info,
     resolve_remembered_target_tickets,
     resolve_with_no_memory,
 };
 use crate::cache::
 {
-    SysCache
+    SysCache,
+    DownloaderCache,
 };
 
-use std::sync::mpsc::{Sender, Receiver, RecvError};
+use std::sync::mpsc::
+{
+    Sender, Receiver, RecvError
+};
 use std::fmt;
 
 pub enum WorkOption
@@ -63,7 +69,7 @@ pub enum WorkError
     FileNotAvailableToCache(String, ReadWriteError),
     ReadWriteError(String, ReadWriteError),
     ResolutionError(ResolutionError),
-    GetFileTicketAndTimestampError(GetFileTicketAndTimestampError),
+    GetCurrentFileInfoError(GetCurrentFileInfoError),
     CommandExecutedButErrored,
     CommandFailedToExecute(SystemError),
     Contradiction(Vec<String>),
@@ -104,7 +110,7 @@ impl fmt::Display for WorkError
             WorkError::ResolutionError(error) =>
                 write!(formatter, "Error resolving rule: {}", error),
 
-            WorkError::GetFileTicketAndTimestampError(error) =>
+            WorkError::GetCurrentFileInfoError(error) =>
                 write!(formatter, "Error getting ticket and timestamp: {}", error),
 
             WorkError::CommandExecutedButErrored =>
@@ -271,80 +277,85 @@ fn rebuild_node<SystemType : System>
 ->
 Result<WorkResult, WorkError>
 {
+    let command_result =
     match system.execute_command(command)
     {
-        Ok(command_result) =>
-        {
-            if ! command_result.success
-            {
-                return Err(WorkError::CommandExecutedButErrored);
-            }
-
-            let mut post_command_target_tickets = Vec::new();
-            for target_info in target_infos.iter_mut()
-            {
-                match get_file_ticket_and_timestamp(system, &target_info)
-                {
-                    Ok((ticket, timestamp)) =>
-                    {
-                        target_info.history = TargetHistory::new(ticket.clone(), timestamp);
-                        post_command_target_tickets.push(ticket);
-                    },
-                    Err(GetFileTicketAndTimestampError::TargetFileNotFound(path, _system_error)) => return Err(WorkError::TargetFileNotGenerated(path)),
-                    Err(error) => return Err(WorkError::GetFileTicketAndTimestampError(error)),
-                }
-            }
-
-            for (sub_index, sender) in senders
-            {
-                match sender.send(Packet::from_ticket(
-                    post_command_target_tickets[sub_index].clone()))
-                {
-                    Ok(_) => {},
-                    Err(_error) =>
-                    {
-                        return Err(WorkError::SenderError);
-                    },
-                }
-            }
-
-            match rule_history.insert(sources_ticket, TargetTickets::from_vec(post_command_target_tickets))
-            {
-                Ok(_) => {},
-                Err(error) =>
-                {
-                    match error
-                    {
-                        RuleHistoryInsertError::Contradiction(contradicting_indices) =>
-                        {
-                            let mut contradicting_target_paths = Vec::new();
-                            for index in contradicting_indices
-                            {
-                                contradicting_target_paths.push(target_infos[index].path.clone())
-                            }
-                            return Err(WorkError::Contradiction(contradicting_target_paths));
-                        }
-
-                        RuleHistoryInsertError::TargetSizesDifferWeird =>
-                            return Err(WorkError::Weird),
-                    }
-                },
-            }
-
-            Ok(
-                WorkResult
-                {
-                    target_infos : target_infos,
-                    work_option : WorkOption::CommandExecuted(command_result),
-                    rule_history : Some(rule_history),
-                }
-            )
-        },
+        Ok(command_result) => command_result,
         Err(error) =>
         {
-            return Err(WorkError::CommandFailedToExecute(error))
+            return Err(WorkError::CommandFailedToExecute(error));
+        },
+    };
+
+    if ! command_result.success
+    {
+        return Err(WorkError::CommandExecutedButErrored);
+    }
+
+    let mut infos = vec![];
+    for target_info in target_infos.iter_mut()
+    {
+        match get_current_file_info(system, &target_info)
+        {
+            Ok(current_info) =>
+            {
+                target_info.history = current_info.clone();
+                infos.push(
+                    TargetContentInfo
+                    {
+                        ticket : current_info.ticket,
+                        executable : current_info.executable,
+                    });
+            },
+            Err(GetCurrentFileInfoError::TargetFileNotFound(path, _system_error)) => return Err(WorkError::TargetFileNotGenerated(path)),
+            Err(error) => return Err(WorkError::GetCurrentFileInfoError(error)),
+        }
+    }
+
+    for (sub_index, sender) in senders
+    {
+        match sender.send(Packet::from_ticket(
+            infos[sub_index].ticket.clone()))
+        {
+            Ok(_) => {},
+            Err(_error) =>
+            {
+                return Err(WorkError::SenderError);
+            },
+        }
+    }
+
+    match rule_history.insert(sources_ticket, TargetTickets::from_infos(infos))
+    {
+        Ok(_) => {},
+        Err(error) =>
+        {
+            match error
+            {
+                RuleHistoryInsertError::Contradiction(contradicting_indices) =>
+                {
+                    let mut contradicting_target_paths = Vec::new();
+                    for index in contradicting_indices
+                    {
+                        contradicting_target_paths.push(target_infos[index].path.clone())
+                    }
+                    return Err(WorkError::Contradiction(contradicting_target_paths));
+                }
+
+                RuleHistoryInsertError::TargetSizesDifferWeird =>
+                    return Err(WorkError::Weird),
+            }
         },
     }
+
+    Ok(
+        WorkResult
+        {
+            target_infos : target_infos,
+            work_option : WorkOption::CommandExecuted(command_result),
+            rule_history : Some(rule_history),
+        }
+    )
 }
 
 /*  Takes a vector of target_infos and attempts to resolve the targets using cache or download-urls.
@@ -360,6 +371,7 @@ fn resolve_with_cache<SystemType : System>
 (
     system : &mut SystemType,
     cache : &mut SysCache<SystemType>,
+    downloader_cache_opt : &Option<DownloaderCache>,
     rule_history : &RuleHistory,
     sources_ticket : &Ticket,
     target_infos : &Vec<TargetFileInfo>,
@@ -369,40 +381,73 @@ Result<Vec<FileResolution>, WorkError>
 {
     match rule_history.get_target_tickets(sources_ticket)
     {
-        Some(remembered_target_tickets) => match resolve_remembered_target_tickets(
-            system, cache, target_infos, remembered_target_tickets)
+        Some(remembered_target_tickets) =>
         {
-            Ok(file_resolution) => Ok(file_resolution),
-            Err(resolution_error) => Err(WorkError::ResolutionError(resolution_error)),
+            match resolve_remembered_target_tickets(
+                system, cache, downloader_cache_opt, target_infos, remembered_target_tickets)
+            {
+                Ok(file_resolution) => Ok(file_resolution),
+                Err(resolution_error) => Err(WorkError::ResolutionError(resolution_error)),
+            }
         },
 
-        None => match resolve_with_no_memory(system, cache, target_infos)
+        None => 
         {
-            Ok(file_resolution) => Ok(file_resolution),
-            Err(resolution_error) => Err(WorkError::ResolutionError(resolution_error)),
+            match resolve_with_no_memory(system, cache, target_infos)
+            {
+                Ok(file_resolution) => Ok(file_resolution),
+                Err(resolution_error) => Err(WorkError::ResolutionError(resolution_error)),
+            }
         },
     }
 }
 
+pub struct HandleNodeInfo<SystemType: System>
+{
+    pub system : SystemType,
+    pub target_infos : Vec<TargetFileInfo>,
+    pub command : Vec<String>,
+    pub rule_history_opt : Option<RuleHistory>,
+    pub senders : Vec<(usize, Sender<Packet>)>,
+    pub receivers : Vec<Receiver<Packet>>,
+    pub cache : SysCache<SystemType>,
+    pub downloader_cache_opt : Option<DownloaderCache>,
+}
+
+impl<SystemType: System> HandleNodeInfo<SystemType>
+{
+    pub fn new(system : SystemType, cache : SysCache<SystemType>) -> HandleNodeInfo<SystemType>
+    {
+        HandleNodeInfo
+        {
+            system : system,
+            cache : cache,
+            target_infos : Vec::new(),
+            command : Vec::new(),
+            rule_history_opt : None,
+            senders : Vec::new(),
+            receivers : Vec::new(),
+            downloader_cache_opt : None,
+        }
+    }
+}
 
 /*  This is a central, public function for handling a node in the depednece graph.
     It is meant to be called by a dedicated thread, and as such, it eats all its arguments.
 
-    The RuleHistory gets modified when appropriate, and gets returned as part of the result. */
+    The RuleHistory gets modified when appropriate, and gets returned as part of the result.
+
+    The possible parameters to this function are so many that they warrant a dedicated struct:
+    HandleNodeInfo.
+*/
 pub fn handle_node<SystemType: System>
 (
-    target_infos : Vec<TargetFileInfo>,
-    command : Vec<String>,
-    rule_history_opt : Option<RuleHistory>,
-    mut system : SystemType,
-    senders : Vec<(usize, Sender<Packet>)>,
-    receivers : Vec<Receiver<Packet>>,
-    mut cache : SysCache<SystemType>
+    mut info : HandleNodeInfo<SystemType>
 )
 ->
 Result<WorkResult, WorkError>
 {
-    let sources_ticket = match wait_for_sources_ticket(receivers)
+    let sources_ticket = match wait_for_sources_ticket(info.receivers)
     {
         Ok(ticket) => ticket,
         Err(error) => return Err(error),
@@ -410,47 +455,48 @@ Result<WorkResult, WorkError>
 
     /*  If there's a rule-history that means the node is a rule,
         otherwise, it is a plain source file. */
-    match rule_history_opt
+    match info.rule_history_opt
     {
         None => handle_source_only_node(
-            target_infos,
-            command,
-            system,
-            senders),
+            info.target_infos,
+            info.command,
+            info.system,
+            info.senders),
 
         Some(rule_history) =>
         {
             match resolve_with_cache(
-                &mut system,
-                &mut cache,
+                &mut info.system,
+                &mut info.cache,
+                &info.downloader_cache_opt,
                 &rule_history,
                 &sources_ticket,
-                &target_infos)
+                &info.target_infos)
             {
                 Ok(resolutions) =>
                 {
                     if needs_rebuild(&resolutions)
                     {
                         rebuild_node(
-                            &mut system,
+                            &mut info.system,
                             rule_history,
                             sources_ticket,
-                            command,
-                            senders,
-                            target_infos
+                            info.command,
+                            info.senders,
+                            info.target_infos
                         )
                     }
                     else
                     {
                         let target_tickets = match get_current_target_tickets(
-                            &system,
-                            &target_infos)
+                            &info.system,
+                            &info.target_infos)
                         {
                             Ok(target_tickets) => target_tickets,
                             Err(error) => return Err(error),
                         };
 
-                        for (sub_index, sender) in senders
+                        for (sub_index, sender) in info.senders
                         {
                             match sender.send(
                                 Packet::from_ticket(target_tickets[sub_index].clone()))
@@ -463,7 +509,7 @@ Result<WorkResult, WorkError>
                         Ok(
                             WorkResult
                             {
-                                target_infos : target_infos,
+                                target_infos : info.target_infos,
                                 work_option : WorkOption::Resolutions(resolutions),
                                 rule_history : Some(rule_history),
                             }
@@ -476,7 +522,6 @@ Result<WorkResult, WorkError>
         },
     }
 }
-
 
 pub fn clean_targets<SystemType: System>
 (
@@ -531,12 +576,13 @@ mod test
 {
     use crate::work::
     {
-        handle_node,
         FileResolution,
         WorkResult,
         WorkOption,
         WorkError,
         TargetFileInfo,
+        HandleNodeInfo,
+        handle_node,
         wait_for_sources_ticket,
     };
     use crate::ticket::
@@ -556,7 +602,10 @@ mod test
         get_file_ticket
     };
     use crate::packet::Packet;
-    use crate::cache::SysCache;
+    use crate::cache::
+    {
+        SysCache,
+    };
     use crate::system::util::
     {
         write_str_to_file,
@@ -576,7 +625,7 @@ mod test
         through and getting a source ticket using wait_for_sources_ticket */
     fn current_sources_ticket
     <
-        SystemType : System + Clone + Send + 'static,
+        SystemType : System + 'static,
     >
     (
         system : &SystemType,
@@ -684,11 +733,7 @@ mod test
             &TargetFileInfo
             {
                 path : "game.cpp".to_string(),
-                history : TargetHistory
-                {
-                    ticket : TicketFactory::new().result(),
-                    timestamp : 0,
-                }
+                history : TargetHistory::new_with_ticket(TicketFactory::new().result()),
             })
         {
             Ok(ticket_opt) =>
@@ -740,14 +785,12 @@ mod test
             Err(_) => panic!("File write operation failed"),
         }
 
-        match handle_node(
-            to_info(vec!["A".to_string()]),
-            vec![],
-            None,
-            system.clone(),
-            Vec::new(),
-            Vec::new(),
-            SysCache::new(system.clone(), ".ruler-cache"))
+        let mut info = HandleNodeInfo::new(
+            system.clone(), SysCache::new(system.clone(), ".ruler-cache"));
+
+        info.target_infos = to_info(vec!["A".to_string()]);
+
+        match handle_node(info)
         {
             Ok(result) =>
             {
@@ -800,14 +843,15 @@ mod test
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        match handle_node(
-            to_info(vec!["A.txt".to_string()]),
-            vec!["mycat".to_string(), "A-source.txt".to_string(), "A.txt".to_string()],
-            Some(RuleHistory::new()),
-            system.clone(),
-            vec![(0, sender_c)],
-            vec![receiver_a, receiver_b],
-            SysCache::new(system.clone(), ".ruler-cache"))
+        let mut info = HandleNodeInfo::new(system.clone(), SysCache::new(system.clone(), ".ruler-cache"));
+        info.target_infos = to_info(vec!["A.txt".to_string()]);
+        info.command = vec!["mycat".to_string(), "A-source.txt".to_string(), "A.txt".to_string()];
+        info.rule_history_opt = Some(RuleHistory::new());
+        info.senders.push((0, sender_c));
+        info.receivers.push(receiver_a);
+        info.receivers.push(receiver_b);
+
+        match handle_node(info)
         {
             Ok(result) =>
             {
@@ -874,14 +918,14 @@ mod test
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        match handle_node(
-            to_info(vec!["poem.txt".to_string()]),
-            vec!["error".to_string()],
-            Some(RuleHistory::new()),
-            system.clone(),
-            vec![(0, sender_c)],
-            vec![receiver_a, receiver_b],
-            SysCache::new(system.clone(), ".ruler-cache"))
+        let mut info = HandleNodeInfo::new(system.clone(), SysCache::new(system.clone(), ".ruler-cache"));
+        info.target_infos = to_info(vec!["poem.txt".to_string()]);
+        info.command = vec!["error".to_string()];
+        info.rule_history_opt = Some(RuleHistory::new());
+        info.senders = vec![(0, sender_c)];
+        info.receivers = vec![receiver_a, receiver_b];
+
+        match handle_node(info)
         {
             Ok(_) => panic!("Unexpected command success"),
             Err(WorkError::CommandExecutedButErrored) =>
@@ -930,19 +974,14 @@ mod test
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        match handle_node(
-            to_info(vec!["poem.txt".to_string()]),
-            vec![
-                "mycat".to_string(),
-                "verse1.txt".to_string(),
-                "verse2.txt".to_string(),
-                "wrong.txt".to_string()
-            ],
-            Some(RuleHistory::new()),
-            system.clone(),
-            vec![(0, sender_c)],
-            vec![receiver_a, receiver_b],
-            SysCache::new(system.clone(), ".ruler-cache"))
+        let mut info = HandleNodeInfo::new(system.clone(), SysCache::new(system.clone(), ".ruler-cache"));
+        info.target_infos = to_info(vec!["poem.txt".to_string()]);
+        info.command = vec!["mycat".to_string(),"verse1.txt".to_string(),"verse2.txt".to_string(),"wrong.txt".to_string()];
+        info.rule_history_opt = Some(RuleHistory::new());
+        info.senders = vec![(0, sender_c)];
+        info.receivers = vec![receiver_a, receiver_b];
+
+        match handle_node(info)
         {
             Ok(_) => panic!("Unexpected command success"),
             Err(WorkError::TargetFileNotGenerated(path)) =>
@@ -986,19 +1025,14 @@ mod test
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        match handle_node(
-            to_info(vec!["poem.txt".to_string()]),
-            vec![
-                "mycat".to_string(),
-                "verse1.txt".to_string(),
-                "verse2.txt".to_string(),
-                "poem.txt".to_string()
-            ],
-            Some(RuleHistory::new()),
-            system.clone(),
-            vec![(0, sender_c)],
-            vec![receiver_a, receiver_b],
-            SysCache::new(system.clone(), ".ruler-cache"))
+        let mut info = HandleNodeInfo::new(system.clone(), SysCache::new(system.clone(), ".ruler-cache"));
+        info.target_infos = to_info(vec!["poem.txt".to_string()]);
+        info.command = vec!["mycat".to_string(),"verse1.txt".to_string(),"verse2.txt".to_string(),"poem.txt".to_string()];
+        info.rule_history_opt = Some(RuleHistory::new());
+        info.senders = vec![(0, sender_c)];
+        info.receivers = vec![receiver_a, receiver_b];
+
+        match handle_node(info)
         {
             Ok(result) =>
             {
@@ -1037,6 +1071,11 @@ mod test
     }
 
 
+    /*  Create sourcefiles with the two lines in a two-line poem.  Fabricate a rule history
+        that recalls the two lines concatinated as the result In the fake file system, make
+        the source files and create poem with already correct content.  Then called handle_node.
+        Check that handle_node behaves as if the poem is already correct.
+    */
     #[test]
     fn poem_already_correct()
     {
@@ -1049,14 +1088,13 @@ mod test
         let mut factory = TicketFactory::new();
         factory.input_ticket(TicketFactory::from_str("Roses are red\n").result());
         factory.input_ticket(TicketFactory::from_str("Violets are violet\n").result());
+        let sources_ticket = factory.result();
 
         match rule_history.insert(
-            factory.result(),
-            TargetTickets::from_vec(
-            vec![
+            sources_ticket,
+            TargetTickets::from_vec(vec![
                 TicketFactory::from_str("Roses are red\nViolets are violet\n").result()
-            ]
-        )
+            ])
         )
         {
             Ok(_) => {},
@@ -1064,6 +1102,12 @@ mod test
         }
 
         let mut system = FakeSystem::new(10);
+
+        match system.create_dir(".ruler-cache")
+        {
+            Ok(_) => {},
+            Err(_) => panic!("Failed to make cache directory"),
+        }
 
         match write_str_to_file(&mut system, "verse1.txt", "Roses are red\n")
         {
@@ -1095,18 +1139,14 @@ mod test
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        match handle_node(
-            to_info(vec!["poem.txt".to_string()]),
-            vec![
-                "error".to_string(),
-                "poem is already correct".to_string(),
-                "this command should not run".to_string(),
-                "the end".to_string()],
-            Some(rule_history),
-            system.clone(),
-            vec![(0, sender_c)],
-            vec![receiver_a, receiver_b],
-            SysCache::new(system.clone(), ".ruler-cache"))
+        let mut info = HandleNodeInfo::new(system.clone(), SysCache::new(system.clone(), ".ruler-cache"));
+        info.target_infos = to_info(vec!["poem.txt".to_string()]);
+        info.command = vec!["mycat".to_string(), "verse1.txt".to_string(), "verse2.txt".to_string(), "poem.txt".to_string()];
+        info.rule_history_opt = Some(rule_history);
+        info.senders = vec![(0, sender_c)];
+        info.receivers = vec![receiver_a, receiver_b];
+
+        match handle_node(info)
         {
             Ok(result) =>
             {
@@ -1151,6 +1191,14 @@ mod test
     }
 
 
+    /*  Create source files for a two-line poem.  Fabricate a hisotry which describes
+        a different result when the two source files are compiled.
+
+        Populate poem.txt with arbitrary content, so that it mush rebuild.  Send the
+        tickets for the file-system contents of the source files through the channels.
+
+        Check that handle_node produces the correct contradiction error.
+    */
     #[test]
     fn poem_contradicts_history()
     {
@@ -1158,20 +1206,17 @@ mod test
         let (sender_b, receiver_b) = mpsc::channel();
         let (sender_c, _receiver_c) = mpsc::channel();
 
-        let mut rule_history = RuleHistory::new();
-
         let mut factory = TicketFactory::new();
         factory.input_ticket(TicketFactory::from_str("Roses are red\n").result());
         factory.input_ticket(TicketFactory::from_str("Violets are violet\n").result());
+        let source_ticket = factory.result();
 
+        let mut rule_history = RuleHistory::new();
         match rule_history.insert(
-            factory.result(),
+            source_ticket,
             TargetTickets::from_vec(
-            vec![
-                TicketFactory::from_str("Roses are red\nViolets are blue\n").result()
-            ]
-        )
-        )
+                vec![TicketFactory::from_str("Roses are red\nViolets are blue\n").result()]
+            ))
         {
             Ok(_) => {},
             Err(_) => panic!("Rule history failed to insert"),
@@ -1215,19 +1260,14 @@ mod test
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        match handle_node(
-            to_info(vec!["poem.txt".to_string()]),
-            vec![
-                "mycat".to_string(),
-                "verse1.txt".to_string(),
-                "verse2.txt".to_string(),
-                "poem.txt".to_string()
-            ],
-            Some(rule_history),
-            system.clone(),
-            vec![(0, sender_c)],
-            vec![receiver_a, receiver_b],
-            SysCache::new(system.clone(), ".ruler-cache"))
+        let mut info = HandleNodeInfo::new(system.clone(), SysCache::new(system.clone(), ".ruler-cache"));
+        info.target_infos = to_info(vec!["poem.txt".to_string()]);
+        info.command = vec!["mycat".to_string(), "verse1.txt".to_string(), "verse2.txt".to_string(), "poem.txt".to_string()];
+        info.rule_history_opt = Some(rule_history);
+        info.senders = vec![(0, sender_c)];
+        info.receivers = vec![receiver_a, receiver_b];
+
+        match handle_node(info)
         {
             Ok(_result) =>
             {
@@ -1297,19 +1337,14 @@ mod test
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        match handle_node(
-            to_info(vec!["poem.txt".to_string()]),
-            vec![
-                "mycat".to_string(),
-                "verse1.txt".to_string(),
-                "verse2.txt".to_string(),
-                "poem.txt".to_string()
-            ],
-            Some(rule_history),
-            system.clone(),
-            vec![(0, sender_c)],
-            vec![receiver_a, receiver_b],
-            SysCache::new(system.clone(), ".ruler-cache"))
+        let mut info = HandleNodeInfo::new(system.clone(), SysCache::new(system.clone(), ".ruler-cache"));
+        info.target_infos = to_info(vec!["poem.txt".to_string()]);
+        info.command = vec!["mycat".to_string(), "verse1.txt".to_string(), "verse2.txt".to_string(), "poem.txt".to_string()];
+        info.rule_history_opt = Some(rule_history);
+        info.senders = vec![(0, sender_c)];
+        info.receivers = vec![receiver_a, receiver_b];
+
+        match handle_node(info)
         {
             Ok(result) =>
             {
@@ -1365,14 +1400,10 @@ mod test
             Err(_) => panic!("File write operation failed"),
         }
 
-        match handle_node(
-            to_info(vec!["verse1.txt".to_string()]),
-            vec![],
-            None,
-            system.clone(),
-            vec![],
-            vec![],
-            SysCache::new(system.clone(), ".ruler-cache"))
+        let mut info = HandleNodeInfo::new(system.clone(), SysCache::new(system.clone(), ".ruler-cache"));
+        info.target_infos = to_info(vec!["verse1.txt".to_string()]);
+
+        match handle_node(info)
         {
             Ok(_) =>
             {
@@ -1401,14 +1432,12 @@ mod test
             Err(_) => panic!("File write operation failed"),
         }
 
-        match handle_node(
-            to_info(vec!["verse1.txt".to_string()]),
-            vec!["rm".to_string(), "verse1.txt".to_string()],
-            Some(RuleHistory::new()),
-            system.clone(),
-            vec![],
-            vec![],
-            SysCache::new(system.clone(), ".rule-cache"))
+        let mut info = HandleNodeInfo::new(system.clone(), SysCache::new(system.clone(), ".rule-cache"));
+        info.target_infos = to_info(vec!["verse1.txt".to_string()]);
+        info.command = vec!["rm".to_string(), "verse1.txt".to_string()];
+        info.rule_history_opt = Some(RuleHistory::new());
+
+        match handle_node(info)
         {
             Ok(_) =>
             {
@@ -1425,7 +1454,7 @@ mod test
         }
     }
 
-    fn spawn_command<SystemType: System + Send + 'static>
+    fn spawn_command<SystemType: System + 'static>
     (
         target_infos : Vec<TargetFileInfo>,
         command : Vec<String>,
@@ -1439,14 +1468,13 @@ mod test
         thread::spawn(
             move || -> Result<WorkResult, WorkError>
             {
-                handle_node(
-                    target_infos,
-                    command,
-                    rule_history_opt,
-                    system.clone(),
-                    senders,
-                    receivers,
-                    SysCache::new(system.clone(), ".ruler-cache"))
+                let mut info = HandleNodeInfo::new(system.clone(), SysCache::new(system, ".ruler-cache"));
+                info.target_infos = target_infos;
+                info.command = command;
+                info.rule_history_opt = rule_history_opt;
+                info.senders = senders;
+                info.receivers = receivers;
+                handle_node(info)
             }
         )
     }

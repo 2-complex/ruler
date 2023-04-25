@@ -9,6 +9,10 @@ use crate::system::
     SystemError,
     ReadWriteError,
 };
+use crate::downloader::
+{
+    download,
+};
 
 pub enum RestoreResult
 {
@@ -16,6 +20,12 @@ pub enum RestoreResult
     NotThere,
     CacheDirectoryMissing,
     SystemError(SystemError)
+}
+
+pub enum DownloadResult
+{
+    Done,
+    NotThere
 }
 
 pub enum OpenError
@@ -40,6 +50,45 @@ impl fmt::Display for OpenError
             OpenError::SystemError(error) =>
                 write!(formatter, "Underlying System Error: {}", error),
         }
+    }
+}
+
+#[derive(Clone)]
+pub struct DownloaderCache
+{
+    base_urls : Vec<String>,
+}
+
+impl DownloaderCache
+{
+    pub fn new(
+        base_urls : Vec<String>
+    ) -> DownloaderCache
+    {
+        DownloaderCache
+        {
+            base_urls : base_urls,
+        }
+    }
+
+    pub fn restore_file<SystemType : System>(
+        &self,
+        ticket : &Ticket,
+        system : &mut SystemType,
+        target_path : &str
+    ) -> DownloadResult
+    {
+        for base_url in &self.base_urls
+        {
+            let url = format!("{}/{}", base_url, ticket.base64());
+            match download(system, &url, target_path)
+            {
+                Ok(()) => return DownloadResult::Done,
+                Err(_error) => {},
+            }
+        }
+
+        DownloadResult::NotThere
     }
 }
 
