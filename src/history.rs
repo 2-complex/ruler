@@ -1,7 +1,4 @@
-use crate::ticket::
-{
-    Ticket
-};
+use crate::ticket::Ticket;
 use crate::system::System;
 use crate::blob::
 {
@@ -20,6 +17,27 @@ use std::io::
     Read,
     Write,
 };
+
+pub struct DownloaderRuleHistory
+{
+    base_urls : Vec<String>,
+    rule_ticket : String,
+}
+
+impl DownloaderRuleHistory
+{
+    pub fn new(
+        base_urls : Vec<String>,
+        rule_ticket : String
+    ) -> DownloaderRuleHistory
+    {
+        DownloaderRuleHistory
+        {
+            base_urls : base_urls,
+            rule_ticket : rule_ticket,
+        }
+    }
+}
 
 /*  Recall that a Rule is three things: sources, targets and command.  For each particular rule, a RuleHistory stores
     the Tickets of target files witnessed by the program when the command built with a given rule-ticket.

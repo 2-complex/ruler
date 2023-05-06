@@ -17,6 +17,7 @@ use crate::system::
 use crate::history::
 {
     RuleHistory,
+    DownloaderRuleHistory,
     RuleHistoryInsertError,
 };
 use crate::blob::
@@ -373,6 +374,7 @@ fn resolve_with_cache<SystemType : System>
     cache : &mut SysCache<SystemType>,
     downloader_cache_opt : &Option<DownloaderCache>,
     rule_history : &RuleHistory,
+    downloader_rule_history_opt : &Option<DownloaderRuleHistory>,
     sources_ticket : &Ticket,
     target_infos : &Vec<TargetFileInfo>,
 )
@@ -391,7 +393,7 @@ Result<Vec<FileResolution>, WorkError>
             }
         },
 
-        None => 
+        None =>
         {
             match resolve_with_no_memory(system, cache, target_infos)
             {
@@ -408,6 +410,7 @@ pub struct HandleNodeInfo<SystemType: System>
     pub target_infos : Vec<TargetFileInfo>,
     pub command : Vec<String>,
     pub rule_history_opt : Option<RuleHistory>,
+    pub downloader_rule_history_opt : Option<DownloaderRuleHistory>,
     pub senders : Vec<(usize, Sender<Packet>)>,
     pub receivers : Vec<Receiver<Packet>>,
     pub cache : SysCache<SystemType>,
@@ -425,6 +428,7 @@ impl<SystemType: System> HandleNodeInfo<SystemType>
             target_infos : Vec::new(),
             command : Vec::new(),
             rule_history_opt : None,
+            downloader_rule_history_opt : None,
             senders : Vec::new(),
             receivers : Vec::new(),
             downloader_cache_opt : None,
@@ -470,6 +474,7 @@ Result<WorkResult, WorkError>
                 &mut info.cache,
                 &info.downloader_cache_opt,
                 &rule_history,
+                &info.downloader_rule_history_opt,
                 &sources_ticket,
                 &info.target_infos)
             {
