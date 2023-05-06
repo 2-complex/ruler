@@ -21,14 +21,14 @@ use std::io::
 pub struct DownloaderRuleHistory
 {
     base_urls : Vec<String>,
-    rule_ticket : String,
+    rule_ticket : Ticket,
 }
 
 impl DownloaderRuleHistory
 {
     pub fn new(
         base_urls : Vec<String>,
-        rule_ticket : String
+        rule_ticket : Ticket
     ) -> DownloaderRuleHistory
     {
         DownloaderRuleHistory
@@ -36,6 +36,23 @@ impl DownloaderRuleHistory
             base_urls : base_urls,
             rule_ticket : rule_ticket,
         }
+    }
+
+    pub fn get_target_tickets(&self, source_ticket: &Ticket) -> Option<&TargetTickets>
+    {
+            /*
+        for base_url in &self.base_urls
+        {
+            match download_string(
+                system, &format!("{}/{}/{}", base_url, self.rule_ticket.base64(), ticket.base64()), target_path)
+            {
+                Ok(()) => return None, //TODO: do something real
+                Err(_error) => {},
+            }
+        }
+            */
+
+        None
     }
 }
 

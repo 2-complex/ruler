@@ -80,8 +80,7 @@ impl DownloaderCache
     {
         for base_url in &self.base_urls
         {
-            let url = format!("{}/{}", base_url, ticket.base64());
-            match download(system, &url, target_path)
+            match download(system, &format!("{}/{}", base_url, ticket.base64()), target_path)
             {
                 Ok(()) => return DownloadResult::Done,
                 Err(_error) => {},
