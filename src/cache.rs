@@ -11,7 +11,7 @@ use crate::system::
 };
 use crate::downloader::
 {
-    download,
+    download_file,
 };
 
 pub enum RestoreResult
@@ -80,7 +80,8 @@ impl DownloaderCache
     {
         for base_url in &self.base_urls
         {
-            match download(system, &format!("{}/{}", base_url, ticket.base64()), target_path)
+            match download_file(
+                system, &format!("{}/{}", base_url, ticket.base64()), target_path)
             {
                 Ok(()) => return DownloadResult::Done,
                 Err(_error) => {},
