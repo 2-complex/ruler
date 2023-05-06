@@ -32,6 +32,11 @@ use crate::system::util::
 use crate::system::real::RealSystem;
 use crate::printer::StandardPrinter;
 
+use crate::downloader::
+{
+    download_string
+};
+
 mod blob;
 mod build;
 mod cache;
@@ -328,6 +333,16 @@ and its ancestors, as needed.")
                 .takes_value(true))
         )
         .subcommand(
+            SubCommand::with_name("download")
+            .about("Repeats the most recent build command")
+            .help("Downloads!")
+            .arg(Arg::with_name("url")
+                .help("")
+                .required(true)
+                .index(1)
+            )
+        )
+        .subcommand(
             SubCommand::with_name("serve")
             .about("Starts a server to provide other instances of ruler on the
 network access to the files in the cache.")
@@ -342,6 +357,22 @@ network access to the files in the cache.")
         )
         .setting(AppSettings::ArgRequiredElseHelp)
         .get_matches();
+
+    if let Some(matches) = big_matches.subcommand_matches("download")
+    {
+        let url =
+        match matches.value_of("url")
+        {
+            Some(value) => value,
+            None => "apple.com",
+        };
+
+        match download_string(url)
+        {
+            Ok(s) => println!("contents: {}", s),
+            Err(error) => println!("error: {}", error),
+        }
+    }
 
     if let Some(matches) = big_matches.subcommand_matches("again")
     {
