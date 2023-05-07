@@ -5,6 +5,10 @@ use crate::blob::
     TargetTickets,
     BlobError,
 };
+use crate::downloader::
+{
+    download_string,
+};
 use std::collections::HashMap;
 use serde::
 {
@@ -17,6 +21,7 @@ use std::io::
     Read,
     Write,
 };
+
 
 pub struct DownloaderRuleHistory
 {
@@ -38,14 +43,24 @@ impl DownloaderRuleHistory
         }
     }
 
-    pub fn get_target_tickets(&self, source_ticket: &Ticket) -> Option<&TargetTickets>
+    pub fn get_target_tickets(&self, source_ticket: &Ticket) -> Option<TargetTickets>
     {
         for base_url in &self.base_urls
         {
-            match download_string(
-                system, &format!("{}/{}/{}", base_url, self.rule_ticket.base64(), ticket.base64()), target_path)
+            match download_string(&format!("{}/{}/{}",
+                base_url, self.rule_ticket.base64(), source_ticket.base64()))
             {
-                Ok(()) => return None, //TODO: do something real
+                Ok(download_string) =>
+                {
+                    match TargetTickets::from_download_string(&download_string)
+                    {
+                        Ok(target_tickets) => return Some(target_tickets),
+                        Err(_error) =>
+                        {
+                            println!("Warning: downloaded target tickets did not parse");
+                        },
+                    }
+                },
                 Err(_error) => {},
             }
         }

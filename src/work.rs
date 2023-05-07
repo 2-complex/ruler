@@ -385,22 +385,44 @@ Result<Vec<FileResolution>, WorkError>
     {
         Some(remembered_target_tickets) =>
         {
-            match resolve_remembered_target_tickets(
+            return match resolve_remembered_target_tickets(
                 system, cache, downloader_cache_opt, target_infos, remembered_target_tickets)
             {
                 Ok(file_resolution) => Ok(file_resolution),
                 Err(resolution_error) => Err(WorkError::ResolutionError(resolution_error)),
+            };
+        },
+
+        None => {},
+    }
+
+    match downloader_rule_history_opt
+    {
+        Some(downloader_rule_history) =>
+        {
+            match downloader_rule_history.get_target_tickets(sources_ticket)
+            {
+                Some(target_tickets) =>
+                {
+                    return match resolve_remembered_target_tickets(
+                        system, cache, downloader_cache_opt, target_infos, &target_tickets)
+                    {
+                        Ok(file_resolution) => Ok(file_resolution),
+                        Err(resolution_error) => Err(WorkError::ResolutionError(resolution_error)),
+                    };
+                },
+
+                None => {},
             }
         },
 
-        None =>
-        {
-            match resolve_with_no_memory(system, cache, target_infos)
-            {
-                Ok(file_resolution) => Ok(file_resolution),
-                Err(resolution_error) => Err(WorkError::ResolutionError(resolution_error)),
-            }
-        },
+        None => {},
+    }
+
+    match resolve_with_no_memory(system, cache, target_infos)
+    {
+        Ok(file_resolution) => Ok(file_resolution),
+        Err(resolution_error) => Err(WorkError::ResolutionError(resolution_error)),
     }
 }
 
