@@ -58,6 +58,12 @@ pub enum BlobError
     TargetSizesDifferWeird,
 }
 
+#[derive(Debug)]
+pub enum TargetTicketsParseError
+{
+    NotProperBase64,
+}
+
 /*  The target of a rule can be more than one file, and maybe one day, it can be a directory
     or a combination of those things.  A RuleHistory contains a map from source-ticket to this struct.
     This struct represents: whatever tickets we need to recover the target files. */
@@ -90,6 +96,24 @@ impl TargetTickets
     pub fn from_infos(infos : Vec<TargetContentInfo>) -> TargetTickets
     {
         TargetTickets{infos : infos}
+    }
+
+    pub fn from_download_string(download_string : &str)
+        -> Result<TargetTickets, TargetTicketsParseError>
+    {
+        let mut tickets = vec![];
+        println!("parts:");
+        for part in download_string.split("\n")
+        {
+            println!("|{}", &part);
+            tickets.push(match Ticket::from_base64(part)
+            {
+                Ok(ticket) => ticket,
+                Err(_) => return Err(
+                    TargetTicketsParseError::NotProperBase64),
+            });
+        }
+        Ok(TargetTickets::from_vec(tickets))
     }
 
     /*  Takes a TargetTickets and looks at how the lists differ.
@@ -163,13 +187,7 @@ impl TargetTickets
     pub fn download_string(&self)
     -> String
     {
-        let mut out = String::new();
-        for info in self.infos.iter()
-        {
-            out.push_str(&info.ticket.base64());
-            out.push_str("\n");
-        }
-        out
+        self.infos.iter().map(|info|{info.ticket.base64()}).collect::<Vec<String>>().join("\n")
     }
 }
 
@@ -856,5 +874,16 @@ mod test
             },
             Err(_) => panic!("Unexpected error getting file ticket"),
         }
+    }
+
+    #[test]
+    fn blob_test_download_string_round_trip()
+    {
+        let target_tickets = TargetTickets::from_vec(vec![
+            TicketFactory::from_str("Alabaster\n").result(),
+            TicketFactory::from_str("Banana\n").result()]);
+
+        assert_eq!(target_tickets, TargetTickets::from_download_string(
+            &target_tickets.download_string()).unwrap());
     }
 }
