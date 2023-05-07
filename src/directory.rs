@@ -8,6 +8,7 @@ use crate::memory::
 use crate::history::
 {
     History,
+    DownloaderHistory,
 };
 use crate::cache::
 {
@@ -90,15 +91,19 @@ pub fn init<SystemType : System>
 
     let memoryfile = format!("{}/memory", directory);
 
-    Ok(Elements{
+    Ok(Elements
+    {
         memory : match Memory::from_file(system.clone(), memoryfile)
         {
             Ok(memory) => memory,
             Err(error) => return Err(InitDirectoryError::FailedToReadMemoryFile(error)),
         },
         cache : SysCache::new(system.clone(), &cache_path),
+
+        // TODO: get these form a config file or commandline option:
         downloader_cache : DownloaderCache::new(vec!["http://127.0.0.1:8080/files".to_string()]),
-        history : History::new(system.clone(), &history_path)
+        history : History::new(system.clone(), &history_path),
+        downloader_history : DownloaderHistory::new(vec!["http://127.0.0.1:8080/rules".to_string()]),
     })
 }
 
@@ -106,8 +111,9 @@ pub struct Elements<SystemType : System>
 {
     pub memory : Memory<SystemType>,
     pub cache : SysCache<SystemType>,
-    pub downloader_cache : DownloaderCache,
     pub history : History<SystemType>,
+    pub downloader_cache : DownloaderCache,
+    pub downloader_history : DownloaderHistory,
 }
 
 #[cfg(test)]

@@ -22,7 +22,6 @@ use std::io::
     Write,
 };
 
-
 pub struct DownloaderRuleHistory
 {
     base_urls : Vec<String>,
@@ -281,6 +280,34 @@ impl<SystemType : System> History<SystemType>
         {
             Ok(rule_history) => Ok(rule_history),
             Err(_) => Err(HistoryError::CannotInterpretRuleHistoryFile(rule_history_file_path)),
+        }
+    }
+}
+
+pub struct DownloaderHistory
+{
+    base_urls : Vec<String>,
+}
+
+impl DownloaderHistory
+{
+    pub fn new(
+        base_urls : Vec<String>
+    ) -> DownloaderHistory
+    {
+        DownloaderHistory
+        {
+            base_urls : base_urls,
+        }
+    }
+
+    pub fn get_rule_history(&self, rule_ticket: &Ticket)
+        -> DownloaderRuleHistory
+    {
+        return DownloaderRuleHistory
+        {
+            base_urls : self.base_urls.clone(),
+            rule_ticket : rule_ticket.clone(),
         }
     }
 }

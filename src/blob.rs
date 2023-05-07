@@ -75,7 +75,6 @@ pub struct TargetTickets
 
 impl TargetTickets
 {
-    #[cfg(test)]
     pub fn from_vec(tickets : Vec<Ticket>) -> TargetTickets
     {
         let mut infos = vec![];

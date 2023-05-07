@@ -299,21 +299,22 @@ pub fn build
         let downloader_cache_clone = elements.downloader_cache.clone();
 
         let command = node.command;
-        let rule_history : Option<RuleHistory> =
+        let (rule_history_opt, downloader_rule_history_opt) =
         match &node.rule_ticket
         {
             Some(ticket) =>
-            {
+            (
                 match elements.history.read_rule_history(&ticket)
                 {
                     Ok(rule_history) => Some(rule_history),
                     Err(_error) => None,
-                }
-            }
-            None => None,
+                },
+                Some(elements.downloader_history.get_rule_history(&ticket))
+            ),
+            None => (None, None),
         };
-        let system_clone = system.clone();
 
+        let system_clone = system.clone();
         handles.push(
             (
                 node.rule_ticket,
@@ -323,10 +324,11 @@ pub fn build
                         let mut info = HandleNodeInfo::new(system_clone, local_cache_clone);
                         info.target_infos = target_infos;
                         info.command = command;
-                        info.rule_history_opt = rule_history;
+                        info.rule_history_opt = rule_history_opt;
                         info.senders = sender_vec;
                         info.receivers = receiver_vec;
                         info.downloader_cache_opt = Some(downloader_cache_clone);
+                        info.downloader_rule_history_opt = downloader_rule_history_opt;
 
                         handle_node(info)
                     }
