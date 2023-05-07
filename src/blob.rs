@@ -101,10 +101,8 @@ impl TargetTickets
         -> Result<TargetTickets, TargetTicketsParseError>
     {
         let mut tickets = vec![];
-        println!("parts:");
         for part in download_string.split("\n")
         {
-            println!("|{}", &part);
             tickets.push(match Ticket::from_base64(part)
             {
                 Ok(ticket) => ticket,
