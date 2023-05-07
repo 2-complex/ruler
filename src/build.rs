@@ -46,10 +46,6 @@ use crate::memory::
 {
     MemoryError
 };
-use crate::history::
-{
-    RuleHistory
-};
 use crate::printer::Printer;
 
 use termcolor::

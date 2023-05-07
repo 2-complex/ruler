@@ -30,18 +30,6 @@ pub struct DownloaderRuleHistory
 
 impl DownloaderRuleHistory
 {
-    pub fn new(
-        base_urls : Vec<String>,
-        rule_ticket : Ticket
-    ) -> DownloaderRuleHistory
-    {
-        DownloaderRuleHistory
-        {
-            base_urls : base_urls,
-            rule_ticket : rule_ticket,
-        }
-    }
-
     pub fn get_target_tickets(&self, source_ticket: &Ticket) -> Option<TargetTickets>
     {
         for base_url in &self.base_urls
