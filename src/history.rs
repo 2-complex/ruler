@@ -40,7 +40,6 @@ impl DownloaderRuleHistory
 
     pub fn get_target_tickets(&self, source_ticket: &Ticket) -> Option<&TargetTickets>
     {
-            /*
         for base_url in &self.base_urls
         {
             match download_string(
@@ -50,8 +49,6 @@ impl DownloaderRuleHistory
                 Err(_error) => {},
             }
         }
-            */
-
         None
     }
 }
