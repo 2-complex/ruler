@@ -74,7 +74,6 @@ pub enum WorkError
     CommandExecutedButErrored,
     CommandFailedToExecute(SystemError),
     Contradiction(Vec<String>),
-    CommandWithNoRuleHistory,
     Weird,
 }
 
@@ -132,9 +131,6 @@ impl fmt::Display for WorkError
                 write!(formatter, "{}", message)
             },
 
-            WorkError::CommandWithNoRuleHistory =>
-                write!(formatter, "Command provided but no rule history, that should be impossible"),
-
             WorkError::Weird =>
                 write!(formatter, "Weird! How did you do that!"),
         }
@@ -172,19 +168,13 @@ fn get_current_target_tickets<SystemType: System>
     So, error if there is a command specified, and at the end return SourceOnly. */
 fn handle_source_only_node<SystemType: System>
 (
-    target_infos : Vec<TargetFileInfo>,
-    command : Vec<String>,
     system : SystemType,
+    target_infos : Vec<TargetFileInfo>,
     senders : Vec<(usize, Sender<Packet>)>
 )
 ->
 Result<WorkResult, WorkError>
 {
-    if command.len() != 0
-    {
-        return Err(WorkError::CommandWithNoRuleHistory)
-    }
-
     let current_target_tickets = match get_current_target_tickets(
         &system,
         &target_infos)
@@ -426,34 +416,57 @@ Result<Vec<FileResolution>, WorkError>
     }
 }
 
-pub struct HandleNodeInfo<SystemType: System>
+pub struct RuleExt<SystemType: System>
 {
-    pub system : SystemType,
-    pub target_infos : Vec<TargetFileInfo>,
     pub command : Vec<String>,
-    pub rule_history_opt : Option<RuleHistory>,
-    pub senders : Vec<(usize, Sender<Packet>)>,
-    pub receivers : Vec<Receiver<Packet>>,
+    pub rule_history : RuleHistory,
     pub cache : SysCache<SystemType>,
     pub downloader_cache_opt : Option<DownloaderCache>,
     pub downloader_rule_history_opt : Option<DownloaderRuleHistory>,
 }
 
+impl<SystemType: System> RuleExt<SystemType>
+{
+    #[cfg(test)]
+    fn new(cache: SysCache<SystemType>) -> RuleExt<SystemType>
+    {
+        return RuleExt
+        {
+            cache : cache,
+            command : Vec::new(),
+            rule_history : RuleHistory::new(),
+            downloader_cache_opt : None,
+            downloader_rule_history_opt : None,
+        };
+    }
+}
+
+pub enum NodeType<SystemType: System>
+{
+    SourceOnly,
+    Rule(RuleExt<SystemType>)
+}
+
+pub struct HandleNodeInfo<SystemType: System>
+{
+    pub system : SystemType,
+    pub target_infos : Vec<TargetFileInfo>,
+    pub senders : Vec<(usize, Sender<Packet>)>,
+    pub receivers : Vec<Receiver<Packet>>,
+    pub node_type : NodeType<SystemType>,
+}
+
 impl<SystemType: System> HandleNodeInfo<SystemType>
 {
-    pub fn new(system : SystemType, cache : SysCache<SystemType>) -> HandleNodeInfo<SystemType>
+    pub fn new(system : SystemType) -> HandleNodeInfo<SystemType>
     {
         HandleNodeInfo
         {
             system : system,
-            cache : cache,
             target_infos : Vec::new(),
-            command : Vec::new(),
-            rule_history_opt : None,
             senders : Vec::new(),
             receivers : Vec::new(),
-            downloader_cache_opt : None,
-            downloader_rule_history_opt : None,
+            node_type : NodeType::SourceOnly,
         }
     }
 }
@@ -481,24 +494,23 @@ Result<WorkResult, WorkError>
 
     /*  If there's a rule-history that means the node is a rule,
         otherwise, it is a plain source file. */
-    match info.rule_history_opt
+    match info.node_type
     {
-        None => handle_source_only_node(
-            info.target_infos,
-            info.command,
+        NodeType::SourceOnly => handle_source_only_node(
             info.system,
+            info.target_infos,
             info.senders),
 
-        Some(rule_history) =>
+        NodeType::Rule(mut rule_ext) =>
         {
             match resolve_with_cache(
                 &mut info.system,
-                &mut info.cache,
-                &info.downloader_cache_opt,
-                &rule_history,
-                &info.downloader_rule_history_opt,
-                &sources_ticket,
-                &info.target_infos)
+                &mut rule_ext.cache,
+                & rule_ext.downloader_cache_opt,
+                & rule_ext.rule_history,
+                & rule_ext.downloader_rule_history_opt,
+                & sources_ticket,
+                & info.target_infos)
             {
                 Ok(resolutions) =>
                 {
@@ -506,9 +518,9 @@ Result<WorkResult, WorkError>
                     {
                         rebuild_node(
                             &mut info.system,
-                            rule_history,
+                            rule_ext.rule_history,
                             sources_ticket,
-                            info.command,
+                            rule_ext.command,
                             info.senders,
                             info.target_infos
                         )
@@ -538,7 +550,7 @@ Result<WorkResult, WorkError>
                             {
                                 target_infos : info.target_infos,
                                 work_option : WorkOption::Resolutions(resolutions),
-                                rule_history : Some(rule_history),
+                                rule_history : Some(rule_ext.rule_history),
                             }
                         )
                     }
@@ -609,6 +621,8 @@ mod test
         WorkError,
         TargetFileInfo,
         HandleNodeInfo,
+        RuleExt,
+        NodeType,
         handle_node,
         wait_for_sources_ticket,
     };
@@ -812,9 +826,7 @@ mod test
             Err(_) => panic!("File write operation failed"),
         }
 
-        let mut info = HandleNodeInfo::new(
-            system.clone(), SysCache::new(system.clone(), ".ruler-cache"));
-
+        let mut info = HandleNodeInfo::new(system.clone());
         info.target_infos = to_info(vec!["A".to_string()]);
 
         match handle_node(info)
@@ -870,13 +882,15 @@ mod test
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        let mut info = HandleNodeInfo::new(system.clone(), SysCache::new(system.clone(), ".ruler-cache"));
+        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"));
+        rule_ext.command = vec!["mycat".to_string(), "A-source.txt".to_string(), "A.txt".to_string()];
+
+        let mut info = HandleNodeInfo::new(system.clone());
         info.target_infos = to_info(vec!["A.txt".to_string()]);
-        info.command = vec!["mycat".to_string(), "A-source.txt".to_string(), "A.txt".to_string()];
-        info.rule_history_opt = Some(RuleHistory::new());
         info.senders.push((0, sender_c));
         info.receivers.push(receiver_a);
         info.receivers.push(receiver_b);
+        info.node_type = NodeType::Rule(rule_ext);
 
         match handle_node(info)
         {
@@ -945,12 +959,14 @@ mod test
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        let mut info = HandleNodeInfo::new(system.clone(), SysCache::new(system.clone(), ".ruler-cache"));
+        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"));
+        rule_ext.command = vec!["error".to_string()];
+
+        let mut info = HandleNodeInfo::new(system.clone());
         info.target_infos = to_info(vec!["poem.txt".to_string()]);
-        info.command = vec!["error".to_string()];
-        info.rule_history_opt = Some(RuleHistory::new());
         info.senders = vec![(0, sender_c)];
         info.receivers = vec![receiver_a, receiver_b];
+        info.node_type = NodeType::Rule(rule_ext);
 
         match handle_node(info)
         {
@@ -1001,12 +1017,14 @@ mod test
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        let mut info = HandleNodeInfo::new(system.clone(), SysCache::new(system.clone(), ".ruler-cache"));
+        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"));
+        rule_ext.command = vec!["mycat".to_string(),"verse1.txt".to_string(),"verse2.txt".to_string(),"wrong.txt".to_string()];
+
+        let mut info = HandleNodeInfo::new(system.clone());
         info.target_infos = to_info(vec!["poem.txt".to_string()]);
-        info.command = vec!["mycat".to_string(),"verse1.txt".to_string(),"verse2.txt".to_string(),"wrong.txt".to_string()];
-        info.rule_history_opt = Some(RuleHistory::new());
         info.senders = vec![(0, sender_c)];
         info.receivers = vec![receiver_a, receiver_b];
+        info.node_type = NodeType::Rule(rule_ext);
 
         match handle_node(info)
         {
@@ -1052,12 +1070,14 @@ mod test
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        let mut info = HandleNodeInfo::new(system.clone(), SysCache::new(system.clone(), ".ruler-cache"));
+        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"));
+        rule_ext.command = vec!["mycat".to_string(),"verse1.txt".to_string(),"verse2.txt".to_string(),"poem.txt".to_string()];
+
+        let mut info = HandleNodeInfo::new(system.clone());
         info.target_infos = to_info(vec!["poem.txt".to_string()]);
-        info.command = vec!["mycat".to_string(),"verse1.txt".to_string(),"verse2.txt".to_string(),"poem.txt".to_string()];
-        info.rule_history_opt = Some(RuleHistory::new());
         info.senders = vec![(0, sender_c)];
         info.receivers = vec![receiver_a, receiver_b];
+        info.node_type = NodeType::Rule(rule_ext);
 
         match handle_node(info)
         {
@@ -1166,12 +1186,15 @@ mod test
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        let mut info = HandleNodeInfo::new(system.clone(), SysCache::new(system.clone(), ".ruler-cache"));
+        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"));
+        rule_ext.command = vec!["mycat".to_string(), "verse1.txt".to_string(), "verse2.txt".to_string(), "poem.txt".to_string()];
+        rule_ext.rule_history = rule_history;
+
+        let mut info = HandleNodeInfo::new(system.clone());
         info.target_infos = to_info(vec!["poem.txt".to_string()]);
-        info.command = vec!["mycat".to_string(), "verse1.txt".to_string(), "verse2.txt".to_string(), "poem.txt".to_string()];
-        info.rule_history_opt = Some(rule_history);
         info.senders = vec![(0, sender_c)];
         info.receivers = vec![receiver_a, receiver_b];
+        info.node_type = NodeType::Rule(rule_ext);
 
         match handle_node(info)
         {
@@ -1287,12 +1310,15 @@ mod test
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        let mut info = HandleNodeInfo::new(system.clone(), SysCache::new(system.clone(), ".ruler-cache"));
+        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"));
+        rule_ext.command = vec!["mycat".to_string(), "verse1.txt".to_string(), "verse2.txt".to_string(), "poem.txt".to_string()];
+        rule_ext.rule_history = rule_history;
+
+        let mut info = HandleNodeInfo::new(system.clone());
         info.target_infos = to_info(vec!["poem.txt".to_string()]);
-        info.command = vec!["mycat".to_string(), "verse1.txt".to_string(), "verse2.txt".to_string(), "poem.txt".to_string()];
-        info.rule_history_opt = Some(rule_history);
         info.senders = vec![(0, sender_c)];
         info.receivers = vec![receiver_a, receiver_b];
+        info.node_type = NodeType::Rule(rule_ext);
 
         match handle_node(info)
         {
@@ -1364,12 +1390,15 @@ mod test
             Err(e) => panic!("Unexpected error sending: {}", e),
         }
 
-        let mut info = HandleNodeInfo::new(system.clone(), SysCache::new(system.clone(), ".ruler-cache"));
+        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"));
+        rule_ext.command = vec!["mycat".to_string(), "verse1.txt".to_string(), "verse2.txt".to_string(), "poem.txt".to_string()];
+        rule_ext.rule_history = rule_history;
+
+        let mut info = HandleNodeInfo::new(system.clone());
         info.target_infos = to_info(vec!["poem.txt".to_string()]);
-        info.command = vec!["mycat".to_string(), "verse1.txt".to_string(), "verse2.txt".to_string(), "poem.txt".to_string()];
-        info.rule_history_opt = Some(rule_history);
         info.senders = vec![(0, sender_c)];
         info.receivers = vec![receiver_a, receiver_b];
+        info.node_type = NodeType::Rule(rule_ext);
 
         match handle_node(info)
         {
@@ -1417,7 +1446,7 @@ mod test
 
 
     #[test]
-    fn file_not_there()
+    fn source_file_not_there()
     {
         let mut system = FakeSystem::new(10);
 
@@ -1427,8 +1456,9 @@ mod test
             Err(_) => panic!("File write operation failed"),
         }
 
-        let mut info = HandleNodeInfo::new(system.clone(), SysCache::new(system.clone(), ".ruler-cache"));
+        let mut info = HandleNodeInfo::new(system.clone());
         info.target_infos = to_info(vec!["verse1.txt".to_string()]);
+        info.node_type = NodeType::SourceOnly;
 
         match handle_node(info)
         {
@@ -1459,10 +1489,12 @@ mod test
             Err(_) => panic!("File write operation failed"),
         }
 
-        let mut info = HandleNodeInfo::new(system.clone(), SysCache::new(system.clone(), ".rule-cache"));
+        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".rule-cache"));
+        rule_ext.command = vec!["rm".to_string(), "verse1.txt".to_string()];
+
+        let mut info = HandleNodeInfo::new(system.clone());
         info.target_infos = to_info(vec!["verse1.txt".to_string()]);
-        info.command = vec!["rm".to_string(), "verse1.txt".to_string()];
-        info.rule_history_opt = Some(RuleHistory::new());
+        info.node_type = NodeType::Rule(rule_ext);
 
         match handle_node(info)
         {
@@ -1495,12 +1527,21 @@ mod test
         thread::spawn(
             move || -> Result<WorkResult, WorkError>
             {
-                let mut info = HandleNodeInfo::new(system.clone(), SysCache::new(system, ".ruler-cache"));
+                let mut info = HandleNodeInfo::new(system.clone());
                 info.target_infos = target_infos;
-                info.command = command;
-                info.rule_history_opt = rule_history_opt;
                 info.senders = senders;
                 info.receivers = receivers;
+                info.node_type = match rule_history_opt
+                {
+                    Some(rule_history) =>
+                    {
+                        let mut rule_ext = RuleExt::new(SysCache::new(system, ".ruler-cache"));
+                        rule_ext.command = command;
+                        rule_ext.rule_history = rule_history;
+                        NodeType::Rule(rule_ext)
+                    },
+                    None => NodeType::SourceOnly,
+                };
                 handle_node(info)
             }
         )
@@ -2060,7 +2101,7 @@ mod test
                 "verse1.txt".to_string(),
                 "stanza1.txt".to_string()
             ],
-            None,
+            Some(RuleHistory::new()),
             system.clone(),
             vec![(0, sender)],
             vec![],
@@ -2073,7 +2114,7 @@ mod test
                 "stanza1.txt".to_string(),
                 "poem.txt".to_string()
             ],
-            None,
+            Some(RuleHistory::new()),
             system.clone(),
             vec![],
             vec![receiver],

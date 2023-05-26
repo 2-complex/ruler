@@ -38,10 +38,12 @@ use crate::work::
     WorkResult,
     WorkError,
     HandleNodeInfo,
+    NodeType,
+    RuleExt,
     handle_node,
     clean_targets,
 };
-
+use crate::history::HistoryError;
 use crate::memory::
 {
     MemoryError
@@ -83,7 +85,6 @@ fn make_multimaps(nodes : &Vec<Node>)
     (senders, receivers)
 }
 
-
 pub enum BuildError
 {
     MemoryFileFailedToRead(MemoryError),
@@ -94,6 +95,7 @@ pub enum BuildError
     RuleFileFailedToParse(ParseError),
     TopologicalSortFailed(TopologicalSortError),
     DirectoryMalfunction,
+    HistoryError(HistoryError),
     Weird,
 }
 
@@ -134,6 +136,9 @@ impl fmt::Display for BuildError
 
             BuildError::DirectoryMalfunction =>
                 write!(formatter, "Error while managing ruler directory."),
+
+            BuildError::HistoryError(error) =>
+                write!(formatter, "Rule history error: {}", error),
 
             BuildError::Weird =>
                 write!(formatter, "Weird! How did you do that!"),
@@ -291,23 +296,23 @@ pub fn build
             );
         }
 
-        let local_cache_clone = elements.cache.clone();
-        let downloader_cache_clone = elements.downloader_cache.clone();
-
-        let command = node.command;
-        let (rule_history_opt, downloader_rule_history_opt) =
+        let node_type =
         match &node.rule_ticket
         {
+            None => NodeType::SourceOnly,
             Some(ticket) =>
-            (
-                match elements.history.read_rule_history(&ticket)
+                NodeType::Rule(RuleExt
                 {
-                    Ok(rule_history) => Some(rule_history),
-                    Err(_error) => None,
-                },
-                Some(elements.downloader_history.get_rule_history(&ticket))
-            ),
-            None => (None, None),
+                    command : node.command,
+                    rule_history : match elements.history.read_rule_history(&ticket)
+                    {
+                        Ok(rule_history) => rule_history,
+                        Err(history_error) => return Err(BuildError::HistoryError(history_error)),
+                    },
+                    cache : elements.cache.clone(),
+                    downloader_cache_opt : Some(elements.downloader_cache.clone()),
+                    downloader_rule_history_opt : Some(elements.downloader_history.get_rule_history(&ticket)),
+                }),
         };
 
         let system_clone = system.clone();
@@ -317,15 +322,11 @@ pub fn build
                 thread::spawn(
                     move || -> Result<WorkResult, WorkError>
                     {
-                        let mut info = HandleNodeInfo::new(system_clone, local_cache_clone);
+                        let mut info = HandleNodeInfo::new(system_clone);
                         info.target_infos = target_infos;
-                        info.command = command;
-                        info.rule_history_opt = rule_history_opt;
                         info.senders = sender_vec;
                         info.receivers = receiver_vec;
-                        info.downloader_cache_opt = Some(downloader_cache_clone);
-                        info.downloader_rule_history_opt = downloader_rule_history_opt;
-
+                        info.node_type = node_type;
                         handle_node(info)
                     }
                 )
