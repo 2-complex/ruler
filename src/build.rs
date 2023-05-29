@@ -12,6 +12,7 @@ use std::io::
     self,
     Read,
 };
+use serde::Deserialize;
 use crate::directory::
 {
     self,
@@ -43,22 +44,33 @@ use crate::work::
     handle_node,
     clean_targets,
 };
-use crate::history::HistoryError;
+use crate::cache::
+{
+    DownloaderCache,
+};
+use crate::history::
+{
+    HistoryError,
+    DownloaderHistory,
+};
 use crate::memory::
 {
     MemoryError
 };
 use crate::printer::Printer;
-
 use termcolor::
 {
     Color,
 };
-
 use crate::system::
 {
     System,
     SystemError
+};
+use crate::system::util::
+{
+    read_file_to_string,
+    ReadFileToStringError,
 };
 
 /*  Takes a vector of Nodes, iterates through them, and creates two multimaps, one for
@@ -96,6 +108,7 @@ pub enum BuildError
     TopologicalSortFailed(TopologicalSortError),
     DirectoryMalfunction,
     HistoryError(HistoryError),
+    DownloadUrlsError(DownloadUrlsError),
     Weird,
 }
 
@@ -139,6 +152,9 @@ impl fmt::Display for BuildError
 
             BuildError::HistoryError(error) =>
                 write!(formatter, "Rule history error: {}", error),
+
+            BuildError::DownloadUrlsError(error) =>
+                write!(formatter, "Error while establishing download-urls: {}", error),
 
             BuildError::Weird =>
                 write!(formatter, "Weird! How did you do that!"),
@@ -230,6 +246,66 @@ pub fn get_nodes
     )
 }
 
+#[derive(Deserialize, PartialEq, Debug)]
+struct DownloadUrls
+{
+    urls: Vec<String>
+}
+
+impl DownloadUrls
+{
+    fn new() -> DownloadUrls
+    {
+        DownloadUrls
+        {
+            urls : Vec::new()
+        }
+    }
+}
+
+pub enum DownloadUrlsError
+{
+    FailedToReadFile(ReadFileToStringError),
+    TomlDeError(toml::de::Error),
+}
+
+impl fmt::Display for DownloadUrlsError
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
+    {
+        match self
+        {
+            DownloadUrlsError::FailedToReadFile(error) =>
+                write!(formatter, "Failed to create cache directory: {}", error),
+
+            DownloadUrlsError::TomlDeError(error) =>
+                write!(formatter, "Download Urls file opened, but failed to parse as toml: {}", error),
+        }
+    }
+}
+
+/*  From the given urls file, read the config file and parse as toml to obtain a DownloadUrlsList */
+fn read_download_urls<SystemType : System>
+(
+    system : &SystemType,
+    path_str : &str
+)
+->
+Result<DownloadUrls, DownloadUrlsError>
+{
+    match read_file_to_string(system, path_str)
+    {
+        Ok(content_string) =>
+        {
+            return match toml::from_str(&content_string)
+            {
+                Ok(config) => Ok(config),
+                Err(error) => Err(DownloadUrlsError::TomlDeError(error)),
+            }
+        },
+        Err(error) => return Err(DownloadUrlsError::FailedToReadFile(error)),
+    }
+}
 
 /*  This is the function that runs when you type "ruler build" at the commandline.
     It opens the rulefile, parses it, and then either updates all targets in all rules
@@ -244,6 +320,7 @@ pub fn build
     mut system : SystemType,
     directory_path : &str,
     rulefile_paths : Vec<String>,
+    urlfile_path_opt : Option<String>,
     goal_target_opt: Option<String>,
     printer: &mut PrinterType,
 )
@@ -260,6 +337,20 @@ pub fn build
                 InitDirectoryError::FailedToReadMemoryFile(memory_error) =>
                     Err(BuildError::MemoryFileFailedToRead(memory_error)),
                 _ => Err(BuildError::DirectoryMalfunction),
+            }
+        }
+    };
+
+    let download_urls =
+    match urlfile_path_opt
+    {
+        None => DownloadUrls::new(),
+        Some(path_string) =>
+        {
+            match read_download_urls(&system, &path_string)
+            {
+                Ok(download_urls) => download_urls,
+                Err(error) => return Err(BuildError::DownloadUrlsError(error)),
             }
         }
     };
@@ -296,6 +387,18 @@ pub fn build
             );
         }
 
+        let mut downloader_cache_urls = vec![];
+        let mut downloader_history_urls = vec![];
+
+        for url in &download_urls.urls
+        {
+            downloader_cache_urls.push(format!("{}/files", url));
+            downloader_history_urls.push(format!("{}/rules", url));
+        }
+
+        let downloader_cache = DownloaderCache::new(downloader_cache_urls);
+        let downloader_history = DownloaderHistory::new(downloader_history_urls);
+
         let node_type =
         match &node.rule_ticket
         {
@@ -310,8 +413,8 @@ pub fn build
                         Err(history_error) => return Err(BuildError::HistoryError(history_error)),
                     },
                     cache : elements.cache.clone(),
-                    downloader_cache_opt : Some(elements.downloader_cache.clone()),
-                    downloader_rule_history_opt : Some(elements.downloader_history.get_rule_history(&ticket)),
+                    downloader_cache_opt : Some(downloader_cache.clone()),
+                    downloader_rule_history_opt : Some(downloader_history.get_rule_history(&ticket)),
                 }),
         };
 
@@ -667,6 +770,7 @@ poem.txt
             system.clone(),
             "test.directory",
             vec!["test.rules".to_string()],
+            None,
             Some("poem.txt".to_string()),
             &mut EmptyPrinter::new())
         {
@@ -729,6 +833,7 @@ poem.txt
             system.clone(),
             "test.directory",
             vec!["test.rules".to_string()],
+            None,
             Some("poem.txt".to_string()),
             &mut EmptyPrinter::new())
         {
@@ -760,6 +865,7 @@ poem.txt
             system.clone(),
             "test.directory",
             vec!["test.rules".to_string()],
+            None,
             Some("poem.txt".to_string()),
             &mut EmptyPrinter::new())
         {
@@ -829,6 +935,7 @@ poem.txt
             system.clone(),
             ".ruler",
             vec!["test.rules".to_string()],
+            None,
             Some("poem.txt".to_string()),
             &mut EmptyPrinter::new())
         {
@@ -861,6 +968,7 @@ poem.txt
             system.clone(),
             ".ruler",
             vec!["test.rules".to_string()],
+            None,
             Some("poem.txt".to_string()),
             &mut EmptyPrinter::new())
         {
@@ -899,6 +1007,7 @@ poem.txt
             system.clone(),
             ".ruler",
             vec!["test.rules".to_string()],
+            None,
             Some("poem.txt".to_string()),
             &mut EmptyPrinter::new())
         {
@@ -966,6 +1075,7 @@ poem.txt
             system.clone(),
             "ruler-directory",
             vec!["test.rules".to_string()],
+            None,
             Some("poem.txt".to_string()),
             &mut EmptyPrinter::new())
         {

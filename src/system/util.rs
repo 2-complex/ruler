@@ -170,7 +170,7 @@ pub fn read_file_to_string
     SystemType : System,
 >
 (
-    system : &mut SystemType,
+    system : &SystemType,
     path : &str
 )
 -> Result<String, ReadFileToStringError>

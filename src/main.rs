@@ -62,7 +62,7 @@ struct BuildInvocation
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 struct Config
 {
-    again: Option<BuildInvocation>
+    again: Option<BuildInvocation>,
 }
 
 impl Config
@@ -410,6 +410,7 @@ network access to the files in the cache.")
                             system,
                             directory,
                             rules,
+                            None,
                             target,
                             &mut printer)
                         {
@@ -514,6 +515,7 @@ The next time you run `ruler again`, it will repeat that `ruler build` with the 
                     system,
                     directory,
                     rulefiles,
+                    None,
                     target,
                     &mut printer)
                 {
