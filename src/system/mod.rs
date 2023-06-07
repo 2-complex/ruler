@@ -6,9 +6,7 @@ use std::time::SystemTime;
 
 #[cfg(test)]
 pub mod fake;
-
 pub mod util;
-
 pub mod real;
 
 pub struct CommandLineOutput

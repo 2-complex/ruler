@@ -182,6 +182,7 @@ fn read_all_rules<SystemType : System>
                 {
                     Ok(_size) =>
                     {
+                        println!("Hey printing {:?}", rule_content);
                         match from_utf8(&rule_content)
                         {
                             Ok(rule_text) => result.push((rulefile_path, rule_text.to_string())),
@@ -736,7 +737,11 @@ mod test
     {
         TargetHistory
     };
+    use std::io::Write;
 
+    /*  Set up a filesystem and a .rules file with one poem depending on two verses
+        as source. Populate the verses with lines of the target poem.  Run the build
+        command and check that the file appears and has the correct contents. */
     #[test]
     fn build_basic()
     {
@@ -754,23 +759,30 @@ poem.txt
 ";
         let mut system = FakeSystem::new(10);
 
-        match write_str_to_file(&mut system, "verse1.txt", "Roses are red.\n")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File failed to write"),
-        }
+        write_str_to_file(&mut system, "verse1.txt", "Roses are red.\n").unwrap();
+        write_str_to_file(&mut system, "verse2.txt", "Violets are violet.\n").unwrap();
+        write_str_to_file(&mut system, "test.rules", rules).unwrap();
 
-        match write_str_to_file(&mut system, "verse2.txt", "Violets are violet.\n")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File failed to write"),
-        }
+        build(
+            system.clone(),
+            "test.directory",
+            vec!["test.rules".to_string()],
+            None,
+            Some("poem.txt".to_string()),
+            &mut EmptyPrinter::new()).unwrap();
 
-        match write_str_to_file(&mut system, "test.rules", rules)
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File failed to write"),
-        }
+        assert_eq!(read_file_to_string(&mut system, "poem.txt").unwrap(), "Roses are red.\nViolets are violet.\n");
+    }
+
+    /*  Set up a filesystem and a .rules file with dependence on a file. */
+    #[test]
+    fn build_with_rulefile_not_utf8()
+    {
+        let mut system = FakeSystem::new(11);
+
+        write_str_to_file(&mut system, "verse1.txt", "Roses are red.\n").unwrap();
+        write_str_to_file(&mut system, "verse2.txt", "Violets are violet.\n").unwrap();
+        system.create_file("test.rules").unwrap().write_all(&[0x80u8]).unwrap();
 
         match build(
             system.clone(),
@@ -780,14 +792,9 @@ poem.txt
             Some("poem.txt".to_string()),
             &mut EmptyPrinter::new())
         {
-            Ok(()) => {},
-            Err(error) => panic!("Unexpected build error: {}", error),
-        }
-
-        match read_file_to_string(&mut system, "poem.txt")
-        {
-            Ok(text) => assert_eq!(text, "Roses are red.\nViolets are violet.\n"),
-            Err(_) => panic!("Failed to read poem."),
+            Ok(_) => panic!("Unexpected success with invalid rules file."),
+            Err(BuildError::RuleFileNotUTF8) => {},
+            Err(error) => panic!("Got error but not the correct error: {}", error),
         }
     }
 
@@ -811,61 +818,24 @@ poem.txt
 ";
         let mut system = FakeSystem::new(10);
 
-        match system.create_dir(".ruler-cache")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("Failed to create directory"),
-        }
+        system.create_dir(".ruler-cache").unwrap();
+        write_str_to_file(&mut system, "verse1.txt", "Roses are red.\n").unwrap();
+        write_str_to_file(&mut system, "verse2.txt", "Violets are blue.\n").unwrap();
+        write_str_to_file(&mut system, "test.rules", rules).unwrap();
 
-        match write_str_to_file(&mut system, "verse1.txt", "Roses are red.\n")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File failed to write"),
-        }
-
-        match write_str_to_file(&mut system, "verse2.txt", "Violets are blue.\n")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File failed to write"),
-        }
-
-        match write_str_to_file(&mut system, "test.rules", rules)
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File failed to write"),
-        }
-
-        match build(
+        build(
             system.clone(),
             "test.directory",
             vec!["test.rules".to_string()],
             None,
             Some("poem.txt".to_string()),
-            &mut EmptyPrinter::new())
-        {
-            Ok(()) => {},
-            Err(error) => panic!("Unexpected build error: {}", error),
-        }
+            &mut EmptyPrinter::new()).unwrap();
 
         system.time_passes(1);
 
-        match read_file_to_string(&mut system, "poem.txt")
-        {
-            Ok(text) => assert_eq!(text, "Roses are red.\nViolets are blue.\n"),
-            Err(_) => panic!("Failed to read poem."),
-        }
-
-        match write_str_to_file(&mut system, "verse2.txt", "Violets are violet.\n")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File failed to write."),
-        }
-
-        match write_str_to_file(&mut system, "poem.txt", "Wrong content forcing a rebuild")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File failed to write."),
-        }
+        assert_eq!(read_file_to_string(&mut system, "poem.txt").unwrap(), "Roses are red.\nViolets are blue.\n");
+        write_str_to_file(&mut system, "verse2.txt", "Violets are violet.\n").unwrap();
+        write_str_to_file(&mut system, "poem.txt", "Wrong content forcing a rebuild").unwrap();
 
         match build(
             system.clone(),
@@ -894,11 +864,7 @@ poem.txt
             },
         }
 
-        match read_file_to_string(&mut system, "poem.txt")
-        {
-            Ok(text) => assert_eq!(text, "Roses are red.\nViolets are violet.\n"),
-            Err(_) => panic!("Failed to read poem."),
-        }
+        assert_eq!(read_file_to_string(&mut system, "poem.txt").unwrap(), "Roses are red.\nViolets are violet.\n");
     }
 
     /*  Set up filesystem to build a poem with two verses.  */
@@ -919,115 +885,56 @@ poem.txt
 ";
         let mut system = FakeSystem::new(10);
 
-        match write_str_to_file(&mut system, "verse1.txt", "Roses are red.\n")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File failed to write"),
-        }
+        write_str_to_file(&mut system, "verse1.txt", "Roses are red.\n").unwrap();
+        write_str_to_file(&mut system, "verse2.txt", "Violets are blue.\n").unwrap();
+        write_str_to_file(&mut system, "test.rules", rules).unwrap();
 
-        match write_str_to_file(&mut system, "verse2.txt", "Violets are blue.\n")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File failed to write"),
-        }
-
-        match write_str_to_file(&mut system, "test.rules", rules)
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File failed to write"),
-        }
-
-        match build(
+        build(
             system.clone(),
             ".ruler",
             vec!["test.rules".to_string()],
             None,
             Some("poem.txt".to_string()),
-            &mut EmptyPrinter::new())
-        {
-            Ok(()) => {},
-            Err(error) => panic!("Unexpected build error: {}", error),
-        }
+            &mut EmptyPrinter::new()).unwrap();
 
         system.time_passes(1);
 
-        match read_file_to_string(&mut system, "poem.txt")
-        {
-            Ok(text) => assert_eq!(text, "Roses are red.\nViolets are blue.\n"),
-            Err(_) => panic!("Failed to read poem."),
-        }
+        assert_eq!(read_file_to_string(&mut system, "poem.txt").unwrap(),
+            "Roses are red.\nViolets are blue.\n");
 
-        let ticket =
-        match TicketFactory::from_file(&system, "poem.txt")
-        {
-            Ok(mut factory) => factory.result(),
-            Err(_) => panic!("Failed to make ticket?"),
-        };
+        let ticket = TicketFactory::from_file(&system, "poem.txt").unwrap().result();
+        write_str_to_file(&mut system, "verse2.txt", "Violets are violet.\n").unwrap();
 
-        match write_str_to_file(&mut system, "verse2.txt", "Violets are violet.\n")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File failed to write."),
-        }
-
-        match build(
+        build(
             system.clone(),
             ".ruler",
             vec!["test.rules".to_string()],
             None,
             Some("poem.txt".to_string()),
-            &mut EmptyPrinter::new())
-        {
-            Ok(()) => {},
-            Err(error) => panic!("Unexpected build error: {}", error),
-        }
+            &mut EmptyPrinter::new()).unwrap();
 
-        match read_file_to_string(&mut system, "poem.txt")
-        {
-            Ok(text) => assert_eq!(text, "Roses are red.\nViolets are violet.\n"),
-            Err(_) => panic!("Poem failed to be utf8?"),
-        }
+        assert_eq!(read_file_to_string(&mut system, "poem.txt").unwrap(),
+            "Roses are red.\nViolets are violet.\n");
 
         let mut cache = SysCache::new(system.clone(), ".ruler/cache");
         cache.restore_file(&ticket, "temp-poem.txt");
 
-        match read_file_to_string(&mut system, "temp-poem.txt")
-        {
-            Ok(text) => assert_eq!(text, "Roses are red.\nViolets are blue.\n"),
-            Err(_) => panic!("Poem failed to be utf8?"),
-        }
+        assert_eq!(read_file_to_string(&mut system, "temp-poem.txt").unwrap(),
+            "Roses are red.\nViolets are blue.\n");
 
-        match cache.back_up_file_with_ticket(&ticket, "temp-poem.txt")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("Failed to back up temp-poem"),
-        }
+        cache.back_up_file_with_ticket(&ticket, "temp-poem.txt").unwrap();
+        write_str_to_file(&mut system, "verse2.txt", "Violets are blue.\n").unwrap();
 
-        match write_str_to_file(&mut system, "verse2.txt", "Violets are blue.\n")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File failed to write"),
-        }
-
-        match build(
+        build(
             system.clone(),
             ".ruler",
             vec!["test.rules".to_string()],
             None,
             Some("poem.txt".to_string()),
-            &mut EmptyPrinter::new())
-        {
-            Ok(()) => {},
-            Err(error) => panic!("Unexpected build error: {}", error),
-        }
+            &mut EmptyPrinter::new()).unwrap();
 
-        match read_file_to_string(&mut system, "poem.txt")
-        {
-            Ok(text) => assert_eq!(text, "Roses are red.\nViolets are blue.\n"),
-            Err(_) => panic!("Failed to read poem a second time."),
-        }
+        assert_eq!(read_file_to_string(&mut system, "poem.txt").unwrap(), "Roses are red.\nViolets are blue.\n");
     }
-
 
     #[test]
     fn build_check_target_history()
@@ -1046,69 +953,33 @@ poem.txt
 ";
         let mut system = FakeSystem::new(17);
 
-        match write_str_to_file(&mut system, "verse1.txt", "Roses are red.\n")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File failed to write"),
-        }
-
-        match write_str_to_file(&mut system, "verse2.txt", "Violets are violet.\n")
-        {
-            Ok(_) => {},
-            Err(error) => panic!("File failed to write: {}", error),
-        }
-
-        match write_str_to_file(&mut system, "test.rules", rules)
-        {
-            Ok(_) => {},
-            Err(error) => panic!("File failed to write: {}", error),
-        }
+        write_str_to_file(&mut system, "verse1.txt", "Roses are red.\n").unwrap();
+        write_str_to_file(&mut system, "verse2.txt", "Violets are violet.\n").unwrap();
+        write_str_to_file(&mut system, "test.rules", rules).unwrap();
 
         {
-            let mut elements =
-            match directory::init(&mut system, "ruler-directory")
-            {
-                Ok(elements) => elements,
-                Err(error) => panic!("Failed to init directory error: {}", error)
-            };
-
+            let mut elements = directory::init(&mut system, "ruler-directory").unwrap();
             let target_history_before = elements.memory.take_target_history("poem.txt");
             assert_eq!(target_history_before, TargetHistory::empty());
             elements.memory.insert_target_history("poem.txt".to_string(), target_history_before);
         }
 
-        match build(
+        build(
             system.clone(),
             "ruler-directory",
             vec!["test.rules".to_string()],
             None,
             Some("poem.txt".to_string()),
-            &mut EmptyPrinter::new())
-        {
-            Ok(()) => {},
-            Err(error) => panic!("Unexpected build error: {}", error),
-        }
+            &mut EmptyPrinter::new()).unwrap();
 
-        match read_file_to_string(&mut system, "poem.txt")
-        {
-            Ok(text) => assert_eq!(text, "Roses are red.\nViolets are violet.\n"),
-            Err(_) => panic!("Failed to read poem."),
-        }
+        assert_eq!(read_file_to_string(&mut system, "poem.txt").unwrap(),
+            "Roses are red.\nViolets are violet.\n");
 
         {
-            let mut elements =
-            match directory::init(&mut system, "ruler-directory")
-            {
-                Ok(elements) => elements,
-                Err(error) => panic!("Failed to init directory error: {}", error)
-            };
-
+            let mut elements = directory::init(&mut system, "ruler-directory").unwrap();
             let target_history = elements.memory.take_target_history("poem.txt");
-
-            let exemplar_target_history = TargetHistory::new(
-                TicketFactory::from_str("Roses are red.\nViolets are violet.\n").result(), 17);
-
-            assert_eq!(target_history, exemplar_target_history);
+            assert_eq!(target_history, TargetHistory::new(
+                TicketFactory::from_str("Roses are red.\nViolets are violet.\n").result(), 17));
             elements.memory.insert_target_history("poem.txt".to_string(), target_history);
         }
     }
