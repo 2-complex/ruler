@@ -19,6 +19,7 @@ pub struct CommandLineOutput
     pub success : bool,
 }
 
+#[derive(Debug)]
 pub enum ReadWriteError
 {
     IOError(io::Error),
@@ -93,6 +94,7 @@ impl CommandLineOutput
     system can agree on completely, but in the mean time, disabling the warning.
 */
 #[allow(dead_code)]
+#[derive(Debug)]
 pub enum SystemError
 {
     NotFound,

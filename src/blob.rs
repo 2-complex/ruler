@@ -52,6 +52,7 @@ pub struct TargetContentInfo
     pub executable : bool,
 }
 
+#[derive(Debug)]
 pub enum BlobError
 {
     Contradiction(Vec<usize>),
@@ -300,6 +301,7 @@ pub fn get_file_ticket<SystemType: System>
     get_file_ticket_from_path(system, &target_info.path)
 }
 
+#[derive(Debug)]
 pub enum GetCurrentFileInfoError
 {
     ErrorConveratingModifiedDateToNumber(String, SystemTimeError),
@@ -398,6 +400,7 @@ pub fn get_current_file_info<SystemType: System>
     }
 }
 
+#[derive(Debug)]
 pub enum ResolutionError
 {
     FileNotAvailableToCache(String, ReadWriteError),

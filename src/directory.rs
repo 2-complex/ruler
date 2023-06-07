@@ -20,6 +20,7 @@ use crate::system::
     SystemError
 };
 
+#[derive(Debug)]
 pub enum InitDirectoryError
 {
     FailedToCreateDirectory(SystemError),

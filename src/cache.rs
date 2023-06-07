@@ -28,6 +28,7 @@ pub enum DownloadResult
     NotThere
 }
 
+#[derive(Debug)]
 pub enum OpenError
 {
     NotThere,

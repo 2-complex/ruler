@@ -59,6 +59,7 @@ pub struct WorkResult
     pub rule_history : Option<RuleHistory>,
 }
 
+#[derive(Debug)]
 pub enum WorkError
 {
     ReceivedErrorFromSource(String),

@@ -164,6 +164,7 @@ fn split_along_endpoints(
     result
 }
 
+#[derive(Debug)]
 pub enum ParseError
 {
     UnexpectedEmptyLine(String, usize),
@@ -350,6 +351,7 @@ impl Frame
     }
 }
 
+#[derive(Debug)]
 pub enum TopologicalSortError
 {
     TargetMissing(String),

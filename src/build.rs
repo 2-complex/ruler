@@ -97,6 +97,7 @@ fn make_multimaps(nodes : &Vec<Node>)
     (senders, receivers)
 }
 
+#[derive(Debug)]
 pub enum BuildError
 {
     MemoryFileFailedToRead(MemoryError),
@@ -263,6 +264,7 @@ impl DownloadUrls
     }
 }
 
+#[derive(Debug)]
 pub enum DownloadUrlsError
 {
     FailedToReadFile(ReadFileToStringError),
@@ -719,7 +721,11 @@ mod test
     };
     use crate::work::WorkError;
     use crate::ticket::TicketFactory;
-    use crate::cache::SysCache;
+    use crate::cache::
+    {
+        SysCache,
+        OpenError,
+    };
     use crate::system::util::
     {
         write_str_to_file,
@@ -1105,7 +1111,48 @@ poem.txt
             assert_eq!(target_history, exemplar_target_history);
             elements.memory.insert_target_history("poem.txt".to_string(), target_history);
         }
+    }
 
+    #[test]
+    fn build_first_does_not_cache()
+    {
+        let rules = "\
+poem.txt
+:
+verse1.txt
+verse2.txt
+:
+mycat
+verse1.txt
+verse2.txt
+poem.txt
+:
+";
+        let mut system = FakeSystem::new(19);
+
+        write_str_to_file(&mut system, "verse1.txt", "Roses are red.\n").unwrap();
+        write_str_to_file(&mut system, "verse2.txt", "Violets are violet.\n").unwrap();
+        write_str_to_file(&mut system, "test.rules", rules).unwrap();
+
+        build(
+            system.clone(),
+            "ruler-directory",
+            vec!["test.rules".to_string()],
+            None,
+            Some("poem.txt".to_string()),
+            &mut EmptyPrinter::new()).unwrap();
+
+        assert_eq!(
+            read_file_to_string(&mut system, "poem.txt").unwrap(),
+            "Roses are red.\nViolets are violet.\n");
+
+        let elements = directory::init(&mut system, "ruler-directory").unwrap();
+        match elements.cache.open(&TicketFactory::from_str("Roses are red.\nViolets are violet.\n").result())
+        {
+            Ok(_file) => panic!("Unexpected cache presence after first build"),
+            Err(OpenError::NotThere) => {},
+            Err(_) => panic!("Unexpected error trying to access cache after first build"),
+        }
     }
 
 }

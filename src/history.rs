@@ -172,6 +172,7 @@ pub struct History<SystemType : System>
 /*  When accessing History, a few things can go wrong.  History is stored in a file, so that file could be unreadable or
     corrupt.  These would mean that user has tried to modify files that ruler depends on to to work.  Serialization
     of an empty history could fail, which would indicate a logical error in this source code. */
+#[derive(Debug)]
 pub enum HistoryError
 {
     CannotReadRuleHistoryFile(String),

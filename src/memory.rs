@@ -67,6 +67,7 @@ pub struct Memory<SystemType : System>
 /*  When accessing memory, a few things can go wrong.  Memory is stored in a file, so that file could be unreadable or
     corrupt.  These would mean that user has tried to modify files that ruler depends on to to work.  Serialization
     of an empty history could fail, which would indicate a logical error in this source code. */
+#[derive(Debug)]
 pub enum MemoryError
 {
     CannotReadMemoryFile(String),
