@@ -165,8 +165,7 @@ fn get_current_target_tickets<SystemType: System>
     Ok(target_tickets)
 }
 
-/*  A rule_history of None means that the node in question doesn't represent a rule.
-    So, error if there is a command specified, and at the end return SourceOnly. */
+
 fn handle_source_only_node<SystemType: System>
 (
     system : SystemType,

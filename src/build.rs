@@ -180,14 +180,10 @@ fn read_all_rules<SystemType : System>
                 let mut rule_content = Vec::new();
                 match file.read_to_end(&mut rule_content)
                 {
-                    Ok(_size) =>
+                    Ok(_size) => match from_utf8(&rule_content)
                     {
-                        println!("Hey printing {:?}", rule_content);
-                        match from_utf8(&rule_content)
-                        {
-                            Ok(rule_text) => result.push((rulefile_path, rule_text.to_string())),
-                            Err(_) => return Err(BuildError::RuleFileNotUTF8),
-                        }
+                        Ok(rule_text) => result.push((rulefile_path, rule_text.to_string())),
+                        Err(_) => return Err(BuildError::RuleFileNotUTF8),
                     },
                     Err(error) => return Err(
                         BuildError::RuleFileFailedToRead(
@@ -774,9 +770,54 @@ poem.txt
         assert_eq!(read_file_to_string(&mut system, "poem.txt").unwrap(), "Roses are red.\nViolets are violet.\n");
     }
 
+    /*  Set up a filesystem and a .rules file with one poem depending on two verses
+        as source. Populate the verses with lines of the target poem, except, omit one
+        of the source files.  Run the build command and check that it errors sensibly. */
+    #[test]
+    fn build_one_source_file_missing()
+    {
+        let rules = "\
+poem.txt
+:
+verse1.txt
+verse2.txt
+:
+mycat
+verse1.txt
+verse2.txt
+poem.txt
+:
+";
+        let mut system = FakeSystem::new(10);
+
+        write_str_to_file(&mut system, "verse1.txt", "Roses are red.\n").unwrap();
+        write_str_to_file(&mut system, "test.rules", rules).unwrap();
+
+        match build(
+            system.clone(),
+            "test.directory",
+            vec!["test.rules".to_string()],
+            None,
+            Some("poem.txt".to_string()),
+            &mut EmptyPrinter::new())
+        {
+            Ok(_) => panic!("unexpected success"),
+            Err(BuildError::WorkErrors(errors)) =>
+            {
+                assert_eq!(errors.len(), 1);
+                match &errors[0]
+                {
+                    WorkError::FileNotFound(path_str) => assert_eq!(path_str, "verse2.txt"),
+                    _ => panic!("Got work error but not the correct error: {}", errors[0]),
+                }
+            },
+            Err(error) => panic!("Got error but not the correct error: {}", error),
+        }
+    }
+
     /*  Set up a filesystem and a .rules file with dependence on a file. */
     #[test]
-    fn build_with_rulefile_not_utf8()
+    fn build_rulefile_not_utf8()
     {
         let mut system = FakeSystem::new(11);
 
