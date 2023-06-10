@@ -1,9 +1,14 @@
 use crate::ticket::Ticket;
 
+#[derive(Debug)]
+pub enum PacketError
+{
+    Cancel,
+}
+
 pub struct Packet
 {
-    ticket_opt: Option<Ticket>,
-    error_message: String,
+    ticket_result: Result<Ticket, PacketError>,
 }
 
 impl Packet
@@ -12,17 +17,20 @@ impl Packet
     {
         Packet
         {
-            ticket_opt: Some(ticket),
-            error_message: "".to_string(),
+            ticket_result: Ok(ticket),
         }
     }
 
-    pub fn get_ticket(self) -> Result<Ticket, String>
+    pub fn cancel() -> Packet
     {
-        match self.ticket_opt
+        Packet
         {
-            Some(ticket) => Ok(ticket),
-            None => Err(self.error_message),
+            ticket_result: Err(PacketError::Cancel)
         }
+    }
+
+    pub fn get_ticket(self) -> Result<Ticket, PacketError>
+    {
+        self.ticket_result
     }
 }

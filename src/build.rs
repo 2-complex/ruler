@@ -543,8 +543,13 @@ pub fn build
                     {
                         match work_error
                         {
-                            WorkError::ReceiverError(error) =>  panic!("Fatal Error: ReceiverError: {}", error),
-                            WorkError::SenderError => panic!("Fatal Error: SenderError"),
+                            /*  If the work was canceled by the source, then we don't need to report that as a separate
+                                error.  The error that triggered the cancel will be in the list. */
+                            WorkError::Canceled => {},
+                            WorkError::ReceiverError(error) =>
+                                panic!("Fatal Error: ReceiverError: {}", error),
+                            WorkError::SenderError =>
+                                panic!("Fatal Error: SenderError"),
                             _ =>
                             {
                                 work_errors.push(work_error);

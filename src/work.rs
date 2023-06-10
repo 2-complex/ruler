@@ -1,6 +1,7 @@
 use crate::packet::
 {
     Packet,
+    PacketError,
 };
 use crate::ticket::
 {
@@ -62,7 +63,7 @@ pub struct WorkResult
 #[derive(Debug)]
 pub enum WorkError
 {
-    ReceivedErrorFromSource(String),
+    Canceled,
     ReceiverError(RecvError),
     SenderError,
     TicketAlignmentError(ReadWriteError),
@@ -84,8 +85,8 @@ impl fmt::Display for WorkError
     {
         match self
         {
-            WorkError::ReceivedErrorFromSource(error) =>
-                write!(formatter, "Received error from source: {}", error),
+            WorkError::Canceled =>
+                write!(formatter, "Canceled by a depdendence"),
 
             WorkError::ReceiverError(error) =>
                 write!(formatter, "Failed to recieve anything from source: {}", error),
@@ -180,6 +181,18 @@ Result<WorkResult, WorkError>
         &target_infos)
     {
         Ok(target_tickets) => target_tickets,
+        Err(WorkError::FileNotFound(path)) =>
+        {
+            for (_sub_index, sender) in senders
+            {
+                match sender.send(Packet::cancel())
+                {
+                    Ok(_) => {},
+                    Err(_error) => return Err(WorkError::SenderError),
+                }
+            }
+            return Err(WorkError::FileNotFound(path));
+        },
         Err(error) => return Err(error),
     };
 
@@ -225,7 +238,7 @@ Result<Ticket, WorkError>
                 match packet.get_ticket()
                 {
                     Ok(ticket) => factory.input_ticket(ticket),
-                    Err(error) => return Err(WorkError::ReceivedErrorFromSource(error)),
+                    Err(PacketError::Cancel) => return Err(WorkError::Canceled),
                 }
             },
             Err(error) => return Err(WorkError::ReceiverError(error)),
@@ -915,7 +928,7 @@ mod test
                         match packet.get_ticket()
                         {
                             Ok(ticket) => assert_eq!(ticket, TicketFactory::new().result()),
-                            Err(why) => panic!("Unexpected error doing command: {}", why),
+                            Err(error) => panic!("Unexpected error doing command: {:?}", error),
                         }
                     }
                     Err(_) => panic!("Unexpected fail to receive"),
@@ -1227,9 +1240,9 @@ mod test
                                     ticket,
                                     TicketFactory::from_str("Roses are red\nViolets are violet\n").result());
                             },
-                            Err(message) =>
+                            Err(error) =>
                             {
-                                panic!("Failed to receive ticket: {}", message);
+                                panic!("Failed to receive ticket: {:?}", error);
                             },
                         }
                     }
