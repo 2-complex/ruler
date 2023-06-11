@@ -548,8 +548,8 @@ pub fn build
                             WorkError::Canceled => {},
                             WorkError::ReceiverError(error) =>
                                 panic!("Fatal Error: ReceiverError: {}", error),
-                            WorkError::SenderError =>
-                                panic!("Fatal Error: SenderError"),
+                            WorkError::SenderError(error) =>
+                                panic!("Fatal Error: SenderError {}", error),
                             _ =>
                             {
                                 work_errors.push(work_error);
@@ -817,6 +817,88 @@ poem.txt
                 }
             },
             Err(error) => panic!("Got error but not the correct error: {}", error),
+        }
+    }
+
+    /*  Test a more complex build with missing sources.  Make sure the error matches the missing file. */
+    #[test]
+    fn build_one_source_file_missing_chain()
+    {
+        let rules = "\
+stanza1.txt
+:
+verse1.txt
+refrain.txt
+:
+mycat
+verse1.txt
+refrain.txt
+stanza1.txt
+:
+
+stanza2.txt
+:
+verse2.txt
+refrain.txt
+:
+mycat
+verse2.txt
+refrain.txt
+stanza2.txt
+:
+
+poem.txt
+:
+stanza1.txt
+stanza2.txt
+:
+mycat
+stanza1.txt
+stanza2.txt
+poem.txt
+:
+";
+        for omit_me in ["verse1.txt", "verse2.txt", "refrain.txt"]
+        {
+            let mut system = FakeSystem::new(10);
+
+            if omit_me != "verse1.txt"
+            {
+                write_str_to_file(&mut system, "verse1.txt", "I looked over Jordan, and what did I see?\n").unwrap();
+            }
+
+            if omit_me != "verse2.txt"
+            {
+                write_str_to_file(&mut system, "verse2.txt", "A band of angels comin' after me\n").unwrap();
+            }
+
+            if omit_me != "refrain.txt"
+            {
+                write_str_to_file(&mut system, "refrain.txt", "Comin' for to carry me home\n").unwrap();
+            }
+
+            write_str_to_file(&mut system, "test.rules", rules).unwrap();
+
+            match build(
+                system.clone(),
+                "test.directory",
+                vec!["test.rules".to_string()],
+                None,
+                Some("poem.txt".to_string()),
+                &mut EmptyPrinter::new())
+            {
+                Ok(_) => panic!("unexpected success"),
+                Err(BuildError::WorkErrors(errors)) =>
+                {
+                    assert_eq!(errors.len(), 1);
+                    match &errors[0]
+                    {
+                        WorkError::FileNotFound(path_str) => assert_eq!(path_str, omit_me),
+                        _ => panic!("When omitting {}, Got work error but not the correct error: {}", omit_me, errors[0]),
+                    }
+                },
+                Err(error) => panic!("When omitting {}, Got error but not the correct error: {}", omit_me, error),
+            }
         }
     }
 

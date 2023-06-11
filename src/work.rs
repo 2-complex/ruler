@@ -42,7 +42,10 @@ use crate::cache::
 
 use std::sync::mpsc::
 {
-    Sender, Receiver, RecvError
+    Sender,
+    Receiver,
+    RecvError,
+    SendError,
 };
 use std::fmt;
 
@@ -65,7 +68,7 @@ pub enum WorkError
 {
     Canceled,
     ReceiverError(RecvError),
-    SenderError,
+    SenderError(SendError<Packet>),
     TicketAlignmentError(ReadWriteError),
     FileNotFound(String),
     TargetFileNotGenerated(String),
@@ -91,8 +94,8 @@ impl fmt::Display for WorkError
             WorkError::ReceiverError(error) =>
                 write!(formatter, "Failed to recieve anything from source: {}", error),
 
-            WorkError::SenderError =>
-                write!(formatter, "Failed to send to dependent"),
+            WorkError::SenderError(error) =>
+                write!(formatter, "Failed to send to dependent {}", error),
 
             WorkError::TicketAlignmentError(error) =>
                 write!(formatter, "File IO error when attempting to get hash of sources: {}", error),
@@ -166,6 +169,22 @@ fn get_current_target_tickets<SystemType: System>
     Ok(target_tickets)
 }
 
+fn cancel_all_senders(senders : &Vec<(usize, Sender<Packet>)>) -> Result<(), WorkError>
+{
+    for (_sub_index, sender) in senders
+    {
+        match sender.send(Packet::cancel())
+        {
+            Ok(_) => {},
+            Err(error) => return {
+                println!("Oh, it's here 3");
+                Err(WorkError::SenderError(error))
+            },
+        }
+    }
+
+    return Ok(())
+}
 
 fn handle_source_only_node<SystemType: System>
 (
@@ -183,14 +202,7 @@ Result<WorkResult, WorkError>
         Ok(target_tickets) => target_tickets,
         Err(WorkError::FileNotFound(path)) =>
         {
-            for (_sub_index, sender) in senders
-            {
-                match sender.send(Packet::cancel())
-                {
-                    Ok(_) => {},
-                    Err(_error) => return Err(WorkError::SenderError),
-                }
-            }
+            cancel_all_senders(&senders)?;
             return Err(WorkError::FileNotFound(path));
         },
         Err(error) => return Err(error),
@@ -202,7 +214,10 @@ Result<WorkResult, WorkError>
             current_target_tickets[sub_index].clone()))
         {
             Ok(_) => {},
-            Err(_error) => return Err(WorkError::SenderError),
+            Err(error) => return {
+                println!("ugh there are a lot of these");
+                Err(WorkError::SenderError(error))
+            },
         }
     }
 
@@ -322,9 +337,9 @@ Result<WorkResult, WorkError>
             infos[sub_index].ticket.clone()))
         {
             Ok(_) => {},
-            Err(_error) =>
-            {
-                return Err(WorkError::SenderError);
+            Err(error) => {
+                println!("Why are there so many of these");
+                return Err(WorkError::SenderError(error))
             },
         }
     }
@@ -502,6 +517,11 @@ Result<WorkResult, WorkError>
     let sources_ticket = match wait_for_sources_ticket(info.receivers)
     {
         Ok(ticket) => ticket,
+        Err(WorkError::Canceled) =>
+        {
+            cancel_all_senders(&info.senders)?;
+            return Err(WorkError::Canceled);
+        },
         Err(error) => return Err(error),
     };
 
@@ -554,7 +574,10 @@ Result<WorkResult, WorkError>
                                 Packet::from_ticket(target_tickets[sub_index].clone()))
                             {
                                 Ok(_) => {},
-                                Err(_error) => return Err(WorkError::SenderError),
+                                Err(error) => return {
+                                    println!("ITS HERE");
+                                    Err(WorkError::SenderError(error))
+                                },
                             }
                         }
 
@@ -705,7 +728,10 @@ mod test
                             match sender.send(Packet::from_ticket(factory.result()))
                             {
                                 Ok(_) => Ok(()),
-                                Err(_error) => Err(WorkError::SenderError),
+                                Err(error) => {
+                                    println!("It's here 2");
+                                    Err(WorkError::SenderError(error))
+                                },
                             }
                         },
                         Err(error) => Err(WorkError::ReadWriteError(path.to_string(), error)),

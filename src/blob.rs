@@ -39,6 +39,7 @@ pub enum FileResolution
     NeedsRebuild,
 }
 
+#[derive(Debug)]
 pub struct TargetFileInfo
 {
     pub path : String,
