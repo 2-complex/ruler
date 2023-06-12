@@ -274,7 +274,6 @@ fn rebuild_node<SystemType : System>
     mut rule_history : RuleHistory,
     sources_ticket : Ticket,
     command : Vec<String>,
-    senders : Vec<(usize, Sender<Packet>)>,
     mut target_infos : Vec<TargetFileInfo>
 )
 ->
@@ -315,18 +314,7 @@ Result<WorkResult, WorkError>
         }
     }
 
-    for (sub_index, sender) in senders
-    {
-        match sender.send(Packet::from_ticket(
-            infos[sub_index].ticket.clone()))
-        {
-            Ok(_) => {},
-            Err(error) => {
-                println!("Why are there so many of these");
-                return Err(WorkError::SenderError(error))
-            },
-        }
-    }
+    let target_tickets = infos.iter().map(|info| info.ticket.clone()).collect();
 
     match rule_history.insert(sources_ticket, TargetTickets::from_infos(infos))
     {
@@ -354,7 +342,7 @@ Result<WorkResult, WorkError>
     Ok(
         WorkResult
         {
-            target_tickets : vec![],
+            target_tickets : target_tickets,
             target_infos : target_infos,
             work_option : WorkOption::CommandExecuted(command_result),
             rule_history : Some(rule_history),
@@ -556,14 +544,31 @@ Result<WorkResult, WorkError>
                 {
                     if needs_rebuild(&resolutions)
                     {
-                        rebuild_node(
+                        let result = match rebuild_node(
                             &mut info.system,
                             rule_ext.rule_history,
                             sources_ticket,
                             rule_ext.command,
-                            info.senders,
-                            info.target_infos
-                        )
+                            info.target_infos)
+                        {
+                            Ok(result) => result,
+                            Err(error) =>
+                            {
+                                cancel_all_senders(&info.senders)?;
+                                return Err(error);
+                            },
+                        };
+
+                        for (sub_index, sender) in info.senders
+                        {
+                            match sender.send(Packet::from_ticket(result.target_tickets[sub_index].clone()))
+                            {
+                                Ok(_) => {},
+                                Err(error) => return Err(WorkError::SenderError(error)),
+                            }
+                        }
+
+                        Ok(result)
                     }
                     else
                     {
@@ -581,17 +586,14 @@ Result<WorkResult, WorkError>
                                 Packet::from_ticket(target_tickets[sub_index].clone()))
                             {
                                 Ok(_) => {},
-                                Err(error) => return {
-                                    println!("ITS HERE");
-                                    Err(WorkError::SenderError(error))
-                                },
+                                Err(error) => return Err(WorkError::SenderError(error)),
                             }
                         }
 
                         Ok(
                             WorkResult
                             {
-                                target_tickets : vec![],
+                                target_tickets : target_tickets,
                                 target_infos : info.target_infos,
                                 work_option : WorkOption::Resolutions(resolutions),
                                 rule_history : Some(rule_ext.rule_history),
@@ -982,17 +984,8 @@ mod test
 
         let mut system = FakeSystem::new(10);
 
-        match write_str_to_file(&mut system, "verse1.txt", "Roses are red\n")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File write operation failed"),
-        }
-
-        match write_str_to_file(&mut system, "verse2.txt", "Violets are violet\n")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File write operation failed"),
-        }
+        write_str_to_file(&mut system, "verse1.txt", "Roses are red\n").unwrap();
+        write_str_to_file(&mut system, "verse2.txt", "Violets are violet\n").unwrap();
 
         match sender_a.send(Packet::from_ticket(TicketFactory::from_str("Roses are red\n").result()))
         {
@@ -1020,9 +1013,10 @@ mod test
             Ok(_) => panic!("Unexpected command success"),
             Err(WorkError::CommandExecutedButErrored) =>
             {
-                match receiver_c.recv()
+                let packet = receiver_c.recv().unwrap();
+                match packet.get_ticket()
                 {
-                    Ok(_) => panic!("Unexpected successful receive"),
+                    Ok(_) => panic!("Unexpected ticket in packet"),
                     Err(_) => {}
                 }
             },
