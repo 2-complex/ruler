@@ -42,7 +42,6 @@ use crate::cache::
 
 use std::sync::mpsc::
 {
-    Sender,
     Receiver,
     RecvError,
     SendError,
@@ -168,20 +167,6 @@ fn get_current_target_tickets<SystemType: System>
     }
 
     Ok(target_tickets)
-}
-
-fn cancel_all_senders(senders : &Vec<(usize, Sender<Packet>)>) -> Result<(), WorkError>
-{
-    for (_sub_index, sender) in senders
-    {
-        match sender.send(Packet::cancel())
-        {
-            Ok(_) => {},
-            Err(error) => return Err(WorkError::SenderError(error)),
-        }
-    }
-
-    Ok(())
 }
 
 fn handle_source_only_node<SystemType: System>
@@ -452,7 +437,6 @@ pub struct HandleNodeInfo<SystemType: System>
 {
     pub system : SystemType,
     pub target_infos : Vec<TargetFileInfo>,
-    pub senders : Vec<(usize, Sender<Packet>)>,
     pub receivers : Vec<Receiver<Packet>>,
     pub node_type : NodeType<SystemType>,
 }
@@ -465,7 +449,6 @@ impl<SystemType: System> HandleNodeInfo<SystemType>
         {
             system : system,
             target_infos : Vec::new(),
-            senders : Vec::new(),
             receivers : Vec::new(),
             node_type : NodeType::SourceOnly,
         }
@@ -487,47 +470,14 @@ pub fn handle_node<SystemType: System>
 ->
 Result<WorkResult, WorkError>
 {
-    let sources_ticket = match wait_for_sources_ticket(info.receivers)
-    {
-        Ok(ticket) => ticket,
-        Err(WorkError::Canceled) =>
-        {
-            cancel_all_senders(&info.senders)?;
-            return Err(WorkError::Canceled);
-        },
-        Err(error) => return Err(error),
-    };
+    let sources_ticket = wait_for_sources_ticket(info.receivers)?;
 
     /*  If there's a rule-history that means the node is a rule,
         otherwise, it is a plain source file. */
     match info.node_type
     {
         NodeType::SourceOnly =>
-        {
-            let result =
-            match handle_source_only_node(
-                info.system,
-                info.target_infos)
-            {
-                Ok(result) => result,
-                Err(error) =>
-                {
-                    cancel_all_senders(&info.senders)?;
-                    return Err(error);
-                },
-            };
-
-            for (sub_index, sender) in info.senders
-            {
-                match sender.send(Packet::from_ticket(result.target_tickets[sub_index].clone()))
-                {
-                    Ok(_) => {},
-                    Err(error) => return Err(WorkError::SenderError(error)),
-                }
-            }
-
-            Ok(result)
-        }
+            handle_source_only_node(info.system, info.target_infos),
 
         NodeType::Rule(mut rule_ext) =>
         {
@@ -544,31 +494,12 @@ Result<WorkResult, WorkError>
                 {
                     if needs_rebuild(&resolutions)
                     {
-                        let result = match rebuild_node(
+                        rebuild_node(
                             &mut info.system,
                             rule_ext.rule_history,
                             sources_ticket,
                             rule_ext.command,
                             info.target_infos)
-                        {
-                            Ok(result) => result,
-                            Err(error) =>
-                            {
-                                cancel_all_senders(&info.senders)?;
-                                return Err(error);
-                            },
-                        };
-
-                        for (sub_index, sender) in info.senders
-                        {
-                            match sender.send(Packet::from_ticket(result.target_tickets[sub_index].clone()))
-                            {
-                                Ok(_) => {},
-                                Err(error) => return Err(WorkError::SenderError(error)),
-                            }
-                        }
-
-                        Ok(result)
                     }
                     else
                     {
@@ -579,16 +510,6 @@ Result<WorkResult, WorkError>
                             Ok(target_tickets) => target_tickets,
                             Err(error) => return Err(error),
                         };
-
-                        for (sub_index, sender) in info.senders
-                        {
-                            match sender.send(
-                                Packet::from_ticket(target_tickets[sub_index].clone()))
-                            {
-                                Ok(_) => {},
-                                Err(error) => return Err(WorkError::SenderError(error)),
-                            }
-                        }
 
                         Ok(
                             WorkResult
@@ -704,7 +625,7 @@ mod test
         fake::FakeSystem,
     };
 
-    use std::sync::mpsc::{self, Sender, Receiver};
+    use std::sync::mpsc::{self, Receiver};
     use std::thread::{self, JoinHandle};
 
     /*  For testing, it's useful to be able to check the ticket of a list of source files.
@@ -897,7 +818,6 @@ mod test
     {
         let (sender_a, receiver_a) = mpsc::channel();
         let (sender_b, receiver_b) = mpsc::channel();
-        let (sender_c, receiver_c) = mpsc::channel();
 
         let mut system = FakeSystem::new(10);
 
@@ -936,7 +856,6 @@ mod test
 
         let mut info = HandleNodeInfo::new(system.clone());
         info.target_infos = to_info(vec!["A.txt".to_string()]);
-        info.senders.push((0, sender_c));
         info.receivers.push(receiver_a);
         info.receivers.push(receiver_b);
         info.node_type = NodeType::Rule(rule_ext);
@@ -956,19 +875,6 @@ mod test
                     },
                     _ => panic!("Wrong type of work option.  Command was supposed to execute."),
                 }
-
-                match receiver_c.recv()
-                {
-                    Ok(packet) =>
-                    {
-                        match packet.get_ticket()
-                        {
-                            Ok(ticket) => assert_eq!(ticket, TicketFactory::new().result()),
-                            Err(error) => panic!("Unexpected error doing command: {:?}", error),
-                        }
-                    }
-                    Err(_) => panic!("Unexpected fail to receive"),
-                }
             },
             Err(err) => panic!("Command failed: {}", err),
         }
@@ -980,7 +886,6 @@ mod test
     {
         let (sender_a, receiver_a) = mpsc::channel();
         let (sender_b, receiver_b) = mpsc::channel();
-        let (sender_c, receiver_c) = mpsc::channel();
 
         let mut system = FakeSystem::new(10);
 
@@ -1004,22 +909,13 @@ mod test
 
         let mut info = HandleNodeInfo::new(system.clone());
         info.target_infos = to_info(vec!["poem.txt".to_string()]);
-        info.senders = vec![(0, sender_c)];
         info.receivers = vec![receiver_a, receiver_b];
         info.node_type = NodeType::Rule(rule_ext);
 
         match handle_node(info)
         {
             Ok(_) => panic!("Unexpected command success"),
-            Err(WorkError::CommandExecutedButErrored) =>
-            {
-                let packet = receiver_c.recv().unwrap();
-                match packet.get_ticket()
-                {
-                    Ok(_) => panic!("Unexpected ticket in packet"),
-                    Err(_) => {}
-                }
-            },
+            Err(WorkError::CommandExecutedButErrored) => {},
             Err(error) => panic!("Wrong kind of error when command errors: {}", error),
         }
     }
@@ -1030,40 +926,19 @@ mod test
     {
         let (sender_a, receiver_a) = mpsc::channel();
         let (sender_b, receiver_b) = mpsc::channel();
-        let (sender_c, _receiver_c) = mpsc::channel();
 
         let mut system = FakeSystem::new(10);
 
-        match write_str_to_file(&mut system, "verse1.txt", "Roses are red\n")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File write operation failed"),
-        }
-
-        match write_str_to_file(&mut system, "verse2.txt", "Violets are violet\n")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File write operation failed"),
-        }
-
-        match sender_a.send(Packet::from_ticket(TicketFactory::from_str("Roses are red\n").result()))
-        {
-            Ok(p) => assert_eq!(p, ()),
-            Err(e) => panic!("Unexpected error sending: {}", e),
-        }
-
-        match sender_b.send(Packet::from_ticket(TicketFactory::from_str("Violets are violet\n").result()))
-        {
-            Ok(p) => assert_eq!(p, ()),
-            Err(e) => panic!("Unexpected error sending: {}", e),
-        }
+        write_str_to_file(&mut system, "verse1.txt", "Roses are red\n").unwrap();
+        write_str_to_file(&mut system, "verse2.txt", "Violets are violet\n").unwrap();
+        sender_a.send(Packet::from_ticket(TicketFactory::from_str("Roses are red\n").result())).unwrap();
+        sender_b.send(Packet::from_ticket(TicketFactory::from_str("Violets are violet\n").result())).unwrap();
 
         let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"));
         rule_ext.command = vec!["mycat".to_string(),"verse1.txt".to_string(),"verse2.txt".to_string(),"wrong.txt".to_string()];
 
         let mut info = HandleNodeInfo::new(system.clone());
         info.target_infos = to_info(vec!["poem.txt".to_string()]);
-        info.senders = vec![(0, sender_c)];
         info.receivers = vec![receiver_a, receiver_b];
         info.node_type = NodeType::Rule(rule_ext);
 
@@ -1083,7 +958,6 @@ mod test
     {
         let (sender_a, receiver_a) = mpsc::channel();
         let (sender_b, receiver_b) = mpsc::channel();
-        let (sender_c, receiver_c) = mpsc::channel();
 
         let mut system = FakeSystem::new(10);
 
@@ -1116,7 +990,6 @@ mod test
 
         let mut info = HandleNodeInfo::new(system.clone());
         info.target_infos = to_info(vec!["poem.txt".to_string()]);
-        info.senders = vec![(0, sender_c)];
         info.receivers = vec![receiver_a, receiver_b];
         info.node_type = NodeType::Rule(rule_ext);
 
@@ -1135,24 +1008,6 @@ mod test
                     },
                     _ => panic!("Comand was supposed to execute.  Output wasn't there."),
                 }
-
-                match receiver_c.recv()
-                {
-                    Ok(packet) =>
-                    {
-                        match packet.get_ticket()
-                        {
-                            Ok(ticket) =>
-                            {
-                                assert_eq!(
-                                    ticket,
-                                    TicketFactory::from_str("Roses are red\nViolets are violet\n").result());
-                            },
-                            Err(_) => panic!("Failed to receive ticket"),
-                        }
-                    }
-                    Err(_) => panic!("Unexpected fail to receive"),
-                }
             },
             Err(err) => panic!("Command failed: {}", err),
         }
@@ -1169,7 +1024,6 @@ mod test
     {
         let (sender_a, receiver_a) = mpsc::channel();
         let (sender_b, receiver_b) = mpsc::channel();
-        let (sender_c, receiver_c) = mpsc::channel();
 
         let mut rule_history = RuleHistory::new();
 
@@ -1233,7 +1087,6 @@ mod test
 
         let mut info = HandleNodeInfo::new(system.clone());
         info.target_infos = to_info(vec!["poem.txt".to_string()]);
-        info.senders = vec![(0, sender_c)];
         info.receivers = vec![receiver_a, receiver_b];
         info.node_type = NodeType::Rule(rule_ext);
 
@@ -1255,27 +1108,6 @@ mod test
                     },
                     _ => panic!("Expected poem to already be resolved, was some other work option"),
                 }
-
-                match receiver_c.recv()
-                {
-                    Ok(packet) =>
-                    {
-                        match packet.get_ticket()
-                        {
-                            Ok(ticket) =>
-                            {
-                                assert_eq!(
-                                    ticket,
-                                    TicketFactory::from_str("Roses are red\nViolets are violet\n").result());
-                            },
-                            Err(error) =>
-                            {
-                                panic!("Failed to receive ticket: {:?}", error);
-                            },
-                        }
-                    }
-                    Err(_) => panic!("Unexpected fail to receive"),
-                }
             },
             Err(err) => panic!("Command failed: {}", err),
         }
@@ -1295,7 +1127,6 @@ mod test
     {
         let (sender_a, receiver_a) = mpsc::channel();
         let (sender_b, receiver_b) = mpsc::channel();
-        let (sender_c, _receiver_c) = mpsc::channel();
 
         let mut factory = TicketFactory::new();
         factory.input_ticket(TicketFactory::from_str("Roses are red\n").result());
@@ -1357,7 +1188,6 @@ mod test
 
         let mut info = HandleNodeInfo::new(system.clone());
         info.target_infos = to_info(vec!["poem.txt".to_string()]);
-        info.senders = vec![(0, sender_c)];
         info.receivers = vec![receiver_a, receiver_b];
         info.node_type = NodeType::Rule(rule_ext);
 
@@ -1389,7 +1219,6 @@ mod test
     {
         let (sender_a, receiver_a) = mpsc::channel();
         let (sender_b, receiver_b) = mpsc::channel();
-        let (sender_c, _receiver_c) = mpsc::channel();
 
         let rule_history = RuleHistory::new();
 
@@ -1437,7 +1266,6 @@ mod test
 
         let mut info = HandleNodeInfo::new(system.clone());
         info.target_infos = to_info(vec!["poem.txt".to_string()]);
-        info.senders = vec![(0, sender_c)];
         info.receivers = vec![receiver_a, receiver_b];
         info.node_type = NodeType::Rule(rule_ext);
 
@@ -1524,11 +1352,7 @@ mod test
     {
         let mut system = FakeSystem::new(10);
 
-        match write_str_to_file(&mut system, "verse1.txt", "Arbitrary content\n")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File write operation failed"),
-        }
+        match write_str_to_file(&mut system, "verse1.txt", "Arbitrary content\n").unwrap();
 
         let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".rule-cache"));
         rule_ext.command = vec!["rm".to_string(), "verse1.txt".to_string()];
@@ -1554,838 +1378,49 @@ mod test
         }
     }
 
-    fn spawn_command<SystemType: System + 'static>
-    (
-        target_infos : Vec<TargetFileInfo>,
-        command : Vec<String>,
-        rule_history_opt : Option<RuleHistory>,
-        system : SystemType,
-        senders : Vec<(usize, Sender<Packet>)>,
-        receivers : Vec<Receiver<Packet>>,
-    )
-    -> JoinHandle<Result<WorkResult, WorkError>>
-    {
-        thread::spawn(
-            move || -> Result<WorkResult, WorkError>
-            {
-                let mut info = HandleNodeInfo::new(system.clone());
-                info.target_infos = target_infos;
-                info.senders = senders;
-                info.receivers = receivers;
-                info.node_type = match rule_history_opt
-                {
-                    Some(rule_history) =>
-                    {
-                        let mut rule_ext = RuleExt::new(SysCache::new(system, ".ruler-cache"));
-                        rule_ext.command = command;
-                        rule_ext.rule_history = rule_history;
-                        NodeType::Rule(rule_ext)
-                    },
-                    None => NodeType::SourceOnly,
-                };
-                handle_node(info)
-            }
-        )
-    }
-
-    #[test]
-    fn one_dependence_only()
-    {
-        let mut system = FakeSystem::new(10);
-
-        match write_str_to_file(&mut system, "verse1.txt", "I wish I were a windowsill")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File write operation failed"),
-        }
-
-        let (sender, receiver) = mpsc::channel();
-
-        let handle1 = spawn_command(
-            to_info(vec!["stanza1.txt".to_string()]),
-            vec![
-                "mycat".to_string(),
-                "verse1.txt".to_string(),
-                "stanza1.txt".to_string()
-            ],
-            Some(RuleHistory::new()),
-            system.clone(),
-            vec![(0, sender)],
-            vec![],
-        );
-
-        let handle2 = spawn_command(
-            to_info(vec!["poem.txt".to_string()]),
-            vec![
-                "mycat".to_string(),
-                "stanza1.txt".to_string(),
-                "poem.txt".to_string()
-            ],
-            Some(RuleHistory::new()),
-            system.clone(),
-            vec![],
-            vec![receiver],
-        );
-
-        match handle1.join()
-        {
-            Ok(result) =>
-            {
-                match result
-                {
-                    Ok(work_result) =>
-                    {
-                        assert_eq!(work_result.target_infos[0].path, "stanza1.txt");
-
-                        match work_result.rule_history
-                        {
-                            Some(_) => {},
-                            None => panic!("Thread left with rule-history, came back with nothing."),
-                        }
-
-                        match work_result.work_option
-                        {
-                            WorkOption::CommandExecuted(output) =>
-                            {
-                                assert_eq!(output.out, "");
-                            },
-                            _ => panic!("Thread was supposed to execute command, did something else, got wrong work-option."),
-                        }
-
-                        match read_file_to_string(&mut system, "stanza1.txt")
-                        {
-                            Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
-                            Err(error) => panic!("Failed to read stanza1.txt.  Error: {}", error),
-                        }
-                    },
-                    Err(_) => panic!("Thread inside failed"),
-                }
-            },
-
-
-            Err(_) => panic!("Thread mechanics failed"),
-        }
-
-        match handle2.join()
-        {
-            Ok(_) =>
-            {
-                match read_file_to_string(&mut system, "poem.txt")
-                {
-                    Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
-                    Err(_) => panic!("Failed to read poem"),
-                }
-            },
-            Err(_) => panic!("Second thread failed"),
-        }
-    }
 
     #[test]
     fn one_dependence_intermediate_already_present()
     {
-        let mut system = FakeSystem::new(10);
-
-        match system.create_dir(".ruler-cache")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("Failed to create directory"),
-        }
-
-        match write_str_to_file(&mut system, "verse1.txt", "I wish I were a windowsill")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File write operation failed"),
-        }
-
-        match write_str_to_file(&mut system, "stanza1.txt", "Some content")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File write operation failed"),
-        }
-
-        let (sender, receiver) = mpsc::channel();
-
-        let handle1 = spawn_command(
-            to_info(vec!["stanza1.txt".to_string()]),
-            vec![
-                "mycat".to_string(),
-                "verse1.txt".to_string(),
-                "stanza1.txt".to_string()
-            ],
-            Some(RuleHistory::new()),
-            system.clone(),
-            vec![(0, sender)],
-            vec![],
-        );
-
-        let handle2 = spawn_command(
-            to_info(vec!["poem.txt".to_string()]),
-            vec![
-                "mycat".to_string(),
-                "stanza1.txt".to_string(),
-                "poem.txt".to_string()
-            ],
-            Some(RuleHistory::new()),
-            system.clone(),
-            vec![],
-            vec![receiver],
-        );
-
-        match handle1.join()
-        {
-            Ok(result) =>
-            {
-                match result
-                {
-                    Ok(work_result) =>
-                    {
-                        assert_eq!(work_result.target_infos[0].path, "stanza1.txt");
-
-                        match work_result.rule_history
-                        {
-                            Some(_) => {},
-                            None => panic!("Thread left with rule-history, came back with nothing."),
-                        }
-
-                        match work_result.work_option
-                        {
-                            WorkOption::CommandExecuted(output) =>
-                            {
-                                assert_eq!(output.out, "");
-                            },
-                            _ => panic!("Thread was supposed to execute command, did something else, got wrong work-option."),
-                        }
-
-                        match read_file_to_string(&mut system, "stanza1.txt")
-                        {
-                            Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
-                            Err(_) => panic!("Failed to read stanza1.txt"),
-                        }
-                    },
-                    Err(error) => panic!("Thread inside failed: {}", error),
-                }
-            },
-
-
-            Err(_) => panic!("Thread mechanics failed"),
-        }
-
-        match handle2.join()
-        {
-            Ok(_) =>
-            {
-                match read_file_to_string(&mut system, "poem.txt")
-                {
-                    Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
-                    Err(_) => panic!("Failed to read poem"),
-                }
-            },
-            Err(_) => panic!("Second thread failed"),
-        }
     }
 
     #[test]
     fn two_targets_both_not_there()
     {
-        let mut system = FakeSystem::new(10);
-
-        match write_str_to_file(&mut system, "verse1.txt", "I wish I were a windowsill")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File write operation failed"),
-        }
-
-        let (sender, _receiver) = mpsc::channel();
-
-        let handle1 = spawn_command(
-            to_info(vec!["stanza1.txt".to_string()]),
-            vec![
-                "mycat2".to_string(),
-                "verse1.txt".to_string(),
-                "stanza1.txt".to_string(),
-                "stanza2.txt".to_string(),
-            ],
-            Some(RuleHistory::new()),
-            system.clone(),
-            vec![(0, sender)],
-            vec![],
-        );
-
-        match handle1.join()
-        {
-            Ok(join_result) =>
-            {
-                match join_result
-                {
-                    Ok(work_result) =>
-                    {
-                        assert_eq!(work_result.target_infos[0].path, "stanza1.txt");
-
-                        match work_result.rule_history
-                        {
-                            Some(_) => {},
-                            None => panic!("Thread left with rule-history, came back with nothing."),
-                        }
-
-                        match work_result.work_option
-                        {
-                            WorkOption::CommandExecuted(output) =>
-                            {
-                                assert_eq!(output.out, "");
-                            },
-                            _ => panic!("Thread was supposed to execute command, did something else, got wrong work-option."),
-                        }
-
-                        match read_file_to_string(&mut system, "stanza1.txt")
-                        {
-                            Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
-                            Err(_) => panic!("Failed to read stanza1"),
-                        }
-
-                        match read_file_to_string(&mut system, "stanza2.txt")
-                        {
-                            Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
-                            Err(_) => panic!("Failed to read stanza2"),
-                        }
-                    },
-                    Err(error) => panic!("Thread inside failed {}", error),
-                }
-            },
-
-            Err(_) => panic!("Thread execution failed"),
-        }
     }
 
 
     #[test]
     fn two_targets_one_already_present()
     {
-        let mut system = FakeSystem::new(10);
-
-        match system.create_dir(".ruler-cache")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("Failed to create directory"),
-        }
-
-        match write_str_to_file(&mut system, "verse1.txt", "I wish I were a windowsill")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File write operation failed"),
-        }
-
-        match write_str_to_file(&mut system, "stanza1.txt", "Some content")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File write operation failed"),
-        }
-
-        let (sender, _receiver) = mpsc::channel();
-
-        let handle1 = spawn_command(
-            to_info(
-                vec![
-                    "stanza1.txt".to_string(),
-                    "stanza2.txt".to_string()
-                ]),
-            vec![
-                "mycat2".to_string(),
-                "verse1.txt".to_string(),
-                "stanza1.txt".to_string(),
-                "stanza2.txt".to_string(),
-            ],
-            Some(RuleHistory::new()),
-            system.clone(),
-            vec![(0, sender)],
-            vec![],
-        );
-
-        match handle1.join()
-        {
-            Ok(join_result) =>
-            {
-                match join_result
-                {
-                    Ok(work_result) =>
-                    {
-                        assert_eq!(work_result.target_infos[0].path, "stanza1.txt");
-                        assert_eq!(work_result.target_infos[1].path, "stanza2.txt");
-
-                        match work_result.rule_history
-                        {
-                            Some(_) => {},
-                            None => panic!("Thread left with rule-history, came back with nothing."),
-                        }
-
-                        match work_result.work_option
-                        {
-                            WorkOption::CommandExecuted(output) =>
-                            {
-                                assert_eq!(output.out, "");
-                            },
-                            _ => panic!("Thread was supposed to execute command, did something else, got wrong work-option."),
-                        }
-
-                        match read_file_to_string(&mut system, "stanza1.txt")
-                        {
-                            Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
-                            Err(_) => panic!("Failed to read stanza1"),
-                        }
-
-                        match read_file_to_string(&mut system, "stanza2.txt")
-                        {
-                            Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
-                            Err(_) => panic!("Failed to read stanza2"),
-                        }
-                    },
-                    Err(error) => panic!("Thread inside failed: {}", error),
-                }
-            },
-
-            Err(_) => panic!("Thread execution failed"),
-        }
     }
 
 
     #[test]
     fn one_target_already_correct_only()
     {
-        let mut system = FakeSystem::new(10);
-        let mut rule_history = RuleHistory::new();
-
-        match write_str_to_file(&mut system, "verse1.txt", "I wish I were a windowsill")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File write operation failed"),
-        }
-
-        match write_str_to_file(&mut system, "poem.txt", "I wish I were a windowsill")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File write operation failed"),
-        }
-
-        let mut factory = TicketFactory::new();
-        factory.input_ticket(
-            TicketFactory::from_str("I wish I were a windowsill").result()
-        );
-
-        match rule_history.insert(
-            factory.result(),
-            TargetTickets::from_vec(
-                vec![TicketFactory::from_str("I wish I were a windowsill").result()]
-            )
-        )
-        {
-            Ok(_) => {},
-            Err(_) => panic!("Rule history failed to insert"),
-        }
-
-        let (sender, receiver) = mpsc::channel();
-
-        let handle1 = spawn_command(
-            to_info(vec!["verse1.txt".to_string()]),
-            vec![],
-            None,
-            system.clone(),
-            vec![(0, sender)],
-            vec![],
-        );
-
-        let handle2 = spawn_command(
-            to_info(vec!["poem.txt".to_string()]),
-            vec![
-                "error".to_string(),
-                "this file should".to_string(),
-                "already be correct".to_string()
-            ],
-            Some(rule_history),
-            system.clone(),
-            vec![],
-            vec![receiver],
-        );
-
-        match handle1.join()
-        {
-            Ok(_) =>
-            {
-                match read_file_to_string(&mut system, "verse1.txt")
-                {
-                    Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
-                    Err(_) => panic!("Failed to read verse1"),
-                }
-            },
-            Err(_) => panic!("First thread failed"),
-        }
-
-        match handle2.join()
-        {
-            Ok(_) =>
-            {
-                match read_file_to_string(&mut system, "poem.txt")
-                {
-                    Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
-                    Err(_) => panic!("Failed to read poem"),
-                }
-            },
-            Err(_) => panic!("Second thread failed"),
-        }
     }
 
 
     #[test]
     fn one_target_not_there_error_in_command()
     {
-        let mut system = FakeSystem::new(10);
-        let mut rule_history2 = RuleHistory::new();
-
-        match write_str_to_file(&mut system, "verse1.txt", "I wish I were a windowsill")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File write operation failed"),
-        }
-
-        let mut factory = TicketFactory::new();
-        factory.input_ticket(
-            TicketFactory::from_str("I wish I were a windowsill").result()
-        );
-
-        match rule_history2.insert(
-            factory.result(),
-            TargetTickets::from_vec(
-                vec![TicketFactory::from_str("I wish I were a windowsill").result()]
-            )
-        )
-        {
-            Ok(_) => {},
-            Err(_) => panic!("Rule history failed to insert"),
-        }
-
-        let (sender, receiver) = mpsc::channel();
-
-        let handle1 = spawn_command(
-            to_info(vec!["verse1.txt".to_string()]),
-            vec![],
-            None,
-            system.clone(),
-            vec![(0, sender)],
-            vec![],
-        );
-
-        let handle2 = spawn_command(
-            to_info(vec!["poem.txt".to_string()]),
-            vec![
-                "nonsense".to_string(),
-                "should".to_string(),
-                "error".to_string(),
-            ],
-            Some(rule_history2),
-            system.clone(),
-            vec![],
-            vec![receiver],
-        );
-
-        match handle1.join()
-        {
-            Ok(_) =>
-            {
-                match read_file_to_string(&mut system, "verse1.txt")
-                {
-                    Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
-                    Err(_) => panic!("Failed to read verse1"),
-                }
-            },
-            Err(_) => panic!("First thread failed"),
-        }
-
-        match handle2.join()
-        {
-            Ok(thread_result) =>
-            {
-                match thread_result
-                {
-                    Ok(_) => panic!("Second thread failed to error"),
-                    Err(_) =>
-                    {
-                        assert!(!system.is_file("poem.txt") && !system.is_dir("poem.txt"));
-                    },
-                }
-            }
-            Err(_) => panic!("Second thread failed"),
-        }
     }
 
 
     #[test]
     fn one_dependence_with_error()
     {
-        let mut system = FakeSystem::new(10);
-
-        match write_str_to_file(&mut system,  "some-other-file.txt", "Arbitrary content\n")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File write operation failed"),
-        }
-
-        match write_str_to_file(&mut system,  "stanza1.txt", "Arbitrary content\n")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File write operation failed"),
-        }
-
-        let (sender, receiver) = mpsc::channel();
-
-        let handle1 = spawn_command(
-            to_info(vec!["stanza1.txt".to_string()]),
-            vec![
-                "mycat".to_string(),
-                "verse1.txt".to_string(),
-                "stanza1.txt".to_string()
-            ],
-            Some(RuleHistory::new()),
-            system.clone(),
-            vec![(0, sender)],
-            vec![],
-        );
-
-        let handle2 = spawn_command(
-            to_info(vec!["poem.txt".to_string()]),
-            vec![
-                "mycat".to_string(),
-                "stanza1.txt".to_string(),
-                "poem.txt".to_string()
-            ],
-            Some(RuleHistory::new()),
-            system.clone(),
-            vec![],
-            vec![receiver],
-        );
-
-        match handle1.join()
-        {
-            Ok(thread_result) =>
-            {
-                match thread_result
-                {
-                    Ok(_) => panic!("First thread failed to error"),
-                    Err(_) => {},
-                }
-            }
-            Err(_) => panic!("First thread join failed"),
-        }
-
-        match handle2.join()
-        {
-            Ok(thread_result) =>
-            {
-                match thread_result
-                {
-                    Ok(_) => panic!("Second thread failed to error"),
-                    Err(_) => {},
-                }
-            },
-            Err(_) => panic!("Second thread join failed"),
-        }
     }
-
 
     #[test]
     fn one_target_already_correct_according_to_timestamp()
     {
-        let mut system = FakeSystem::new(10);
-        let mut rule_history2 = RuleHistory::new();
-
-        match write_str_to_file(&mut system,  "verse1.txt", "I wish I were a windowsill")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File write operation failed"),
-        }
-
-        match write_str_to_file(&mut system,  "poem.txt", "Content actually wrong")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File write operation failed"),
-        }
-
-        system.time_passes(17);
-
-        let mut factory = TicketFactory::new();
-        factory.input_ticket(
-            TicketFactory::from_str("I wish I were a windowsill").result()
-        );
-
-        match rule_history2.insert(
-            factory.result(),
-            TargetTickets::from_vec(
-                vec![TicketFactory::from_str("I wish I were a windowsill").result()]
-            )
-        )
-        {
-            Ok(_) => {},
-            Err(_) => panic!("Rule history failed to insert"),
-        }
-
-        let (sender, receiver) = mpsc::channel();
-
-        let handle1 = spawn_command(
-            to_info(vec!["verse1.txt".to_string()]),
-            vec![],
-            None,
-            system.clone(),
-            vec![(0, sender)],
-            vec![],
-        );
-
-        let handle2 = spawn_command(
-            vec![
-                TargetFileInfo
-                {
-                    path : "poem.txt".to_string(),
-                    history : TargetHistory::new(
-                        TicketFactory::from_str("I wish I were a windowsill").result(),
-                        17,
-                    ),
-                }
-            ],
-            vec![
-                "error".to_string(),
-                "this file should".to_string(),
-                "already be correct".to_string()
-            ],
-            Some(rule_history2),
-            system.clone(),
-            vec![],
-            vec![receiver],
-        );
-
-        match handle1.join()
-        {
-            Ok(_) =>
-            {
-                match read_file_to_string(&mut system, "verse1.txt")
-                {
-                    Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
-                    Err(_) => panic!("Failed to read verse1"),
-                }
-            },
-            Err(_) => panic!("First thread failed"),
-        }
-
-        match handle2.join()
-        {
-            Ok(_) =>
-            {
-                match read_file_to_string(&mut system, "poem.txt")
-                {
-                    Ok(text) => assert_eq!(text, "Content actually wrong"),
-                    Err(_) => panic!("Failed to read poem"),
-                }
-            },
-            Err(_) => panic!("Second thread failed"),
-        }
     }
 
 
     #[test]
     fn one_target_correct_hash_incorrect_timestamp()
     {
-        let mut system = FakeSystem::new(10);
-
-        match system.create_dir(".ruler-cache")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("Failed to create directory"),
-        }
-
-        let mut rule_history2 = RuleHistory::new();
-
-        match write_str_to_file(&mut system,  "verse1.txt", "I wish I were a windowsill")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File write operation failed"),
-        }
-
-        match write_str_to_file(&mut system,  "poem.txt", "Content wrong at first")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File write operation failed"),
-        }
-
-        system.time_passes(18);
-
-        let mut factory = TicketFactory::new();
-        factory.input_ticket(
-            TicketFactory::from_str("I wish I were a windowsill").result()
-        );
-
-        match rule_history2.insert(
-            factory.result(),
-            TargetTickets::from_vec(
-                vec![TicketFactory::from_str("I wish I were a windowsill").result()]
-            )
-        )
-        {
-            Ok(_) => {},
-            Err(_) => panic!("Rule history failed to insert"),
-        }
-
-        let (sender, receiver) = mpsc::channel();
-
-        let handle1 = spawn_command(
-            to_info(vec!["verse1.txt".to_string()]),
-            vec![],
-            None,
-            system.clone(),
-            vec![(0, sender)],
-            vec![],
-        );
-
-        let handle2 = spawn_command(
-            vec![
-                TargetFileInfo
-                {
-                    path : "poem.txt".to_string(),
-                    history : TargetHistory::new(
-                        TicketFactory::from_str("I wish I were a windowsill").result(),
-                        17,
-                    ),
-                }
-            ],
-            vec![
-                "mycat".to_string(),
-                "verse1.txt".to_string(),
-                "poem.txt".to_string()
-            ],
-            Some(rule_history2),
-            system.clone(),
-            vec![],
-            vec![receiver],
-        );
-
-        match handle1.join()
-        {
-            Ok(_) =>
-            {
-                match read_file_to_string(&mut system, "verse1.txt")
-                {
-                    Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
-                    Err(_) => panic!("Failed to read verse1"),
-                }
-            },
-            Err(_) => panic!("First thread failed"),
-        }
-
-        match handle2.join()
-        {
-            Ok(_) =>
-            {
-                match read_file_to_string(&mut system, "poem.txt")
-                {
-                    Ok(text) => assert_eq!(text, "I wish I were a windowsill"),
-                    Err(_) => panic!("Failed to read verse1"),
-                }
-            },
-            Err(_) => panic!("Second thread failed"),
-        }
     }
 }

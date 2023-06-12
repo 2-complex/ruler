@@ -426,10 +426,35 @@ pub fn build
                     {
                         let mut info = HandleNodeInfo::new(system_clone);
                         info.target_infos = target_infos;
-                        info.senders = sender_vec;
                         info.receivers = receiver_vec;
                         info.node_type = node_type;
-                        handle_node(info)
+                        match handle_node(info)
+                        {
+                            Ok(result) =>
+                            {
+                                for (sub_index, sender) in sender_vec
+                                {
+                                    match sender.send(Packet::from_ticket(result.target_tickets[sub_index].clone()))
+                                    {
+                                        Ok(_) => {},
+                                        Err(error) => return Err(WorkError::SenderError(error)),
+                                    }
+                                }
+                                Ok(result)
+                            },
+                            Err(error) =>
+                            {
+                                for (_sub_index, sender) in sender_vec
+                                {
+                                    match sender.send(Packet::cancel())
+                                    {
+                                        Ok(_) => {},
+                                        Err(error) => return Err(WorkError::SenderError(error)),
+                                    }
+                                }
+                                Err(error)
+                            },
+                        }
                     }
                 )
             )
@@ -820,6 +845,95 @@ poem.txt
         }
     }
 
+    #[test]
+    fn build_one_dependence()
+    {
+        let rules = "\
+stanza1.txt
+:
+verse1.txt
+:
+mycat
+verse1.txt
+stanza1.txt
+:
+
+poem.txt
+:
+stanza1.txt
+:
+mycat
+stanza1.txt
+poem.txt
+:
+";
+        let mut system = FakeSystem::new(10);
+
+        write_str_to_file(&mut system, "verse1.txt", "I looked over Jordan, and what did I see?\n").unwrap();
+        write_str_to_file(&mut system, "test.rules", rules).unwrap();
+
+        match build(
+            system.clone(),
+            "test.directory",
+            vec!["test.rules".to_string()],
+            None,
+            Some("poem.txt".to_string()),
+            &mut EmptyPrinter::new())
+        {
+            Ok(_) =>
+            {
+                assert_eq!(read_file_to_string(&mut system, "poem.txt").unwrap(),
+                    "I looked over Jordan, and what did I see?\n");
+            },
+            Err(error) => panic!("Unexpected error: {}", error),
+        }
+    }
+
+    #[test]
+    fn build_one_dependence_with_intermediate_already_present()
+    {
+        let rules = "\
+stanza1.txt
+:
+verse1.txt
+:
+mycat
+verse1.txt
+stanza1.txt
+:
+
+poem.txt
+:
+stanza1.txt
+:
+mycat
+stanza1.txt
+poem.txt
+:
+";
+        let mut system = FakeSystem::new(10);
+
+        write_str_to_file(&mut system, "verse1.txt", "I looked over Jordan, and what did I see?\n").unwrap();
+        write_str_to_file(&mut system, "stanza1.txt", "Some wrong content\n").unwrap();
+        write_str_to_file(&mut system, "test.rules", rules).unwrap();
+
+        match build(
+            system.clone(),
+            "test.directory",
+            vec!["test.rules".to_string()],
+            None,
+            Some("poem.txt".to_string()),
+            &mut EmptyPrinter::new())
+        {
+            Ok(_) =>
+            {
+                assert_eq!(read_file_to_string(&mut system, "poem.txt").unwrap(),
+                    "I looked over Jordan, and what did I see?\n");
+            },
+            Err(error) => panic!("Unexpected error: {}", error),
+        }
+    }
+
     /*  Test a more complex build with missing sources.  Make sure the error matches the missing file. */
     #[test]
     fn build_one_source_file_missing_chain()
@@ -902,7 +1016,8 @@ poem.txt
         }
     }
 
-    /*  Set up a filesystem and a .rules file with dependence on a file. */
+    /*  Set up a filesystem and a .rules file with invalid UTF8 in it instead of rules.
+        Check that the build fails with a message about UTF8 */
     #[test]
     fn build_rulefile_not_utf8()
     {
@@ -995,7 +1110,8 @@ poem.txt
         assert_eq!(read_file_to_string(&mut system, "poem.txt").unwrap(), "Roses are red.\nViolets are violet.\n");
     }
 
-    /*  Set up filesystem to build a poem with two verses.  */
+    /*  Set up filesystem to build a poem with two verses.  Invoke the build, and check that
+        the */
     #[test]
     fn build_change_build_check_cache()
     {
