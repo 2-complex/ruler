@@ -58,6 +58,7 @@ pub enum WorkOption
 
 pub struct WorkResult
 {
+    pub target_tickets : Vec<Ticket>,
     pub target_infos : Vec<TargetFileInfo>,
     pub work_option : WorkOption,
     pub rule_history : Option<RuleHistory>,
@@ -176,21 +177,17 @@ fn cancel_all_senders(senders : &Vec<(usize, Sender<Packet>)>) -> Result<(), Wor
         match sender.send(Packet::cancel())
         {
             Ok(_) => {},
-            Err(error) => return {
-                println!("Oh, it's here 3");
-                Err(WorkError::SenderError(error))
-            },
+            Err(error) => return Err(WorkError::SenderError(error)),
         }
     }
 
-    return Ok(())
+    Ok(())
 }
 
 fn handle_source_only_node<SystemType: System>
 (
     system : SystemType,
-    target_infos : Vec<TargetFileInfo>,
-    senders : Vec<(usize, Sender<Packet>)>
+    target_infos : Vec<TargetFileInfo>
 )
 ->
 Result<WorkResult, WorkError>
@@ -202,28 +199,15 @@ Result<WorkResult, WorkError>
         Ok(target_tickets) => target_tickets,
         Err(WorkError::FileNotFound(path)) =>
         {
-            cancel_all_senders(&senders)?;
             return Err(WorkError::FileNotFound(path));
         },
         Err(error) => return Err(error),
     };
 
-    for (sub_index, sender) in senders
-    {
-        match sender.send(Packet::from_ticket(
-            current_target_tickets[sub_index].clone()))
-        {
-            Ok(_) => {},
-            Err(error) => return {
-                println!("ugh there are a lot of these");
-                Err(WorkError::SenderError(error))
-            },
-        }
-    }
-
     Ok(
         WorkResult
         {
+            target_tickets : current_target_tickets,
             target_infos : target_infos,
             work_option : WorkOption::SourceOnly,
             rule_history : None
@@ -370,6 +354,7 @@ Result<WorkResult, WorkError>
     Ok(
         WorkResult
         {
+            target_tickets : vec![],
             target_infos : target_infos,
             work_option : WorkOption::CommandExecuted(command_result),
             rule_history : Some(rule_history),
@@ -529,10 +514,32 @@ Result<WorkResult, WorkError>
         otherwise, it is a plain source file. */
     match info.node_type
     {
-        NodeType::SourceOnly => handle_source_only_node(
-            info.system,
-            info.target_infos,
-            info.senders),
+        NodeType::SourceOnly =>
+        {
+            let result =
+            match handle_source_only_node(
+                info.system,
+                info.target_infos)
+            {
+                Ok(result) => result,
+                Err(error) =>
+                {
+                    cancel_all_senders(&info.senders)?;
+                    return Err(error);
+                },
+            };
+
+            for (sub_index, sender) in info.senders
+            {
+                match sender.send(Packet::from_ticket(result.target_tickets[sub_index].clone()))
+                {
+                    Ok(_) => {},
+                    Err(error) => return Err(WorkError::SenderError(error)),
+                }
+            }
+
+            Ok(result)
+        }
 
         NodeType::Rule(mut rule_ext) =>
         {
@@ -584,6 +591,7 @@ Result<WorkResult, WorkError>
                         Ok(
                             WorkResult
                             {
+                                target_tickets : vec![],
                                 target_infos : info.target_infos,
                                 work_option : WorkOption::Resolutions(resolutions),
                                 rule_history : Some(rule_ext.rule_history),
