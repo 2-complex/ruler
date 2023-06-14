@@ -404,6 +404,7 @@ Result<Vec<FileResolution>, WorkError>
 
 pub struct RuleExt<SystemType: System>
 {
+    pub sources_ticket : Ticket,
     pub command : Vec<String>,
     pub rule_history : RuleHistory,
     pub cache : SysCache<SystemType>,
@@ -414,11 +415,12 @@ pub struct RuleExt<SystemType: System>
 impl<SystemType: System> RuleExt<SystemType>
 {
     #[cfg(test)]
-    fn new(cache: SysCache<SystemType>) -> RuleExt<SystemType>
+    fn new(cache : SysCache<SystemType>, sources_ticket : Ticket) -> RuleExt<SystemType>
     {
         return RuleExt
         {
             cache : cache,
+            sources_ticket : sources_ticket,
             command : Vec::new(),
             rule_history : RuleHistory::new(),
             downloader_cache_opt : None,
@@ -437,7 +439,6 @@ pub struct HandleNodeInfo<SystemType: System>
 {
     pub system : SystemType,
     pub target_infos : Vec<TargetFileInfo>,
-    pub receivers : Vec<Receiver<Packet>>,
     pub node_type : NodeType<SystemType>,
 }
 
@@ -449,7 +450,6 @@ impl<SystemType: System> HandleNodeInfo<SystemType>
         {
             system : system,
             target_infos : Vec::new(),
-            receivers : Vec::new(),
             node_type : NodeType::SourceOnly,
         }
     }
@@ -470,10 +470,6 @@ pub fn handle_node<SystemType: System>
 ->
 Result<WorkResult, WorkError>
 {
-    let sources_ticket = wait_for_sources_ticket(info.receivers)?;
-
-    /*  If there's a rule-history that means the node is a rule,
-        otherwise, it is a plain source file. */
     match info.node_type
     {
         NodeType::SourceOnly =>
@@ -487,7 +483,7 @@ Result<WorkResult, WorkError>
                 & rule_ext.downloader_cache_opt,
                 & rule_ext.rule_history,
                 & rule_ext.downloader_rule_history_opt,
-                & sources_ticket,
+                & rule_ext.sources_ticket,
                 & info.target_infos)
             {
                 Ok(resolutions) =>
@@ -497,7 +493,7 @@ Result<WorkResult, WorkError>
                         rebuild_node(
                             &mut info.system,
                             rule_ext.rule_history,
-                            sources_ticket,
+                            rule_ext.sources_ticket,
                             rule_ext.command,
                             info.target_infos)
                     }
@@ -814,50 +810,23 @@ mod test
     }
 
     #[test]
-    fn wait_for_channels()
+    fn work_handle_node_command_executed()
     {
-        let (sender_a, receiver_a) = mpsc::channel();
-        let (sender_b, receiver_b) = mpsc::channel();
-
         let mut system = FakeSystem::new(10);
 
-        match system.create_dir(".ruler-cache")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("Failed to make cache directory"),
-        }
+        system.create_dir(".ruler-cache").unwrap();
+        write_str_to_file(&mut system, "A-source.txt", "").unwrap();
+        write_str_to_file(&mut system, "A.txt", "").unwrap();
 
-        match write_str_to_file(&mut system, "A-source.txt", "")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File write operation failed"),
-        }
+        let mut ticket_factory = TicketFactory::new();
+        ticket_factory.input_ticket(TicketFactory::from_str("apples").result());
+        ticket_factory.input_ticket(TicketFactory::from_str("bananas").result());
 
-        match write_str_to_file(&mut system, "A.txt", "")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File write operation failed"),
-        }
-
-        match sender_a.send(Packet::from_ticket(TicketFactory::from_str("apples").result()))
-        {
-            Ok(p) => assert_eq!(p, ()),
-            Err(e) => panic!("Unexpected error sending: {}", e),
-        }
-
-        match sender_b.send(Packet::from_ticket(TicketFactory::from_str("bananas").result()))
-        {
-            Ok(p) => assert_eq!(p, ()),
-            Err(e) => panic!("Unexpected error sending: {}", e),
-        }
-
-        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"));
+        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"), ticket_factory.result());
         rule_ext.command = vec!["mycat".to_string(), "A-source.txt".to_string(), "A.txt".to_string()];
 
         let mut info = HandleNodeInfo::new(system.clone());
         info.target_infos = to_info(vec!["A.txt".to_string()]);
-        info.receivers.push(receiver_a);
-        info.receivers.push(receiver_b);
         info.node_type = NodeType::Rule(rule_ext);
 
         match handle_node(info)
@@ -882,34 +851,19 @@ mod test
 
 
     #[test]
-    fn command_errors()
+    fn work_command_errors()
     {
-        let (sender_a, receiver_a) = mpsc::channel();
-        let (sender_b, receiver_b) = mpsc::channel();
-
         let mut system = FakeSystem::new(10);
 
-        write_str_to_file(&mut system, "verse1.txt", "Roses are red\n").unwrap();
-        write_str_to_file(&mut system, "verse2.txt", "Violets are violet\n").unwrap();
+        let mut ticket_factory = TicketFactory::new();
+        ticket_factory.input_ticket(TicketFactory::from_str("Roses are red\n").result());
+        ticket_factory.input_ticket(TicketFactory::from_str("Violets are violet\n").result());
 
-        match sender_a.send(Packet::from_ticket(TicketFactory::from_str("Roses are red\n").result()))
-        {
-            Ok(p) => assert_eq!(p, ()),
-            Err(e) => panic!("Unexpected error sending: {}", e),
-        }
-
-        match sender_b.send(Packet::from_ticket(TicketFactory::from_str("Violets are violet\n").result()))
-        {
-            Ok(p) => assert_eq!(p, ()),
-            Err(e) => panic!("Unexpected error sending: {}", e),
-        }
-
-        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"));
+        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"), ticket_factory.result());
         rule_ext.command = vec!["error".to_string()];
 
         let mut info = HandleNodeInfo::new(system.clone());
         info.target_infos = to_info(vec!["poem.txt".to_string()]);
-        info.receivers = vec![receiver_a, receiver_b];
         info.node_type = NodeType::Rule(rule_ext);
 
         match handle_node(info)
@@ -924,22 +878,20 @@ mod test
     #[test]
     fn command_fails_to_generate_target()
     {
-        let (sender_a, receiver_a) = mpsc::channel();
-        let (sender_b, receiver_b) = mpsc::channel();
-
         let mut system = FakeSystem::new(10);
 
         write_str_to_file(&mut system, "verse1.txt", "Roses are red\n").unwrap();
         write_str_to_file(&mut system, "verse2.txt", "Violets are violet\n").unwrap();
-        sender_a.send(Packet::from_ticket(TicketFactory::from_str("Roses are red\n").result())).unwrap();
-        sender_b.send(Packet::from_ticket(TicketFactory::from_str("Violets are violet\n").result())).unwrap();
 
-        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"));
+        let mut ticket_factory = TicketFactory::new();
+        ticket_factory.input_ticket(TicketFactory::from_str("Roses are red\n").result());
+        ticket_factory.input_ticket(TicketFactory::from_str("Violets are violet\n").result());
+
+        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"), ticket_factory.result());
         rule_ext.command = vec!["mycat".to_string(),"verse1.txt".to_string(),"verse2.txt".to_string(),"wrong.txt".to_string()];
 
         let mut info = HandleNodeInfo::new(system.clone());
         info.target_infos = to_info(vec!["poem.txt".to_string()]);
-        info.receivers = vec![receiver_a, receiver_b];
         info.node_type = NodeType::Rule(rule_ext);
 
         match handle_node(info)
@@ -956,41 +908,19 @@ mod test
     #[test]
     fn poem_concatination()
     {
-        let (sender_a, receiver_a) = mpsc::channel();
-        let (sender_b, receiver_b) = mpsc::channel();
-
         let mut system = FakeSystem::new(10);
+        write_str_to_file(&mut system, "verse1.txt", "Roses are red\n").unwrap();
+        write_str_to_file(&mut system, "verse2.txt", "Violets are violet\n").unwrap();
 
-        match write_str_to_file(&mut system, "verse1.txt", "Roses are red\n")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File write operation failed"),
-        }
+        let mut ticket_factory = TicketFactory::new();
+        ticket_factory.input_ticket(TicketFactory::from_str("Roses are red\n").result());
+        ticket_factory.input_ticket(TicketFactory::from_str("Violets are violet\n").result());
 
-        match write_str_to_file(&mut system, "verse2.txt", "Violets are violet\n")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File write operation failed"),
-        }
-
-        match sender_a.send(Packet::from_ticket(TicketFactory::from_str("Roses are red\n").result()))
-        {
-            Ok(p) => assert_eq!(p, ()),
-            Err(e) => panic!("Unexpected error sending: {}", e),
-        }
-
-        match sender_b.send(Packet::from_ticket(TicketFactory::from_str("Violets are violet\n").result()))
-        {
-            Ok(p) => assert_eq!(p, ()),
-            Err(e) => panic!("Unexpected error sending: {}", e),
-        }
-
-        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"));
+        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"), ticket_factory.result());
         rule_ext.command = vec!["mycat".to_string(),"verse1.txt".to_string(),"verse2.txt".to_string(),"poem.txt".to_string()];
 
         let mut info = HandleNodeInfo::new(system.clone());
         info.target_infos = to_info(vec!["poem.txt".to_string()]);
-        info.receivers = vec![receiver_a, receiver_b];
         info.node_type = NodeType::Rule(rule_ext);
 
         match handle_node(info)
@@ -1005,6 +935,9 @@ mod test
                         assert_eq!(output.err, "");
                         assert_eq!(output.code, Some(0));
                         assert_eq!(output.success, true);
+
+                        let content = read_file_to_string(&system, "poem.txt").unwrap();
+                        assert_eq!(content, "Roses are red\nViolets are violet\n");
                     },
                     _ => panic!("Comand was supposed to execute.  Output wasn't there."),
                 }
@@ -1015,16 +948,13 @@ mod test
 
 
     /*  Create sourcefiles with the two lines in a two-line poem.  Fabricate a rule history
-        that recalls the two lines concatinated as the result In the fake file system, make
-        the source files and create poem with already correct content.  Then called handle_node.
+        that recalls the two lines concatinated as the result.  In the fake file system, make
+        the source files and create poem with already correct content.  Then call handle_node.
         Check that handle_node behaves as if the poem is already correct.
     */
     #[test]
     fn poem_already_correct()
     {
-        let (sender_a, receiver_a) = mpsc::channel();
-        let (sender_b, receiver_b) = mpsc::channel();
-
         let mut rule_history = RuleHistory::new();
 
         let mut factory = TicketFactory::new();
@@ -1033,7 +963,7 @@ mod test
         let sources_ticket = factory.result();
 
         match rule_history.insert(
-            sources_ticket,
+            sources_ticket.clone(),
             TargetTickets::from_vec(vec![
                 TicketFactory::from_str("Roses are red\nViolets are violet\n").result()
             ])
@@ -1045,49 +975,17 @@ mod test
 
         let mut system = FakeSystem::new(10);
 
-        match system.create_dir(".ruler-cache")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("Failed to make cache directory"),
-        }
+        system.create_dir(".ruler-cache").unwrap();
+        write_str_to_file(&mut system, "verse1.txt", "Roses are red\n").unwrap();
+        write_str_to_file(&mut system, "verse2.txt", "Violets are violet\n").unwrap();
+        write_str_to_file(&mut system, "poem.txt", "Roses are red\nViolets are violet\n").unwrap();
 
-        match write_str_to_file(&mut system, "verse1.txt", "Roses are red\n")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File write operation failed"),
-        }
-
-        match write_str_to_file(&mut system, "verse2.txt", "Violets are violet\n")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File write operation failed"),
-        }
-
-        match write_str_to_file(&mut system, "poem.txt", "Roses are red\nViolets are violet\n")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File write operation failed"),
-        }
-
-        match sender_a.send(Packet::from_ticket(TicketFactory::from_str("Roses are red\n").result()))
-        {
-            Ok(p) => assert_eq!(p, ()),
-            Err(e) => panic!("Unexpected error sending: {}", e),
-        }
-
-        match sender_b.send(Packet::from_ticket(TicketFactory::from_str("Violets are violet\n").result()))
-        {
-            Ok(p) => assert_eq!(p, ()),
-            Err(e) => panic!("Unexpected error sending: {}", e),
-        }
-
-        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"));
+        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"), sources_ticket);
         rule_ext.command = vec!["mycat".to_string(), "verse1.txt".to_string(), "verse2.txt".to_string(), "poem.txt".to_string()];
         rule_ext.rule_history = rule_history;
 
         let mut info = HandleNodeInfo::new(system.clone());
         info.target_infos = to_info(vec!["poem.txt".to_string()]);
-        info.receivers = vec![receiver_a, receiver_b];
         info.node_type = NodeType::Rule(rule_ext);
 
         match handle_node(info)
@@ -1125,17 +1023,14 @@ mod test
     #[test]
     fn poem_contradicts_history()
     {
-        let (sender_a, receiver_a) = mpsc::channel();
-        let (sender_b, receiver_b) = mpsc::channel();
-
         let mut factory = TicketFactory::new();
         factory.input_ticket(TicketFactory::from_str("Roses are red\n").result());
         factory.input_ticket(TicketFactory::from_str("Violets are violet\n").result());
-        let source_ticket = factory.result();
+        let sources_ticket = factory.result();
 
         let mut rule_history = RuleHistory::new();
         match rule_history.insert(
-            source_ticket,
+            sources_ticket.clone(),
             TargetTickets::from_vec(
                 vec![TicketFactory::from_str("Roses are red\nViolets are blue\n").result()]
             ))
@@ -1146,49 +1041,17 @@ mod test
 
         let mut system = FakeSystem::new(10);
 
-        match system.create_dir(".ruler-cache")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("Failed to create directory"),
-        }
+        system.create_dir(".ruler-cache").unwrap();
+        write_str_to_file(&mut system, "verse1.txt", "Roses are red\n").unwrap();
+        write_str_to_file(&mut system, "verse2.txt", "Violets are violet\n").unwrap();
+        write_str_to_file(&mut system, "poem.txt", "Arbitrary content").unwrap();
 
-        match write_str_to_file(&mut system, "verse1.txt", "Roses are red\n")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File write operation failed"),
-        }
-
-        match write_str_to_file(&mut system, "verse2.txt", "Violets are violet\n")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File write operation failed"),
-        }
-
-        match write_str_to_file(&mut system, "poem.txt", "Arbitrary content")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File write operation failed"),
-        }
-
-        match sender_a.send(Packet::from_ticket(TicketFactory::from_str("Roses are red\n").result()))
-        {
-            Ok(p) => assert_eq!(p, ()),
-            Err(e) => panic!("Unexpected error sending: {}", e),
-        }
-
-        match sender_b.send(Packet::from_ticket(TicketFactory::from_str("Violets are violet\n").result()))
-        {
-            Ok(p) => assert_eq!(p, ()),
-            Err(e) => panic!("Unexpected error sending: {}", e),
-        }
-
-        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"));
+        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"), sources_ticket);
         rule_ext.command = vec!["mycat".to_string(), "verse1.txt".to_string(), "verse2.txt".to_string(), "poem.txt".to_string()];
         rule_ext.rule_history = rule_history;
 
         let mut info = HandleNodeInfo::new(system.clone());
         info.target_infos = to_info(vec!["poem.txt".to_string()]);
-        info.receivers = vec![receiver_a, receiver_b];
         info.node_type = NodeType::Rule(rule_ext);
 
         match handle_node(info)
@@ -1217,56 +1080,26 @@ mod test
     #[test]
     fn poem_work_populates_rule_history()
     {
-        let (sender_a, receiver_a) = mpsc::channel();
-        let (sender_b, receiver_b) = mpsc::channel();
-
         let rule_history = RuleHistory::new();
 
         let mut system = FakeSystem::new(10);
 
-        match system.create_dir(".ruler-cache")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("Failed to create directory"),
-        }
+        system.create_dir(".ruler-cache").unwrap();
+        write_str_to_file(&mut system, "verse1.txt", "Roses are red\n").unwrap();
+        write_str_to_file(&mut system, "verse2.txt", "Violets are violet\n").unwrap();
+        write_str_to_file(&mut system, "poem.txt", "Arbitrary content").unwrap();
 
-        match write_str_to_file(&mut system, "verse1.txt", "Roses are red\n")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File write operation failed"),
-        }
+        let mut factory = TicketFactory::new();
+        factory.input_ticket(TicketFactory::from_str("Roses are red\n").result());
+        factory.input_ticket(TicketFactory::from_str("Violets are violet\n").result());
+        let sources_ticket = factory.result();
 
-        match write_str_to_file(&mut system, "verse2.txt", "Violets are violet\n")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File write operation failed"),
-        }
-
-        match write_str_to_file(&mut system, "poem.txt", "Arbitrary content")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File write operation failed"),
-        }
-
-        match sender_a.send(Packet::from_ticket(TicketFactory::from_str("Roses are red\n").result()))
-        {
-            Ok(p) => assert_eq!(p, ()),
-            Err(e) => panic!("Unexpected error sending: {}", e),
-        }
-
-        match sender_b.send(Packet::from_ticket(TicketFactory::from_str("Violets are violet\n").result()))
-        {
-            Ok(p) => assert_eq!(p, ()),
-            Err(e) => panic!("Unexpected error sending: {}", e),
-        }
-
-        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"));
+        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"), sources_ticket);
         rule_ext.command = vec!["mycat".to_string(), "verse1.txt".to_string(), "verse2.txt".to_string(), "poem.txt".to_string()];
         rule_ext.rule_history = rule_history;
 
         let mut info = HandleNodeInfo::new(system.clone());
         info.target_infos = to_info(vec!["poem.txt".to_string()]);
-        info.receivers = vec![receiver_a, receiver_b];
         info.node_type = NodeType::Rule(rule_ext);
 
         match handle_node(info)
@@ -1352,9 +1185,9 @@ mod test
     {
         let mut system = FakeSystem::new(10);
 
-        match write_str_to_file(&mut system, "verse1.txt", "Arbitrary content\n").unwrap();
+        write_str_to_file(&mut system, "verse1.txt", "Arbitrary content\n").unwrap();
 
-        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".rule-cache"));
+        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".rule-cache"), TicketFactory::new().result());
         rule_ext.command = vec!["rm".to_string(), "verse1.txt".to_string()];
 
         let mut info = HandleNodeInfo::new(system.clone());
