@@ -3,8 +3,14 @@ extern crate multimap;
 use multimap::MultiMap;
 
 use std::thread;
-use std::sync::mpsc::{Sender, Receiver};
-use std::sync::mpsc;
+use std::sync::mpsc::
+{
+    self,
+    Sender,
+    Receiver,
+    SendError,
+    RecvError,
+};
 use std::str::from_utf8;
 use std::fmt;
 use std::io::
@@ -109,6 +115,9 @@ fn make_multimaps(nodes : &Vec<Node>)
 #[derive(Debug)]
 pub enum BuildError
 {
+    Canceled,
+    ReceiverError(RecvError),
+    SenderError(SendError<Packet>),
     MemoryFileFailedToRead(MemoryError),
     RuleFileNotUTF8,
     RuleFileFailedToRead(String, io::Error),
@@ -119,6 +128,7 @@ pub enum BuildError
     DirectoryMalfunction,
     HistoryError(HistoryError),
     DownloadUrlsError(DownloadUrlsError),
+    WorkError(WorkError),
     Weird,
 }
 
@@ -129,6 +139,15 @@ impl fmt::Display for BuildError
     {
         match self
         {
+            BuildError::Canceled =>
+                write!(formatter, "Canceled by a depdendence"),
+
+            BuildError::ReceiverError(error) =>
+                write!(formatter, "Failed to recieve anything from source: {}", error),
+
+            BuildError::SenderError(error) =>
+                write!(formatter, "Failed to send to dependent {}", error),
+
             BuildError::MemoryFileFailedToRead(error) =>
                 write!(formatter, "Error history file not found: {}", error),
 
@@ -165,6 +184,9 @@ impl fmt::Display for BuildError
 
             BuildError::DownloadUrlsError(error) =>
                 write!(formatter, "Error while establishing download-urls: {}", error),
+
+            BuildError::WorkError(error) =>
+                write!(formatter, "{}", error),
 
             BuildError::Weird =>
                 write!(formatter, "Weird! How did you do that!"),
@@ -315,7 +337,11 @@ Result<DownloadUrls, DownloadUrlsError>
     }
 }
 
-fn wait_for_sources_ticket(receiver_vec : Vec<Receiver<Packet>>) -> Result<Ticket, WorkError>
+/*  Takes a vector of receivers, and waits for them all to receive, so it can
+    hash together all their results into one Ticket obejct.  Returns an error
+    if the receivers error or if the packet produces an error when it tries to
+    get the ticket from it. */
+fn wait_for_sources_ticket(receiver_vec : Vec<Receiver<Packet>>) -> Result<Ticket, BuildError>
 {
     let mut factory = TicketFactory::new();
     for receiver in receiver_vec.iter()
@@ -327,10 +353,10 @@ fn wait_for_sources_ticket(receiver_vec : Vec<Receiver<Packet>>) -> Result<Ticke
                 match packet.get_ticket()
                 {
                     Ok(ticket) => factory.input_ticket(ticket),
-                    Err(PacketError::Cancel) => return Err(WorkError::Canceled),
+                    Err(PacketError::Cancel) => return Err(BuildError::Canceled),
                 }
             },
-            Err(error) => return Err(WorkError::ReceiverError(error)),
+            Err(error) => return Err(BuildError::ReceiverError(error)),
         }
     }
     Ok(factory.result())
@@ -439,7 +465,7 @@ pub fn build
                     None =>
                     {
                         thread::spawn(
-                            move || -> Result<WorkResult, WorkError>
+                            move || -> Result<WorkResult, BuildError>
                             {
                                 let mut info = HandleNodeInfo::new(system_clone);
                                 info.target_infos = target_infos;
@@ -454,7 +480,7 @@ pub fn build
                                             match sender.send(Packet::from_ticket(result.target_tickets[sub_index].clone()))
                                             {
                                                 Ok(_) => {},
-                                                Err(error) => return Err(WorkError::SenderError(error)),
+                                                Err(error) => return Err(BuildError::SenderError(error)),
                                             }
                                         }
                                         Ok(result)
@@ -466,10 +492,10 @@ pub fn build
                                             match sender.send(Packet::cancel())
                                             {
                                                 Ok(_) => {},
-                                                Err(error) => return Err(WorkError::SenderError(error)),
+                                                Err(error) => return Err(BuildError::SenderError(error)),
                                             }
                                         }
-                                        Err(error)
+                                        Err(BuildError::WorkError(error))
                                     },
                                 }
                             }
@@ -488,7 +514,7 @@ pub fn build
                         let downloader_rule_history = downloader_history.get_rule_history(&ticket);
 
                         thread::spawn(
-                            move || -> Result<WorkResult, WorkError>
+                            move || -> Result<WorkResult, BuildError>
                             {
                                 let mut info = HandleNodeInfo::new(system_clone);
                                 info.target_infos = target_infos;
@@ -503,7 +529,7 @@ pub fn build
                                             match sender.send(Packet::cancel())
                                             {
                                                 Ok(_) => {},
-                                                Err(error) => return Err(WorkError::SenderError(error)),
+                                                Err(error) => return Err(BuildError::SenderError(error)),
                                             }
                                         }
                                         return Err(error);
@@ -529,7 +555,7 @@ pub fn build
                                             match sender.send(Packet::from_ticket(result.target_tickets[sub_index].clone()))
                                             {
                                                 Ok(_) => {},
-                                                Err(error) => return Err(WorkError::SenderError(error)),
+                                                Err(error) => return Err(BuildError::SenderError(error)),
                                             }
                                         }
                                         Ok(result)
@@ -541,10 +567,10 @@ pub fn build
                                             match sender.send(Packet::cancel())
                                             {
                                                 Ok(_) => {},
-                                                Err(error) => return Err(WorkError::SenderError(error)),
+                                                Err(error) => return Err(BuildError::SenderError(error)),
                                             }
                                         }
-                                        Err(error)
+                                        Err(BuildError::WorkError(error))
                                     },
                                 }
                             }
@@ -564,7 +590,6 @@ pub fn build
     {
         match handle.join()
         {
-            Err(_error) => return Err(BuildError::Weird),
             Ok(work_result_result) =>
             {
                 match work_result_result
@@ -659,25 +684,12 @@ pub fn build
                             elements.memory.insert_target_history(target_info.path, target_info.history);
                         }
                     },
-                    Err(work_error) =>
-                    {
-                        match work_error
-                        {
-                            /*  If the work was canceled by the source, then we don't need to report that as a separate
-                                error.  The error that triggered the cancel will be in the list. */
-                            WorkError::Canceled => {},
-                            WorkError::ReceiverError(error) =>
-                                panic!("Fatal Error: ReceiverError: {}", error),
-                            WorkError::SenderError(error) =>
-                                panic!("Fatal Error: SenderError {}", error),
-                            _ =>
-                            {
-                                work_errors.push(work_error);
-                            }
-                        }
-                    },
+                    Err(BuildError::WorkError(work_error)) => work_errors.push(work_error),
+                    Err(BuildError::Canceled) => {},
+                    Err(error) => panic!("Unexpected build error: {}", error),
                 }
-            }
+            },
+            Err(_error) => return Err(BuildError::Weird),
         }
     }
 
@@ -693,7 +705,7 @@ pub fn build
     }
     else
     {
-        Err(BuildError::WorkErrors(work_errors))
+        Err(BuildError::WorkErrors(vec![]))
     }
 }
 
@@ -790,7 +802,7 @@ pub fn clean<SystemType : System + 'static>
         }
     }
 
-    let mut work_errors = Vec::new();
+    let mut work_errors : Vec<WorkError> = Vec::new();
 
     for handle in handles
     {
@@ -802,16 +814,7 @@ pub fn clean<SystemType : System + 'static>
                 match remove_result_result
                 {
                     Ok(_) => {},
-                    Err(work_error) =>
-                    {
-                        match work_error
-                        {
-                            _ =>
-                            {
-                                work_errors.push(work_error);
-                            }
-                        }
-                    },
+                    Err(work_error) => work_errors.push(work_error),
                 }
             }
         }

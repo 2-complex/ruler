@@ -1,13 +1,5 @@
-use crate::packet::
-{
-    Packet,
-    PacketError,
-};
-use crate::ticket::
-{
-    Ticket,
-    TicketFactory,
-};
+
+use crate::ticket::Ticket;
 use crate::system::
 {
     CommandLineOutput,
@@ -40,12 +32,6 @@ use crate::cache::
     DownloaderCache,
 };
 
-use std::sync::mpsc::
-{
-    Receiver,
-    RecvError,
-    SendError,
-};
 use std::fmt;
 
 pub enum WorkOption
@@ -66,9 +52,6 @@ pub struct WorkResult
 #[derive(Debug)]
 pub enum WorkError
 {
-    Canceled,
-    ReceiverError(RecvError),
-    SenderError(SendError<Packet>),
     TicketAlignmentError(ReadWriteError),
     FileNotFound(String),
     TargetFileNotGenerated(String),
@@ -88,15 +71,6 @@ impl fmt::Display for WorkError
     {
         match self
         {
-            WorkError::Canceled =>
-                write!(formatter, "Canceled by a depdendence"),
-
-            WorkError::ReceiverError(error) =>
-                write!(formatter, "Failed to recieve anything from source: {}", error),
-
-            WorkError::SenderError(error) =>
-                write!(formatter, "Failed to send to dependent {}", error),
-
             WorkError::TicketAlignmentError(error) =>
                 write!(formatter, "File IO error when attempting to get hash of sources: {}", error),
 
@@ -198,38 +172,6 @@ Result<WorkResult, WorkError>
             rule_history : None
         }
     )
-}
-
-/*  Takes a vector of receivers, and waits for them all to receive, so it can
-    hash together all their results into one Ticket obejct.  Returns an error
-    if the receivers error or if the packet produces an error when it tries to
-    get the ticket from it. */
-fn wait_for_sources_ticket
-(
-    receivers : Vec<Receiver<Packet>>
-)
-->
-Result<Ticket, WorkError>
-{
-    let mut factory = TicketFactory::new();
-
-    for receiver in receivers.iter()
-    {
-        match receiver.recv()
-        {
-            Ok(packet) => 
-            {
-                match packet.get_ticket()
-                {
-                    Ok(ticket) => factory.input_ticket(ticket),
-                    Err(PacketError::Cancel) => return Err(WorkError::Canceled),
-                }
-            },
-            Err(error) => return Err(WorkError::ReceiverError(error)),
-        }
-    }
-
-    Ok(factory.result())
 }
 
 /*  Takes a vector of resolutions, and returns true if any of them are NeedsRebuild */
@@ -587,7 +529,6 @@ mod test
         RuleExt,
         NodeType,
         handle_node,
-        wait_for_sources_ticket,
     };
     use crate::ticket::
     {
@@ -605,7 +546,6 @@ mod test
         ResolutionError,
         get_file_ticket
     };
-    use crate::packet::Packet;
     use crate::cache::
     {
         SysCache,
@@ -621,64 +561,29 @@ mod test
         fake::FakeSystem,
     };
 
-    use std::sync::mpsc::{self, Receiver};
-    use std::thread::{self, JoinHandle};
-
-    /*  For testing, it's useful to be able to check the ticket of a list of source files.
-        So, this function creates a bunch of channels just for the purpose of sending source files
-        through and getting a source ticket using wait_for_sources_ticket */
+    /*  For testing, it's useful to be able to check the ticket of a list of source files. */
     fn current_sources_ticket
     <
         SystemType : System + 'static,
     >
     (
         system : &SystemType,
-        paths : Vec<String>
+        paths : Vec<&str>
     )
     -> Result<Ticket, WorkError>
     {
-        let mut receivers = vec![];
+        let mut factory = TicketFactory::new();
 
         for path in paths
         {
-            let (sender, receiver) = mpsc::channel();
-            receivers.push(receiver);
-
-            let system_clone = system.clone();
-            match thread::spawn(
-                move || -> Result<(), WorkError>
+            factory.input_ticket(
+                match TicketFactory::from_file(system, path)
                 {
-                    match TicketFactory::from_file(&system_clone, &path)
-                    {
-                        Ok(mut factory) =>
-                        {
-                            match sender.send(Packet::from_ticket(factory.result()))
-                            {
-                                Ok(_) => Ok(()),
-                                Err(error) => {
-                                    println!("It's here 2");
-                                    Err(WorkError::SenderError(error))
-                                },
-                            }
-                        },
-                        Err(error) => Err(WorkError::ReadWriteError(path.to_string(), error)),
-                    }
-                }
-            ).join()
-            {
-                Ok(result) =>
-                {
-                    match result
-                    {
-                        Ok(_) => {},
-                        Err(error) => return Err(error),
-                    }
-                },
-                Err(_error) => return Err(WorkError::Weird),
-            }
+                    Ok(mut file_factory) => file_factory.result(),
+                    Err(error) => return Err(WorkError::ReadWriteError(path.to_string(), error)),
+                });
         }
-
-        wait_for_sources_ticket(receivers)
+        Ok(factory.result())
     }
 
     fn to_info(mut targets : Vec<String>) -> Vec<TargetFileInfo>
@@ -1117,10 +1022,7 @@ mod test
                 let source_ticket = 
                 match current_sources_ticket(
                     &system,
-                    vec![
-                        "verse1.txt".to_string(),
-                        "verse2.txt".to_string(),
-                    ])
+                    vec!["verse1.txt", "verse2.txt"])
                 {
                     Ok(ticket) => ticket,
                     Err(error) => panic!("Expected ticket, got error: {}", error),
