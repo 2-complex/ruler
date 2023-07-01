@@ -453,8 +453,6 @@ pub fn build
 
         let downloader_cache = DownloaderCache::new(downloader_cache_urls);
         let downloader_history = DownloaderHistory::new(downloader_history_urls);
-
-
         let system_clone = system.clone();
 
         handles.push(
@@ -577,7 +575,6 @@ pub fn build
                         )
                     }
                 }
-
             )
         );
 
@@ -705,7 +702,7 @@ pub fn build
     }
     else
     {
-        Err(BuildError::WorkErrors(vec![]))
+        Err(BuildError::WorkErrors(work_errors))
     }
 }
 
@@ -1034,7 +1031,7 @@ poem.txt
 
     /*  Test a more complex build with missing sources.  Make sure the error matches the missing file. */
     #[test]
-    fn build_one_source_file_missing_chain()
+    fn build_chained_with_missing_sources()
     {
         let rules = "\
 stanza1.txt

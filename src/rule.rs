@@ -39,6 +39,7 @@ impl Rule
 
     Node also carries an optional Ticket.  If the Node came from a rule,
     that's the hash of the rule itself (not file content). */
+#[derive(Debug)]
 pub struct Node
 {
     pub targets: Vec<String>,
