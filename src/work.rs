@@ -1120,12 +1120,6 @@ mod test
     }
 
     #[test]
-    fn two_targets_both_not_there()
-    {
-    }
-
-
-    #[test]
     fn two_targets_one_already_present()
     {
     }

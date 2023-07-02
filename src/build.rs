@@ -146,7 +146,7 @@ impl fmt::Display for BuildError
                 write!(formatter, "Failed to recieve anything from source: {}", error),
 
             BuildError::SenderError(error) =>
-                write!(formatter, "Failed to send to dependent {}", error),
+                write!(formatter, "Failed to send to dependent: {}", error),
 
             BuildError::MemoryFileFailedToRead(error) =>
                 write!(formatter, "Error history file not found: {}", error),
@@ -1205,8 +1205,7 @@ poem.txt
         assert_eq!(read_file_to_string(&mut system, "poem.txt").unwrap(), "Roses are red.\nViolets are violet.\n");
     }
 
-    /*  Set up filesystem to build a poem with two verses.  Invoke the build, and check that
-        the */
+    /*  Set up filesystem to build a poem with two verses.  Invoke the build, and check the resulting poem. */
     #[test]
     fn build_change_build_check_cache()
     {
@@ -1273,6 +1272,50 @@ poem.txt
             &mut EmptyPrinter::new()).unwrap();
 
         assert_eq!(read_file_to_string(&mut system, "poem.txt").unwrap(), "Roses are red.\nViolets are blue.\n");
+    }
+
+    /*  Set up filesystem to build a poem with incorrect rules, which say they generate a target, but actually do not. */
+    #[test]
+    fn build_command_fails_to_generate_target()
+    {
+        let rules = "\
+poem.txt
+:
+verse1.txt
+verse2.txt
+:
+mycat
+verse1.txt
+verse2.txt
+someotherpoem.txt
+:
+";
+        let mut system = FakeSystem::new(10);
+
+        write_str_to_file(&mut system, "verse1.txt", "Roses are red.\n").unwrap();
+        write_str_to_file(&mut system, "verse2.txt", "Violets are blue.\n").unwrap();
+        write_str_to_file(&mut system, "test.rules", rules).unwrap();
+
+        match build(
+            system.clone(),
+            ".ruler",
+            vec!["test.rules".to_string()],
+            None,
+            Some("poem.txt".to_string()),
+            &mut EmptyPrinter::new())
+        {
+            Ok(_) => panic!("unexpected success"),
+            Err(BuildError::WorkErrors(errors)) =>
+            {
+                assert_eq!(errors.len(), 1);
+                match &errors[0]
+                {
+                    WorkError::TargetFileNotGenerated(path_str) => assert_eq!(path_str, "poem.txt"),
+                    _ => panic!("Got work error but not the correct error: {}", errors[0]),
+                }
+            },
+            Err(error) => panic!("Got error but not the correct error: {}", error),
+        }
     }
 
     #[test]
