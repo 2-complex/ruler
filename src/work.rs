@@ -521,7 +521,6 @@ mod test
     use crate::work::
     {
         FileResolution,
-        WorkResult,
         WorkOption,
         WorkError,
         TargetFileInfo,
@@ -758,7 +757,7 @@ mod test
     #[test]
     fn work_command_errors()
     {
-        let mut system = FakeSystem::new(10);
+        let system = FakeSystem::new(10);
 
         let mut ticket_factory = TicketFactory::new();
         ticket_factory.input_ticket(TicketFactory::from_str("Roses are red\n").result());
@@ -1111,6 +1110,9 @@ mod test
         }
     }
 
+    /*  Create a rule with two sources and two targets.  Use the fake command that simply concats into two files.
+        Put one of the targets already into place.  Handle the node, and check that both targets are there.  Check
+        the fake system log shows one invocation of the command to build. */
     #[test]
     fn two_targets_one_already_present()
     {
@@ -1118,23 +1120,26 @@ mod test
 
         system.create_dir(".ruler-cache").unwrap();
         write_str_to_file(&mut system, "verse1.txt", "Roses are red\n").unwrap();
-        write_str_to_file(&mut system, "license.txt", "Permission to read this poem is hereby granted\n").unwrap();
-        write_str_to_file(&mut system, "poem_with_license.txt", "Arbitrary content").unwrap();
+        write_str_to_file(&mut system, "verse2.txt", "Violets are blue\n").unwrap();
+        write_str_to_file(&mut system, "poem_copy.txt", "Arbitrary content").unwrap();
 
         let mut factory = TicketFactory::new();
         factory.input_ticket(TicketFactory::from_str("Roses are red\n").result());
-        factory.input_ticket(TicketFactory::from_str("Permission to read this poem is hereby granted\n").result());
+        factory.input_ticket(TicketFactory::from_str("Violets are blue\n").result());
         let sources_ticket = factory.result();
 
         let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"), sources_ticket);
-        rule_ext.command = vec!["mycat".to_string(), "verse1.txt".to_string(), "poem.txt".to_string()];
-        rule_ext.command = vec!["mycat".to_string(), "verse1.txt".to_string(), "license.txt".to_string(), "poem_with_license.txt".to_string()];
-        rule_ext.rule_history = RuleHistory::new();
+        rule_ext.command = vec![
+            "mycat2".to_string(),
+            "verse1.txt".to_string(),
+            "verse2.txt".to_string(),
+            "poem.txt".to_string(),
+            "poem_copy.txt".to_string()];
 
         let mut info = HandleNodeInfo::new(system.clone());
         info.target_infos = to_info(vec![
             "poem.txt".to_string(),
-            "poem_with_license.txt".to_string()
+            "poem_copy.txt".to_string()
         ]);
         info.node_type = NodeType::Rule(rule_ext);
 
@@ -1157,18 +1162,86 @@ mod test
             Err(err) => panic!("Command failed: {}", err),
         }
 
-        assert_eq!(read_file_to_string(&system, "poem_with_license.txt").unwrap(),
-            "Roses are red\n");
-        assert_eq!(read_file_to_string(&system, "poem_with_license.txt").unwrap(),
-            "Roses are red\nPermission to read this poem is hereby granted");
+        assert_eq!(read_file_to_string(&system, "poem.txt").unwrap(),
+            "Roses are red\nViolets are blue\n");
+        assert_eq!(read_file_to_string(&system, "poem_copy.txt").unwrap(),
+            "Roses are red\nViolets are blue\n");
+
+        let command_log = system.get_command_log();
+        assert_eq!(command_log.len(), 1);
+        assert_eq!(command_log[0], "mycat2 verse1.txt verse2.txt poem.txt poem_copy.txt");
     }
 
 
+    /*  Create a rule with two sources and two targets.  Use the fake command that simply concats into two files.
+        Put one of the targets already into place.  Handle the node, and check that both targets are there. */
     #[test]
-    fn one_target_already_correct_only()
+    fn two_targets_one_already_correct()
     {
-    }
+        let mut system = FakeSystem::new(10);
 
+        system.create_dir(".ruler-cache").unwrap();
+        write_str_to_file(&mut system, "verse1.txt", "Roses are red\n").unwrap();
+        write_str_to_file(&mut system, "verse2.txt", "Violets are blue\n").unwrap();
+        write_str_to_file(&mut system, "poem.txt", "Roses are red\nViolets are blue\n").unwrap();
+
+        let mut factory = TicketFactory::new();
+        factory.input_ticket(TicketFactory::from_str("Roses are red\n").result());
+        factory.input_ticket(TicketFactory::from_str("Violets are blue\n").result());
+        let sources_ticket = factory.result();
+
+        let mut cache = SysCache::new(system.clone(), ".ruler-cache");
+        cache.back_up_file("poem.txt").unwrap();
+        write_str_to_file(&mut system, "poem.txt", "Roses are red\nViolets are blue\n").unwrap();
+
+        let mut rule_history = RuleHistory::new();
+        rule_history.insert(sources_ticket.clone(), TargetTickets::from_vec(vec![
+            TicketFactory::from_str("Roses are red\nViolets are blue\n").result(),
+            TicketFactory::from_str("Roses are red\nViolets are blue\n").result()])).unwrap();
+
+        let mut rule_ext = RuleExt::new(cache, sources_ticket);
+        rule_ext.command = vec![
+            "mycat2".to_string(),
+            "verse1.txt".to_string(),
+            "verse2.txt".to_string(),
+            "poem.txt".to_string(),
+            "poem_copy.txt".to_string()];
+
+        let mut info = HandleNodeInfo::new(system.clone());
+        info.target_infos = to_info(vec![
+            "poem.txt".to_string(),
+            "poem_copy.txt".to_string()
+        ]);
+        info.node_type = NodeType::Rule(rule_ext);
+
+        match handle_node(info)
+        {
+            Ok(result) =>
+            {
+                match result.work_option
+                {
+                    WorkOption::CommandExecuted(output) =>
+                    {
+                        assert_eq!(output.out, "");
+                        assert_eq!(output.err, "");
+                        assert_eq!(output.code, Some(0));
+                        assert_eq!(output.success, true);
+                    },
+                    _ => panic!("Wrong type of work option.  Command was supposed to execute."),
+                }
+            },
+            Err(err) => panic!("Command failed: {}", err),
+        }
+
+        assert_eq!(read_file_to_string(&system, "poem.txt").unwrap(),
+            "Roses are red\nViolets are blue\n");
+        assert_eq!(read_file_to_string(&system, "poem_copy.txt").unwrap(),
+            "Roses are red\nViolets are blue\n");
+
+        let command_log = system.get_command_log();
+        assert_eq!(command_log.len(), 1);
+        assert_eq!(command_log[0], "mycat2 verse1.txt verse2.txt poem.txt poem_copy.txt");
+    }
 
     #[test]
     fn one_target_not_there_error_in_command()

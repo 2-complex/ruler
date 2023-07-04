@@ -561,6 +561,7 @@ pub struct FakeSystem
 {
     root: Arc<Mutex<Node>>,
     current_timestamp: u64,
+    command_log: Arc<Mutex<Vec<String>>>
 }
 
 fn convert_node_error_to_system_error(error : NodeError) -> SystemError
@@ -619,6 +620,8 @@ impl FakeSystem
             /*  When too many timestamps are 0 by default it triggers the
                 timestamp optimization at the wrong time */
             current_timestamp : start,
+
+            command_log : Arc::new(Mutex::new(vec![])),
         }
     }
 
@@ -635,6 +638,16 @@ impl FakeSystem
     fn get_root_node_mut(&self) -> impl DerefMut<Target=Node> + '_
     {
         self.root.lock().unwrap()
+    }
+
+    fn get_command_log_mut(&self) -> impl DerefMut<Target=Vec<String>> + '_
+    {
+        self.command_log.lock().unwrap()
+    }
+
+    pub fn get_command_log(&self) -> Vec<String>
+    {
+        self.command_log.lock().unwrap().clone()
     }
 }
 
@@ -737,121 +750,120 @@ impl System for FakeSystem
 
     fn execute_command(&mut self, command_list: Vec<String>) -> Result<CommandLineOutput, SystemError>
     {
+        self.get_command_log_mut().push( command_list.join(" "));
+
         let n = command_list.len();
-        let mut output = String::new();
-
-        if n > 0
+        if n <= 0
         {
-            match command_list[0].as_str()
-            {
-                "error" =>
-                {
-                    Ok(CommandLineOutput::error("Failed".to_string()))
-                },
-
-                "mycat" =>
-                {
-                    for file in command_list[1..(n-1)].iter()
-                    {
-                        match read_file(self, file)
-                        {
-                            Ok(content) =>
-                            {
-                                match from_utf8(&content)
-                                {
-                                    Ok(content_string) =>
-                                    {
-                                        output.push_str(content_string);
-                                    }
-                                    Err(_) => return Ok(CommandLineOutput::error(format!("File contained non utf8 bytes: {}", file))),
-                                }
-                            }
-                            Err(_) =>
-                            {
-                                return Ok(CommandLineOutput::error(format!("File failed to open: {}", file)));
-                            }
-                        }
-                    }
-
-                    match write_str_to_file(self, &command_list[n-1], &output)
-                    {
-                        Ok(_) => Ok(CommandLineOutput::new()),
-                        Err(why) =>
-                        {
-                            Ok(CommandLineOutput::error(format!("Failed to cat into file: {} : {}", command_list[n-1], why)))
-                        }
-                    }
-                },
-
-                /*  Takes source files followed by two targets, concats the sources and puts the result in both the
-                    targets.  For instance:
-
-                    mycat2 in1.txt in2.txt out1.txt out2.txt
-
-                    concatinates in1.txt in2.txt  puts a copy in out1.txt and out2.txt.*/
-                "mycat2" =>
-                {
-                    for file in command_list[1..(n-2)].iter()
-                    {
-                        match read_file(self, file)
-                        {
-                            Ok(content) =>
-                            {
-                                match from_utf8(&content)
-                                {
-                                    Ok(content_string) =>
-                                    {
-                                        output.push_str(content_string);
-                                    }
-                                    Err(_) => return Ok(CommandLineOutput::error(
-                                        format!("mycat2: file contained non utf8 bytes: {}", file))),
-                                }
-                            }
-                            Err(_) =>
-                            {
-                                return Ok(CommandLineOutput::error(
-                                    format!("mycat2: file failed to open: {}", file)));
-                            }
-                        }
-                    }
-
-                    match write_str_to_file(self, &command_list[n-2], &output)
-                    {
-                        Ok(_) => {},
-                        Err(why) => return Ok(CommandLineOutput::error(
-                            format!("mycat2: failed to cat into file: {}: {}", command_list[n-2], why)))
-                    }
-
-                    match write_str_to_file(self, &command_list[n-1], &output)
-                    {
-                        Ok(_) => Ok(CommandLineOutput::new()),
-                        Err(why) => return Ok(CommandLineOutput::error(
-                            format!("mycat2: failed to cat into file: {}: {}", command_list[n-1], why)))
-                    }
-                },
-
-                "rm" =>
-                {
-                    for file in command_list[1..n].iter()
-                    {
-                        match self.remove_file(file)
-                        {
-                            Ok(()) => {}
-                            Err(_) =>
-                            {
-                                return Ok(CommandLineOutput::error(format!("File failed to delete: {}", file)));
-                            }
-                        }
-                    }
-
-                    Ok(CommandLineOutput::new())
-                },
-                _=> Ok(CommandLineOutput::error(format!("Invalid command given: {}", command_list[0])))
-            }
+            return Ok(CommandLineOutput::error(format!("Wrong number of arguments")));
         }
-        else
+
+        let mut output = String::new();
+        match command_list[0].as_str()
         {
-            Ok(CommandLineOutput::error(format!("Wrong number of arguments")))
+            "error" =>
+            {
+                Ok(CommandLineOutput::error("Failed".to_string()))
+            },
+
+            "mycat" =>
+            {
+                for file in command_list[1..(n-1)].iter()
+                {
+                    match read_file(self, file)
+                    {
+                        Ok(content) =>
+                        {
+                            match from_utf8(&content)
+                            {
+                                Ok(content_string) =>
+                                {
+                                    output.push_str(content_string);
+                                }
+                                Err(_) => return Ok(CommandLineOutput::error(format!("File contained non utf8 bytes: {}", file))),
+                            }
+                        }
+                        Err(_) =>
+                        {
+                            return Ok(CommandLineOutput::error(format!("File failed to open: {}", file)));
+                        }
+                    }
+                }
+
+                match write_str_to_file(self, &command_list[n-1], &output)
+                {
+                    Ok(_) => Ok(CommandLineOutput::new()),
+                    Err(why) =>
+                    {
+                        Ok(CommandLineOutput::error(format!("Failed to cat into file: {} : {}", command_list[n-1], why)))
+                    }
+                }
+            },
+
+            /*  Takes source files followed by two targets, concats the sources and puts the result in both the
+                targets.  For instance:
+
+                mycat2 in1.txt in2.txt out1.txt out2.txt
+
+                concatinates in1.txt in2.txt  puts a copy in out1.txt and out2.txt.*/
+            "mycat2" =>
+            {
+                for file in command_list[1..(n-2)].iter()
+                {
+                    match read_file(self, file)
+                    {
+                        Ok(content) =>
+                        {
+                            match from_utf8(&content)
+                            {
+                                Ok(content_string) =>
+                                {
+                                    output.push_str(content_string);
+                                }
+                                Err(_) => return Ok(CommandLineOutput::error(
+                                    format!("mycat2: file contained non utf8 bytes: {}", file))),
+                            }
+                        }
+                        Err(_) =>
+                        {
+                            return Ok(CommandLineOutput::error(
+                                format!("mycat2: file failed to open: {}", file)));
+                        }
+                    }
+                }
+
+                match write_str_to_file(self, &command_list[n-2], &output)
+                {
+                    Ok(_) => {},
+                    Err(why) => return Ok(CommandLineOutput::error(
+                        format!("mycat2: failed to cat into file: {}: {}", command_list[n-2], why)))
+                }
+
+                match write_str_to_file(self, &command_list[n-1], &output)
+                {
+                    Ok(_) => Ok(CommandLineOutput::new()),
+                    Err(why) => return Ok(CommandLineOutput::error(
+                        format!("mycat2: failed to cat into file: {}: {}", command_list[n-1], why)))
+                }
+            },
+
+            "rm" =>
+            {
+                for file in command_list[1..n].iter()
+                {
+                    match self.remove_file(file)
+                    {
+                        Ok(()) => {}
+                        Err(_) =>
+                        {
+                            return Ok(CommandLineOutput::error(format!("File failed to delete: {}", file)));
+                        }
+                    }
+                }
+
+                Ok(CommandLineOutput::new())
+            },
+            _=> Ok(CommandLineOutput::error(format!("Invalid command given: {}", command_list[0])))
         }
     }
 }

@@ -73,6 +73,7 @@ pub struct RuleHistory
 /*  Inserting target tickets in a RuleHistory can go wrong in a couple ways.
     Either there's already something there, which suggests user error, or the number
     of target tickets is wrong, which suggests a logical error in the code. */
+#[derive(Debug)]
 pub enum RuleHistoryInsertError
 {
     Contradiction(Vec<usize>),
