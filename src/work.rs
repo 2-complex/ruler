@@ -916,6 +916,68 @@ mod test
     }
 
 
+    /*  Create sourcefiles with the two lines in a two-line poem.  Fabricate a rule history
+        that recalls the two lines concatinated as the result.  In the fake file system, make
+        the source files and create poem with already correct content.  Then call handle_node.
+        Check that handle_node behaves as if the poem is already correct.
+    */
+    #[test]
+    fn poem_already_in_cache()
+    {
+        let mut factory = TicketFactory::new();
+        factory.input_ticket(TicketFactory::from_str("Roses are red\n").result());
+        factory.input_ticket(TicketFactory::from_str("Violets are violet\n").result());
+        let sources_ticket = factory.result();
+
+        let mut rule_history = RuleHistory::new();
+        rule_history.insert(
+            sources_ticket.clone(),
+            TargetTickets::from_vec(vec![
+                TicketFactory::from_str("Roses are red\nViolets are violet\n").result()
+            ])
+        ).unwrap();
+
+        let mut system = FakeSystem::new(10);
+
+        system.create_dir(".ruler-cache").unwrap();
+        write_str_to_file(&mut system, "verse1.txt", "Roses are red\n").unwrap();
+        write_str_to_file(&mut system, "verse2.txt", "Violets are violet\n").unwrap();
+        write_str_to_file(&mut system, "poem.txt", "Roses are red\nViolets are violet\n").unwrap();
+
+        let mut sys_cache = SysCache::new(system.clone(), ".ruler-cache");
+        sys_cache.back_up_file("poem.txt").unwrap();
+
+        let mut rule_ext = RuleExt::new(sys_cache, sources_ticket);
+        rule_ext.command = vec!["mycat".to_string(), "verse1.txt".to_string(), "verse2.txt".to_string(), "poem.txt".to_string()];
+        rule_ext.rule_history = rule_history;
+
+        let mut info = HandleNodeInfo::new(system.clone());
+        info.target_infos = to_info(vec!["poem.txt".to_string()]);
+        info.node_type = NodeType::Rule(rule_ext);
+
+        match handle_node(info)
+        {
+            Ok(result) =>
+            {
+                match result.work_option
+                {
+                    WorkOption::Resolutions(resolutions) =>
+                    {
+                        assert_eq!(resolutions.len(), 1);
+
+                        match resolutions[0]
+                        {
+                            FileResolution::Recovered => {},
+                            _ => panic!("Expected poem to already be recovered from cache, was some other work option"),
+                        }
+                    },
+                    _ => panic!("Expected poem to already be resolved, was some other work option"),
+                }
+            },
+            Err(err) => panic!("Command failed: {}", err),
+        }
+    }
+
     /*  Create source files for a two-line poem.  Fabricate a hisotry which describes
         a different result when the two source files are compiled.
 
