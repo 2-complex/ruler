@@ -9,6 +9,7 @@ pub mod fake;
 pub mod util;
 pub mod real;
 
+#[derive(Debug)]
 pub struct CommandLineOutput
 {
     pub out : String,

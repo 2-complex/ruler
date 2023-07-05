@@ -54,9 +54,8 @@ use crate::work::
     WorkResult,
     WorkError,
     HandleNodeInfo,
-    NodeType,
     RuleExt,
-    handle_node,
+    handle_rule_node,
     handle_source_only_node,
     clean_targets,
 };
@@ -531,7 +530,7 @@ pub fn build
                                     }
                                 };
 
-                                info.node_type = NodeType::Rule(RuleExt
+                                match handle_rule_node(info, RuleExt
                                     {
                                         sources_ticket : sources_ticket,
                                         command : node.command,
@@ -539,9 +538,7 @@ pub fn build
                                         cache : cache_clone,
                                         downloader_cache_opt : Some(downloader_cache_clone),
                                         downloader_rule_history_opt : Some(downloader_rule_history),
-                                    });
-
-                                match handle_node(info)
+                                    })
                                 {
                                     Ok(result) =>
                                     {

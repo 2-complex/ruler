@@ -31,6 +31,7 @@ use std::time::
     SystemTimeError
 };
 
+#[derive(Debug)]
 pub enum FileResolution
 {
     AlreadyCorrect,

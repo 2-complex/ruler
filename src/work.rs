@@ -34,6 +34,7 @@ use crate::cache::
 
 use std::fmt;
 
+#[derive(Debug)]
 pub enum WorkOption
 {
     SourceOnly,
@@ -372,17 +373,10 @@ impl<SystemType: System> RuleExt<SystemType>
     }
 }
 
-pub enum NodeType<SystemType: System>
-{
-    SourceOnly,
-    Rule(RuleExt<SystemType>)
-}
-
 pub struct HandleNodeInfo<SystemType: System>
 {
     pub system : SystemType,
     pub target_infos : Vec<TargetFileInfo>,
-    pub node_type : NodeType<SystemType>,
 }
 
 impl<SystemType: System> HandleNodeInfo<SystemType>
@@ -393,7 +387,6 @@ impl<SystemType: System> HandleNodeInfo<SystemType>
         {
             system : system,
             target_infos : Vec::new(),
-            node_type : NodeType::SourceOnly,
         }
     }
 }
@@ -406,65 +399,59 @@ impl<SystemType: System> HandleNodeInfo<SystemType>
     The possible parameters to this function are so many that they warrant a dedicated struct:
     HandleNodeInfo.
 */
-pub fn handle_node<SystemType: System>
+pub fn handle_rule_node<SystemType: System>
 (
-    mut info : HandleNodeInfo<SystemType>
+    mut info : HandleNodeInfo<SystemType>,
+    mut rule_ext : RuleExt<SystemType>,
 )
 ->
 Result<WorkResult, WorkError>
 {
-    match info.node_type
+    match resolve_with_cache(
+        &mut info.system,
+        &mut rule_ext.cache,
+        & rule_ext.downloader_cache_opt,
+        & rule_ext.rule_history,
+        & rule_ext.downloader_rule_history_opt,
+        & rule_ext.sources_ticket,
+        & info.target_infos)
     {
-        NodeType::SourceOnly =>
-            handle_source_only_node(info.system, info.target_infos),
-
-        NodeType::Rule(mut rule_ext) =>
+        Ok(resolutions) =>
         {
-            match resolve_with_cache(
-                &mut info.system,
-                &mut rule_ext.cache,
-                & rule_ext.downloader_cache_opt,
-                & rule_ext.rule_history,
-                & rule_ext.downloader_rule_history_opt,
-                & rule_ext.sources_ticket,
-                & info.target_infos)
+            if needs_rebuild(&resolutions)
             {
-                Ok(resolutions) =>
+                println!("IT NEEDS TO REBUILD");
+                rebuild_node(
+                    &mut info.system,
+                    rule_ext.rule_history,
+                    rule_ext.sources_ticket,
+                    rule_ext.command,
+                    info.target_infos)
+            }
+            else
+            {
+                println!("IT DOES NOT NEED TO REBUILD");
+                let target_tickets = match get_current_target_tickets(
+                    &info.system,
+                    &info.target_infos)
                 {
-                    if needs_rebuild(&resolutions)
-                    {
-                        rebuild_node(
-                            &mut info.system,
-                            rule_ext.rule_history,
-                            rule_ext.sources_ticket,
-                            rule_ext.command,
-                            info.target_infos)
-                    }
-                    else
-                    {
-                        let target_tickets = match get_current_target_tickets(
-                            &info.system,
-                            &info.target_infos)
-                        {
-                            Ok(target_tickets) => target_tickets,
-                            Err(error) => return Err(error),
-                        };
+                    Ok(target_tickets) => target_tickets,
+                    Err(error) => return Err(error),
+                };
 
-                        Ok(
-                            WorkResult
-                            {
-                                target_tickets : target_tickets,
-                                target_infos : info.target_infos,
-                                work_option : WorkOption::Resolutions(resolutions),
-                                rule_history : Some(rule_ext.rule_history),
-                            }
-                        )
+                Ok(
+                    WorkResult
+                    {
+                        target_tickets : target_tickets,
+                        target_infos : info.target_infos,
+                        work_option : WorkOption::Resolutions(resolutions),
+                        rule_history : Some(rule_ext.rule_history),
                     }
-                },
-
-                Err(error) => Err(error),
+                )
             }
         },
+
+        Err(error) => Err(error),
     }
 }
 
@@ -522,14 +509,13 @@ mod test
     use crate::work::
     {
         FileResolution,
-        WorkResult,
         WorkOption,
         WorkError,
         TargetFileInfo,
         HandleNodeInfo,
         RuleExt,
-        NodeType,
-        handle_node,
+        handle_source_only_node,
+        handle_rule_node,
     };
     use crate::ticket::
     {
@@ -686,37 +672,40 @@ mod test
         }
     }
 
-    /*  Call handle_node with minimal connections and the empty list as a command.
-        Check that runs without a hitch. */
+    /*  Call handle_rule_node with minimal connections and the empty list as a command. */
     #[test]
     fn do_empty_command()
     {
         let mut system = FakeSystem::new(10);
-        match write_str_to_file(&mut system, "A", "A-content")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File write operation failed"),
-        }
+        write_str_to_file(&mut system, "A", "A-content").unwrap();
+        system.create_dir(".ruler-cache").unwrap();
 
         let mut info = HandleNodeInfo::new(system.clone());
-        info.target_infos = to_info(vec!["A".to_string()]);
+        info.target_infos = to_info(vec![]);
 
-        match handle_node(info)
+        let mut ticket_factory = TicketFactory::new();
+        ticket_factory.input_ticket(TicketFactory::from_str("A-content").result());
+
+        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"), ticket_factory.result());
+        rule_ext.command = vec![];
+
+        match handle_rule_node(info, rule_ext)
         {
             Ok(result) =>
             {
+                println!("result.work_option = {:?}", result.work_option);
                 match result.work_option
                 {
-                    WorkOption::SourceOnly => {},
+                    WorkOption::Resolutions(resolutions) => assert_eq!(resolutions.len(), 0),
                     _ => panic!("Wrong kind of WorkOption in result when command empty"),
                 }
             },
-            Err(why) => panic!("Command failed: {}", why),
+            Err(error) => panic!("Command failed: {}", error),
         }
     }
 
     #[test]
-    fn work_handle_node_command_executed()
+    fn work_handle_rule_node_command_executed()
     {
         let mut system = FakeSystem::new(10);
 
@@ -733,9 +722,8 @@ mod test
 
         let mut info = HandleNodeInfo::new(system.clone());
         info.target_infos = to_info(vec!["A.txt".to_string()]);
-        info.node_type = NodeType::Rule(rule_ext);
 
-        match handle_node(info)
+        match handle_rule_node(info, rule_ext)
         {
             Ok(result) =>
             {
@@ -759,7 +747,7 @@ mod test
     #[test]
     fn work_command_errors()
     {
-        let mut system = FakeSystem::new(10);
+        let system = FakeSystem::new(10);
 
         let mut ticket_factory = TicketFactory::new();
         ticket_factory.input_ticket(TicketFactory::from_str("Roses are red\n").result());
@@ -770,9 +758,8 @@ mod test
 
         let mut info = HandleNodeInfo::new(system.clone());
         info.target_infos = to_info(vec!["poem.txt".to_string()]);
-        info.node_type = NodeType::Rule(rule_ext);
 
-        match handle_node(info)
+        match handle_rule_node(info, rule_ext)
         {
             Ok(_) => panic!("Unexpected command success"),
             Err(WorkError::CommandExecutedButErrored) => {},
@@ -798,9 +785,8 @@ mod test
 
         let mut info = HandleNodeInfo::new(system.clone());
         info.target_infos = to_info(vec!["poem.txt".to_string()]);
-        info.node_type = NodeType::Rule(rule_ext);
 
-        match handle_node(info)
+        match handle_rule_node(info, rule_ext)
         {
             Ok(_) => panic!("Unexpected command success"),
             Err(WorkError::TargetFileNotGenerated(path)) =>
@@ -827,9 +813,8 @@ mod test
 
         let mut info = HandleNodeInfo::new(system.clone());
         info.target_infos = to_info(vec!["poem.txt".to_string()]);
-        info.node_type = NodeType::Rule(rule_ext);
 
-        match handle_node(info)
+        match handle_rule_node(info, rule_ext)
         {
             Ok(result) =>
             {
@@ -855,8 +840,8 @@ mod test
 
     /*  Create sourcefiles with the two lines in a two-line poem.  Fabricate a rule history
         that recalls the two lines concatinated as the result.  In the fake file system, make
-        the source files and create poem with already correct content.  Then call handle_node.
-        Check that handle_node behaves as if the poem is already correct.
+        the source files and create poem with already correct content.  Then handle the node.
+        Check that handle_rule_node behaves as if the poem is already correct.
     */
     #[test]
     fn poem_already_correct()
@@ -892,9 +877,8 @@ mod test
 
         let mut info = HandleNodeInfo::new(system.clone());
         info.target_infos = to_info(vec!["poem.txt".to_string()]);
-        info.node_type = NodeType::Rule(rule_ext);
 
-        match handle_node(info)
+        match handle_rule_node(info, rule_ext)
         {
             Ok(result) =>
             {
@@ -924,7 +908,7 @@ mod test
         Populate poem.txt with arbitrary content, so that it mush rebuild.  Send the
         tickets for the file-system contents of the source files through the channels.
 
-        Check that handle_node produces the correct contradiction error.
+        Check that handle_rule_node produces the correct contradiction error.
     */
     #[test]
     fn poem_contradicts_history()
@@ -958,9 +942,8 @@ mod test
 
         let mut info = HandleNodeInfo::new(system.clone());
         info.target_infos = to_info(vec!["poem.txt".to_string()]);
-        info.node_type = NodeType::Rule(rule_ext);
 
-        match handle_node(info)
+        match handle_rule_node(info, rule_ext)
         {
             Ok(_result) =>
             {
@@ -1004,9 +987,8 @@ mod test
 
         let mut info = HandleNodeInfo::new(system.clone());
         info.target_infos = to_info(vec!["poem.txt".to_string()]);
-        info.node_type = NodeType::Rule(rule_ext);
 
-        match handle_node(info)
+        match handle_rule_node(info, rule_ext)
         {
             Ok(result) =>
             {
@@ -1061,11 +1043,7 @@ mod test
             Err(_) => panic!("File write operation failed"),
         }
 
-        let mut info = HandleNodeInfo::new(system.clone());
-        info.target_infos = to_info(vec!["verse1.txt".to_string()]);
-        info.node_type = NodeType::SourceOnly;
-
-        match handle_node(info)
+        match handle_source_only_node(system, to_info(vec!["verse1.txt".to_string()]))
         {
             Ok(_) =>
             {
@@ -1097,9 +1075,8 @@ mod test
 
         let mut info = HandleNodeInfo::new(system.clone());
         info.target_infos = to_info(vec!["verse1.txt".to_string()]);
-        info.node_type = NodeType::Rule(rule_ext);
 
-        match handle_node(info)
+        match handle_rule_node(info, rule_ext)
         {
             Ok(_) =>
             {
@@ -1141,9 +1118,8 @@ mod test
             "poem.txt".to_string(),
             "poem_with_license.txt".to_string()
         ]);
-        info.node_type = NodeType::Rule(rule_ext);
 
-        match handle_node(info)
+        match handle_rule_node(info, rule_ext)
         {
             Ok(result) =>
             {
