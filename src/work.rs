@@ -144,7 +144,7 @@ fn get_current_target_tickets<SystemType: System>
 }
 
 /*  Takes a vector of TargetFileInfos, and returns a vector of */
-fn handle_source_only_node<SystemType: System>
+pub fn handle_source_only_node<SystemType: System>
 (
     system : SystemType,
     target_infos : Vec<TargetFileInfo>

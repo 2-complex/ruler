@@ -57,6 +57,7 @@ use crate::work::
     NodeType,
     RuleExt,
     handle_node,
+    handle_source_only_node,
     clean_targets,
 };
 use crate::cache::
@@ -465,11 +466,7 @@ pub fn build
                         thread::spawn(
                             move || -> Result<WorkResult, BuildError>
                             {
-                                let mut info = HandleNodeInfo::new(system_clone);
-                                info.target_infos = target_infos;
-                                info.node_type = NodeType::SourceOnly;
-
-                                match handle_node(info)
+                                match handle_source_only_node(system_clone, target_infos)
                                 {
                                     Ok(result) =>
                                     {
