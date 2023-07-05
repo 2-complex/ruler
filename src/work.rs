@@ -143,6 +143,7 @@ fn get_current_target_tickets<SystemType: System>
     Ok(target_tickets)
 }
 
+/*  Takes a vector of TargetFileInfos, and returns a vector of */
 fn handle_source_only_node<SystemType: System>
 (
     system : SystemType,
@@ -1047,8 +1048,10 @@ mod test
     }
 
 
+    /*  Make a source-only node describing a source file that does not exist in the filesystem.
+        Check for a file-not-found error. */
     #[test]
-    fn source_file_not_there()
+    fn source_only_file_not_there()
     {
         let mut system = FakeSystem::new(10);
 
