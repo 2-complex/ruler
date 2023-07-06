@@ -1100,23 +1100,26 @@ mod test
 
         system.create_dir(".ruler-cache").unwrap();
         write_str_to_file(&mut system, "verse1.txt", "Roses are red\n").unwrap();
-        write_str_to_file(&mut system, "license.txt", "Permission to read this poem is hereby granted\n").unwrap();
-        write_str_to_file(&mut system, "poem_with_license.txt", "Arbitrary content").unwrap();
+        write_str_to_file(&mut system, "verse2.txt", "Violets are blue\n").unwrap();
 
         let mut factory = TicketFactory::new();
         factory.input_ticket(TicketFactory::from_str("Roses are red\n").result());
-        factory.input_ticket(TicketFactory::from_str("Permission to read this poem is hereby granted\n").result());
+        factory.input_ticket(TicketFactory::from_str("Violets are blue\n").result());
         let sources_ticket = factory.result();
 
         let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"), sources_ticket);
-        rule_ext.command = vec!["mycat".to_string(), "verse1.txt".to_string(), "poem.txt".to_string()];
-        rule_ext.command = vec!["mycat".to_string(), "verse1.txt".to_string(), "license.txt".to_string(), "poem_with_license.txt".to_string()];
+        rule_ext.command = vec![
+            "mycat2".to_string(),
+            "verse1.txt".to_string(),
+            "verse2.txt".to_string(),
+            "poem.txt".to_string(),
+            "poem_copy.txt".to_string()];
         rule_ext.rule_history = RuleHistory::new();
 
         let mut info = HandleNodeInfo::new(system.clone());
         info.target_infos = to_info(vec![
             "poem.txt".to_string(),
-            "poem_with_license.txt".to_string()
+            "poem_copy.txt".to_string()
         ]);
 
         match handle_rule_node(info, rule_ext)
@@ -1138,16 +1141,58 @@ mod test
             Err(err) => panic!("Command failed: {}", err),
         }
 
-        assert_eq!(read_file_to_string(&system, "poem_with_license.txt").unwrap(),
-            "Roses are red\n");
-        assert_eq!(read_file_to_string(&system, "poem_with_license.txt").unwrap(),
-            "Roses are red\nPermission to read this poem is hereby granted");
+        assert_eq!(read_file_to_string(&system, "poem.txt").unwrap(),
+            "Roses are red\nViolets are blue\n");
+        assert_eq!(read_file_to_string(&system, "poem_copy.txt").unwrap(),
+            "Roses are red\nViolets are blue\n");
     }
 
 
     #[test]
     fn one_target_already_correct_only()
     {
+        let mut system = FakeSystem::new(10);
+
+        system.create_dir(".ruler-cache").unwrap();
+        write_str_to_file(&mut system, "verse1.txt", "Roses are red\n").unwrap();
+        write_str_to_file(&mut system, "verse2.txt", "Violets are blue\n").unwrap();
+        write_str_to_file(&mut system, "poem.txt", "Roses are red\nViolets are blue\n").unwrap();
+
+        let mut factory = TicketFactory::new();
+        factory.input_ticket(TicketFactory::from_str("Roses are red\n").result());
+        factory.input_ticket(TicketFactory::from_str("Violets are blue\n").result());
+        let sources_ticket = factory.result();
+
+        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"), sources_ticket);
+        rule_ext.command = vec!["mycat".to_string(), "verse1.txt".to_string(), "verse2.txt".to_string(), "poem.txt".to_string()];
+        rule_ext.rule_history = RuleHistory::new();
+
+        let mut info = HandleNodeInfo::new(system.clone());
+        info.target_infos = to_info(vec![
+            "poem.txt".to_string()
+        ]);
+
+        match handle_rule_node(info, rule_ext)
+        {
+            Ok(result) =>
+            {
+                match result.work_option
+                {
+                    WorkOption::CommandExecuted(output) =>
+                    {
+                        assert_eq!(output.out, "");
+                        assert_eq!(output.err, "");
+                        assert_eq!(output.code, Some(0));
+                        assert_eq!(output.success, true);
+                    },
+                    _ => panic!("Wrong type of work option.  Command was supposed to execute."),
+                }
+            },
+            Err(err) => panic!("Command failed: {}", err),
+        }
+
+        assert_eq!(read_file_to_string(&system, "poem.txt").unwrap(),
+            "Roses are red\nViolets are blue\n");
     }
 
 
