@@ -1197,21 +1197,70 @@ mod test
 
 
     #[test]
-    fn one_target_not_there_error_in_command()
-    {
-    }
-
-
-    #[test]
     fn one_dependence_with_error()
     {
+
+    }
+
+    /*  Poem with two target files, but there is a mistake in the command, and it produces an error
+        instead of building the targets.  Run the build command and check the error.  Also confirm
+        that the target already present got moved into the cache. */
+    #[test]
+    fn one_target_not_there_error_in_command()
+    {
+        let mut system = FakeSystem::new(10);
+
+        system.create_dir(".ruler-cache").unwrap();
+        write_str_to_file(&mut system, "verse1.txt", "Roses are red\n").unwrap();
+        write_str_to_file(&mut system, "verse2.txt", "Violets are blue\n").unwrap();
+        write_str_to_file(&mut system, "poem.txt", "Roses are red\nViolets are blue\n").unwrap();
+
+        let mut factory = TicketFactory::new();
+        factory.input_ticket(TicketFactory::from_str("Roses are red\n").result());
+        factory.input_ticket(TicketFactory::from_str("Violets are blue\n").result());
+        let sources_ticket = factory.result();
+
+        assert_eq!(system.is_file("poem.txt"), true);
+        assert_eq!(system.is_file("poem_copy.txt"), false);
+
+        let cache = SysCache::new(system.clone(), ".ruler-cache");
+
+        let mut rule_ext = RuleExt::new(cache.clone(), sources_ticket);
+        rule_ext.command = vec!["error".to_string()];
+        rule_ext.rule_history = RuleHistory::new();
+
+        let mut info = HandleNodeInfo::new(system.clone());
+        info.target_infos = to_info(vec![
+            "poem.txt".to_string(),
+            "poem_copy.txt".to_string()
+        ]);
+
+        match handle_rule_node(info, rule_ext)
+        {
+            Ok(result) =>
+            {
+                match result.work_option
+                {
+                    WorkOption::CommandExecuted(_output) => panic!("Unexpected success"),
+                    _ => panic!("Wrong type of work option.  Command was supposed to execute."),
+                }
+            },
+            Err(WorkError::CommandExecutedButErrored) => {},
+            Err(err) => panic!("Error of wrong type: {}", err),
+        }
+
+        /*  The files we tried to build should not be there. */
+        assert_eq!(system.is_file("poem.txt"), false);
+        assert_eq!(system.is_file("poem_copy.txt"), false);
+
+        /*  The file that was there should move into the cache. */
+        cache.open(&TicketFactory::from_str("Roses are red\nViolets are blue\n").result()).unwrap();
     }
 
     #[test]
     fn one_target_already_correct_according_to_timestamp()
     {
     }
-
 
     #[test]
     fn one_target_correct_hash_incorrect_timestamp()
