@@ -1196,10 +1196,47 @@ mod test
     }
 
 
+    /*  One file depends on one file, but the command errors.  Check that the target does not
+        appear after the build step. */
     #[test]
     fn one_dependence_with_error()
     {
+        let mut system = FakeSystem::new(10);
 
+        system.create_dir(".ruler-cache").unwrap();
+        write_str_to_file(&mut system, "verse1.txt", "Roses are red\n").unwrap();
+        write_str_to_file(&mut system, "poem.txt", "Roses are red\n").unwrap();
+
+        let mut factory = TicketFactory::new();
+        factory.input_ticket(TicketFactory::from_str("Roses are red\n").result());
+        let sources_ticket = factory.result();
+
+        assert_eq!(system.is_file("poem.txt"), true);
+
+        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"), sources_ticket);
+        rule_ext.command = vec!["error".to_string()];
+
+        let mut info = HandleNodeInfo::new(system.clone());
+        info.target_infos = to_info(vec![
+            "poem.txt".to_string()
+        ]);
+
+        match handle_rule_node(info, rule_ext)
+        {
+            Ok(result) =>
+            {
+                match result.work_option
+                {
+                    WorkOption::CommandExecuted(_output) => panic!("Unexpected success"),
+                    _ => panic!("Wrong type of work option.  Command was supposed to execute."),
+                }
+            },
+            Err(WorkError::CommandExecutedButErrored) => {},
+            Err(err) => panic!("Error of wrong type: {}", err),
+        }
+
+        /*  The files we tried to build should not be there. */
+        assert_eq!(system.is_file("poem.txt"), false);
     }
 
     /*  Poem with two target files, but there is a mistake in the command, and it produces an error
@@ -1227,7 +1264,6 @@ mod test
 
         let mut rule_ext = RuleExt::new(cache.clone(), sources_ticket);
         rule_ext.command = vec!["error".to_string()];
-        rule_ext.rule_history = RuleHistory::new();
 
         let mut info = HandleNodeInfo::new(system.clone());
         info.target_infos = to_info(vec![
@@ -1260,6 +1296,7 @@ mod test
     #[test]
     fn one_target_already_correct_according_to_timestamp()
     {
+
     }
 
     #[test]
