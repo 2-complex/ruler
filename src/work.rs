@@ -420,7 +420,6 @@ Result<WorkResult, WorkError>
         {
             if needs_rebuild(&resolutions)
             {
-                println!("IT NEEDS TO REBUILD");
                 rebuild_node(
                     &mut info.system,
                     rule_ext.rule_history,
@@ -430,7 +429,6 @@ Result<WorkResult, WorkError>
             }
             else
             {
-                println!("IT DOES NOT NEED TO REBUILD");
                 let target_tickets = match get_current_target_tickets(
                     &info.system,
                     &info.target_infos)
@@ -611,13 +609,9 @@ mod test
 
         // Make rule history remembering that the source c++ code built
         // to the target executable.
-        match rule_history.insert(
+        rule_history.insert(
             source_factory.result(),
-            TargetTickets::from_vec(vec![TicketFactory::from_str(target_content).result()]))
-        {
-            Ok(_) => {},
-            Err(_) => panic!("Rule history failed to insert"),
-        }
+            TargetTickets::from_vec(vec![TicketFactory::from_str(target_content).result()])).unwrap();
 
         // Meanwhile, in the filesystem put some rubbish in game.cpp
         match write_str_to_file(&mut system, "game.cpp", source_content)
@@ -1293,10 +1287,147 @@ mod test
         cache.open(&TicketFactory::from_str("Roses are red\nViolets are blue\n").result()).unwrap();
     }
 
+
     #[test]
     fn one_target_already_correct_according_to_timestamp()
     {
+        let mut rule_history = RuleHistory::new();
 
+        let mut factory = TicketFactory::new();
+        factory.input_ticket(TicketFactory::from_str("Roses are red\n").result());
+        factory.input_ticket(TicketFactory::from_str("Violets are violet\n").result());
+        let sources_ticket = factory.result();
+
+        rule_history.insert(
+            sources_ticket.clone(),
+            TargetTickets::from_vec(vec![
+                TicketFactory::from_str("Roses are red\nViolets are violet\n").result()
+            ])
+        ).unwrap();
+
+        let mut system = FakeSystem::new(19);
+
+        system.create_dir(".ruler-cache").unwrap();
+        write_str_to_file(&mut system, "verse1.txt", "Roses are red\n").unwrap();
+        write_str_to_file(&mut system, "verse2.txt", "Violets are violet\n").unwrap();
+        write_str_to_file(&mut system, "poem.txt", "Content wrong\n").unwrap();
+
+        system.time_passes(1);
+
+        let mut info = HandleNodeInfo::new(system.clone());
+        info.target_infos = vec![
+            TargetFileInfo
+            {
+                path : "poem.txt".to_string(),
+                history : TargetHistory::new(
+                    TicketFactory::from_str("Roses are red\nViolets are violet\n").result(),
+                    19,
+                ),
+            }
+        ];
+
+        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"), sources_ticket);
+        rule_ext.command = vec!["mycat".to_string(), "verse1.txt".to_string(), "verse2.txt".to_string(), "poem.txt".to_string()];
+        rule_ext.rule_history = rule_history;
+
+        let mut info = HandleNodeInfo::new(system.clone());
+        info.target_infos = to_info(vec!["poem.txt".to_string()]);
+
+        match handle_rule_node(info, rule_ext)
+        {
+            Ok(result) =>
+            {
+                match result.work_option
+                {
+                    WorkOption::Resolutions(resolutions) =>
+                    {
+                        assert_eq!(resolutions.len(), 1);
+
+                        match resolutions[0]
+                        {
+                            FileResolution::AlreadyCorrect => {},
+                            _ => panic!("Expected poem to already be correct, was some other work option"),
+                        }
+                    },
+                    _ => panic!("Expected poem to already be resolved, was: {:?}", result.work_option),
+                }
+            },
+            Err(err) => panic!("Command failed: {}", err),
+        }
+    }
+
+    #[test]
+    fn one_target_already_correct_scrap_according_to_timestamp_scrap()
+    {
+        let mut system = FakeSystem::new(19);
+
+        system.create_dir(".ruler-cache").unwrap();
+        write_str_to_file(&mut system, "verse1.txt", "Roses are red\n").unwrap();
+        write_str_to_file(&mut system, "verse2.txt", "Violets are blue\n").unwrap();
+        write_str_to_file(&mut system, "poem.txt", "Content actually wrong\n").unwrap();
+
+        let mut factory = TicketFactory::new();
+        factory.input_ticket(TicketFactory::from_str("Roses are red\n").result());
+        factory.input_ticket(TicketFactory::from_str("Violets are blue\n").result());
+        let sources_ticket = factory.result();
+
+        assert_eq!(system.is_file("poem.txt"), true);
+
+        let cache = SysCache::new(system.clone(), ".ruler-cache");
+
+        let mut rule_ext = RuleExt::new(cache.clone(), sources_ticket.clone());
+        rule_ext.command = vec![
+            "mycat".to_string(),
+            "verse1.txt".to_string(),
+            "verse2.txt".to_string(),
+            "poem.txt".to_string(),
+        ];
+
+        let mut rule_history = RuleHistory::new();
+        rule_history.insert(
+            sources_ticket,
+            TargetTickets::from_vec(vec![TicketFactory::from_str("Roses are red\nViolets are blue\n").result()])).unwrap();
+
+        let mut info = HandleNodeInfo::new(system.clone());
+        info.target_infos = vec![
+            TargetFileInfo
+            {
+                path : "poem.txt".to_string(),
+                history : TargetHistory::new(
+                    TicketFactory::from_str("Roses are red\nViolets are blue\n").result(),
+                    19,
+                ),
+            }
+        ];
+
+        match handle_rule_node(info, rule_ext)
+        {
+            Ok(result) =>
+            {
+                match result.work_option
+                {
+                    WorkOption::Resolutions(resolutions) =>
+                    {
+                        assert_eq!(resolutions.len(), 1);
+
+                        match resolutions[0]
+                        {
+                            FileResolution::AlreadyCorrect => {},
+                            _ => panic!("Expected poem to already be correct, was some other work option"),
+                        }
+                    },
+                    _ => panic!("Wrong type of work option: {:?}", result.work_option),
+                }
+            },
+            Err(WorkError::CommandExecutedButErrored) => panic!("Unexpected error"),
+            Err(err) => panic!("Error of wrong type: {}", err),
+        }
+
+        /*  The files we tried to build should not be there. */
+        assert_eq!(system.is_file("poem.txt"), false);
+
+        /*  The file that was there should move into the cache. */
+        cache.open(&TicketFactory::from_str("Roses are red\nViolets are blue\n").result()).unwrap();
     }
 
     #[test]
