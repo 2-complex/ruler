@@ -1087,6 +1087,8 @@ mod test
         }
     }
 
+    /*  Use the fake command mycat2 to generate a poem and a copy of that poem.  Put one poem in place, with incorrect
+        content.  Handle the node.  Check for the presence of both poems and check the command logs  */
     #[test]
     fn two_targets_one_already_present()
     {
@@ -1095,6 +1097,7 @@ mod test
         system.create_dir(".ruler-cache").unwrap();
         write_str_to_file(&mut system, "verse1.txt", "Roses are red\n").unwrap();
         write_str_to_file(&mut system, "verse2.txt", "Violets are blue\n").unwrap();
+        write_str_to_file(&mut system, "poem_copy.txt", "Arbitrary content").unwrap();
 
         let mut factory = TicketFactory::new();
         factory.input_ticket(TicketFactory::from_str("Roses are red\n").result());
@@ -1139,6 +1142,10 @@ mod test
             "Roses are red\nViolets are blue\n");
         assert_eq!(read_file_to_string(&system, "poem_copy.txt").unwrap(),
             "Roses are red\nViolets are blue\n");
+
+        let command_log = system.get_command_log();
+        assert_eq!(command_log.len(), 1);
+        assert_eq!(command_log[0], "mycat2 verse1.txt verse2.txt poem.txt poem_copy.txt");
     }
 
 
