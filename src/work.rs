@@ -42,6 +42,7 @@ pub enum WorkOption
     CommandExecuted(CommandLineOutput),
 }
 
+#[derive(Debug)]
 pub struct WorkResult
 {
     pub target_tickets : Vec<Ticket>,
@@ -691,7 +692,6 @@ mod test
         {
             Ok(result) =>
             {
-                println!("result.work_option = {:?}", result.work_option);
                 match result.work_option
                 {
                     WorkOption::Resolutions(resolutions) => assert_eq!(resolutions.len(), 0),

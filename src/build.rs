@@ -343,7 +343,15 @@ Result<DownloadUrls, DownloadUrlsError>
     get the ticket from it. */
 fn wait_for_sources_ticket(receiver_vec : Vec<Receiver<Packet>>) -> Result<Ticket, BuildError>
 {
-    let mut factory = TicketFactory::new();
+    let mut tickets = vec![];
+    let mut canceled = false;
+
+    /*  It is tempting to have this loop exit early if one source cancels, but
+        that makes possible the following race:
+
+        Suppose two sources A and B.  A cancels quickly, then this loop bails early,
+        the thread exist, the receiving channel closes.  Later B tries to send a
+        source ticket and fails with "sending on a closed channel" */
     for receiver in receiver_vec.iter()
     {
         match receiver.recv()
@@ -352,12 +360,23 @@ fn wait_for_sources_ticket(receiver_vec : Vec<Receiver<Packet>>) -> Result<Ticke
             {
                 match packet.get_ticket()
                 {
-                    Ok(ticket) => factory.input_ticket(ticket),
-                    Err(PacketError::Cancel) => return Err(BuildError::Canceled),
+                    Ok(ticket) => tickets.push(ticket),
+                    Err(PacketError::Cancel) => canceled = true,
                 }
             },
             Err(error) => return Err(BuildError::ReceiverError(error)),
         }
+    }
+
+    if canceled
+    {
+        return Err(BuildError::Canceled);
+    }
+
+    let mut factory = TicketFactory::new();
+    for ticket in tickets
+    {
+        factory.input_ticket(ticket);
     }
     Ok(factory.result())
 }
@@ -1023,9 +1042,10 @@ poem.txt
         }
     }
 
-    /*  Test a more complex build with missing sources.  Make sure the error matches the missing file. */
+    /*  Rules for a poem with two verses and a refrain.  Try building the poem three times, once with each source file omitted.
+        Check that the error matches the missing file. */
     #[test]
-    fn build_chained_with_missing_sources()
+    fn build_poem_with_various_omitted_sources()
     {
         let rules = "\
 stanza1.txt
