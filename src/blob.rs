@@ -333,8 +333,16 @@ impl fmt::Display for GetCurrentFileInfoError
     }
 }
 
-/*  Takes a system and a TargetFileInfo, and obtains a ticket for the file described,
-    and also a timestamp.
+/*  Takes a system and a TargetFileInfo, which contains a path and a TargetHistory.
+    Returns a TargetHistory object, which is a little confiusing, I admit.  TODO:
+    Rename the arguments and maybe the function to make it more clear what's happening
+    here.
+
+    The function takes input and output.  The input is: what state we last saw the file in
+    the output is what state the file is currently.
+
+    Why does the function take a TargetFileInfo, then?  Why doens't it just take system
+    and path?  Because it does the following optimization:
 
     If the modified date of the file matches the one in TargetHistory exactly, it
     doesn't bother recomputing the ticket, instead it clones the ticket from the
@@ -643,6 +651,7 @@ mod test
     use crate::system::
     {
         fake::FakeSystem,
+        System
     };
     use crate::system::util::
     {
@@ -651,7 +660,186 @@ mod test
     use crate::blob::
     {
         get_file_ticket_from_path,
+        get_current_file_info,
+        GetCurrentFileInfoError,
     };
+
+    /*  Create a file, and make target_info that matches the reality of that file.
+        Call get_current_file_info and check that the returned data matches. */
+    #[test]
+    fn blob_get_current_file_info_complete_match()
+    {
+        let mut system = FakeSystem::new(23);
+
+        write_str_to_file(&mut system, "quine.sh", "cat $0").unwrap();
+
+        let target_info = TargetFileInfo
+        {
+            path: "quine.sh".to_string(),
+            history: TargetHistory
+            {
+                ticket : TicketFactory::from_str("cat $0").result(),
+                timestamp : 23,
+                executable : false,
+            }
+        };
+
+        let target_history = get_current_file_info(&system, &target_info).unwrap();
+
+        assert_eq!(target_history.ticket, TicketFactory::from_str("cat $0").result());
+        assert_eq!(target_history.timestamp, 23);
+        assert_eq!(target_history.executable, false);
+    }
+
+    /*  Create a file, and make target_info that matches the reality of that file,
+        except for one detail: executable is different.
+
+        Call get_current_file_info and check that the returned data matches, except
+        executable. */
+    #[test]
+    fn blob_get_current_file_info_executable_contradicts()
+    {
+        let mut system = FakeSystem::new(23);
+
+        write_str_to_file(&mut system, "quine.sh", "cat $0").unwrap();
+        system.set_is_executable("quine.sh", true).unwrap();
+
+        let target_info = TargetFileInfo
+        {
+            path: "quine.sh".to_string(),
+            history: TargetHistory
+            {
+                ticket : TicketFactory::from_str("cat $0").result(),
+                timestamp : 23,
+                executable : false,
+            }
+        };
+
+        let target_history = get_current_file_info(&system, &target_info).unwrap();
+
+        assert_eq!(target_history.ticket, TicketFactory::from_str("cat $0").result());
+        assert_eq!(target_history.timestamp, 23);
+        assert_eq!(target_history.executable, true);
+    }
+
+    /*  Create a file, and make target_info that matches the reality of that file,
+        except for one detail: the timestamp is different.
+
+        Call get_current_file_info and check that the returned data matches, except
+        the timestamp which should be up-to-date. */
+    #[test]
+    fn blob_get_current_file_info_old_timestamp()
+    {
+        let mut system = FakeSystem::new(24);
+
+        write_str_to_file(&mut system, "quine.sh", "cat $0").unwrap();
+
+        let target_info = TargetFileInfo
+        {
+            path: "quine.sh".to_string(),
+            history: TargetHistory
+            {
+                ticket : TicketFactory::from_str("cat $0").result(),
+                timestamp : 11,
+                executable : false,
+            }
+        };
+
+        let target_history = get_current_file_info(&system, &target_info).unwrap();
+
+        assert_eq!(target_history.ticket, TicketFactory::from_str("cat $0").result());
+        assert_eq!(target_history.timestamp, 24);
+        assert_eq!(target_history.executable, false);
+    }
+
+    /*  Create a file, and simulate a reasonable out-of-date TargetHistory for the
+        input to get_current_file_info, one where the timestamp is out of date, and
+        so is the content.
+
+        Call get_current_file_info and check that the returned data matches the
+        current file. */
+    #[test]
+    fn blob_get_current_file_info_rough_draft_final_draft()
+    {
+        let mut system = FakeSystem::new(25);
+        write_str_to_file(&mut system, "story.txt", "final draft").unwrap();
+
+        let target_info = TargetFileInfo
+        {
+            path: "story.txt".to_string(),
+            history: TargetHistory
+            {
+                ticket : TicketFactory::from_str("rough draft").result(),
+                timestamp : 11,
+                executable : false,
+            }
+        };
+
+        let target_history = get_current_file_info(&system, &target_info).unwrap();
+        assert_eq!(target_history.ticket, TicketFactory::from_str("final draft").result());
+        assert_eq!(target_history.timestamp, 25);
+        assert_eq!(target_history.executable, false);
+    }
+
+    /*  Create a file, and simulate a very unlikely out-of-date TargetHistory for
+        the input to get_current_file_info, one in which content is out of date, but
+        somehow the timestamp matches.
+
+        In this scenario, get_current_file_info should actually give the wrong
+        answer, because it does the optimization where if the timestamp matches
+        what's in the filesystem, it doesn't bother looking at the file's actual
+        contents to compute a new ticket.  Instead, it just repeats back the assumed
+        ticket. */
+    #[test]
+    fn blob_get_current_file_info_subvert_the_timestamp_optimization()
+    {
+        let mut system = FakeSystem::new(25);
+        write_str_to_file(&mut system, "story.txt", "final draft").unwrap();
+
+        let target_info = TargetFileInfo
+        {
+            path: "story.txt".to_string(),
+            history: TargetHistory
+            {
+                ticket : TicketFactory::from_str("rough draft").result(),
+                timestamp : 25,
+                executable : false,
+            }
+        };
+
+        let target_history = get_current_file_info(&system, &target_info).unwrap();
+        assert_eq!(target_history.ticket, TicketFactory::from_str("rough draft").result());
+        assert_eq!(target_history.timestamp, 25);
+        assert_eq!(target_history.executable, false);
+    }
+
+    /*  Create a TargetFileInfo for a file that does not exist.
+        Check that get_current_file_info returns an appropriate error. */
+    #[test]
+    fn blob_get_current_file_info_file_not_found()
+    {
+        let system = FakeSystem::new(25);
+        let target_info = TargetFileInfo
+        {
+            path: "story.txt".to_string(),
+            history: TargetHistory
+            {
+                ticket : TicketFactory::from_str("final draft").result(),
+                timestamp : 10,
+                executable : false,
+            }
+        };
+
+        match get_current_file_info(&system, &target_info)
+        {
+            Ok(_) => panic!("Unexpected success"),
+            Err(GetCurrentFileInfoError::TargetFileNotFound(path, _system_error)) =>
+            {
+                assert_eq!(path, "story.txt");
+            },
+            _ => panic!("Unexpected error"),
+        }
+    }
 
     /*  Use a fake system to create a file, and write a string to it.  Then use
         get_file_ticket_from_path to obtain a ticket for that file, and compare
@@ -661,11 +849,7 @@ mod test
     {
         let mut system = FakeSystem::new(10);
 
-        match write_str_to_file(&mut system, "quine.sh", "cat $0")
-        {
-            Ok(_) => {},
-            Err(why) => panic!("Failed to make fake file: {}", why),
-        }
+        write_str_to_file(&mut system, "quine.sh", "cat $0").unwrap();
 
         match get_file_ticket_from_path(
             &system,
