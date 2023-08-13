@@ -271,7 +271,8 @@ impl TargetHistory
 }
 
 /*  Takes a system and a TargetFileInfo, and obtains a ticket for the file described.
-    If the modified date of the file matches the one in TargetHistory exactly. */
+    If the modified date of the file matches the one in TargetHistory exactly, this function
+    assumes the ticket matches, too, this is part of the timestamp optimization. */
 pub fn get_file_ticket<SystemType: System>
 (
     system : &SystemType,
