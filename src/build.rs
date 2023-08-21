@@ -68,9 +68,9 @@ use crate::history::
     HistoryError,
     DownloaderHistory,
 };
-use crate::memory::
+use crate::current::
 {
-    MemoryError
+    CurrentFileStatesError
 };
 use crate::printer::Printer;
 use termcolor::
@@ -118,7 +118,7 @@ pub enum BuildError
     Canceled,
     ReceiverError(RecvError),
     SenderError(SendError<Packet>),
-    MemoryFileFailedToRead(MemoryError),
+    FailedToReadCurrentFileStates(CurrentFileStatesError),
     RuleFileNotUTF8,
     RuleFileFailedToRead(String, io::Error),
     RuleFileFailedToOpen(String, SystemError),
@@ -148,7 +148,7 @@ impl fmt::Display for BuildError
             BuildError::SenderError(error) =>
                 write!(formatter, "Failed to send to dependent: {}", error),
 
-            BuildError::MemoryFileFailedToRead(error) =>
+            BuildError::FailedToReadCurrentFileStates(error) =>
                 write!(formatter, "Error history file not found: {}", error),
 
             BuildError::RuleFileNotUTF8 =>
@@ -408,8 +408,8 @@ pub fn build
         {
             return match error
             {
-                InitDirectoryError::FailedToReadMemoryFile(memory_error) =>
-                    Err(BuildError::MemoryFileFailedToRead(memory_error)),
+                InitDirectoryError::FailedToReadCurrentFileStates(current_file_states_error) =>
+                    Err(BuildError::FailedToReadCurrentFileStates(current_file_states_error)),
                 _ => Err(BuildError::DirectoryMalfunction),
             }
         }
@@ -455,7 +455,7 @@ pub fn build
             target_infos.push(
                 TargetFileInfo
                 {
-                    history : elements.memory.take_target_history(&target_path),
+                    history : elements.current_file_states.take_target_history(&target_path),
                     path : target_path,
                 }
             );
@@ -691,7 +691,7 @@ pub fn build
 
                         for target_info in work_result.target_infos.drain(..)
                         {
-                            elements.memory.insert_target_history(target_info.path, target_info.history);
+                            elements.current_file_states.insert_target_history(target_info.path, target_info.history);
                         }
                     },
                     Err(BuildError::WorkError(work_error)) => work_errors.push(work_error),
@@ -703,7 +703,7 @@ pub fn build
         }
     }
 
-    match elements.memory.to_file()
+    match elements.current_file_states.to_file()
     {
         Ok(_) => {},
         Err(_) => printer.error("Error writing history"),
@@ -740,8 +740,8 @@ pub fn clean<SystemType : System + 'static>
         {
             return match error
             {
-                InitDirectoryError::FailedToReadMemoryFile(memory_error) =>
-                    Err(BuildError::MemoryFileFailedToRead(memory_error)),
+                InitDirectoryError::FailedToReadCurrentFileStates(current_file_states_error) =>
+                    Err(BuildError::FailedToReadCurrentFileStates(current_file_states_error)),
                 _ => Err(BuildError::DirectoryMalfunction),
             }
         }
@@ -785,7 +785,7 @@ pub fn clean<SystemType : System + 'static>
             target_infos.push(
                 TargetFileInfo
                 {
-                    history : elements.memory.take_target_history(&target_path),
+                    history : elements.current_file_states.take_target_history(&target_path),
                     path : target_path,
                 }
             );
@@ -1355,9 +1355,9 @@ poem.txt
 
         {
             let mut elements = directory::init(&mut system, "ruler-directory").unwrap();
-            let target_history_before = elements.memory.take_target_history("poem.txt");
+            let target_history_before = elements.current_file_states.take_target_history("poem.txt");
             assert_eq!(target_history_before, TargetHistory::empty());
-            elements.memory.insert_target_history("poem.txt".to_string(), target_history_before);
+            elements.current_file_states.insert_target_history("poem.txt".to_string(), target_history_before);
         }
 
         build(
@@ -1373,10 +1373,10 @@ poem.txt
 
         {
             let mut elements = directory::init(&mut system, "ruler-directory").unwrap();
-            let target_history = elements.memory.take_target_history("poem.txt");
+            let target_history = elements.current_file_states.take_target_history("poem.txt");
             assert_eq!(target_history, TargetHistory::new(
                 TicketFactory::from_str("Roses are red.\nViolets are violet.\n").result(), 17));
-            elements.memory.insert_target_history("poem.txt".to_string(), target_history);
+            elements.current_file_states.insert_target_history("poem.txt".to_string(), target_history);
         }
     }
 

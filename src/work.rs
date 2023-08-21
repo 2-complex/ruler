@@ -24,7 +24,7 @@ use crate::blob::
     get_file_ticket,
     get_current_file_info,
     resolve_remembered_target_tickets,
-    resolve_with_no_memory,
+    resolve_with_no_current_file_states,
 };
 use crate::cache::
 {
@@ -340,7 +340,7 @@ Result<Vec<FileResolution>, WorkError>
         None => {},
     }
 
-    match resolve_with_no_memory(system, cache, target_infos)
+    match resolve_with_no_current_file_states(system, cache, target_infos)
     {
         Ok(file_resolution) => Ok(file_resolution),
         Err(resolution_error) => Err(WorkError::ResolutionError(resolution_error)),

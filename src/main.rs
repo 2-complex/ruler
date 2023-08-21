@@ -41,7 +41,7 @@ mod blob;
 mod build;
 mod cache;
 mod directory;
-mod memory;
+mod current;
 mod history;
 mod packet;
 mod printer;

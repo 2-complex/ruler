@@ -589,7 +589,7 @@ Result<Vec<FileResolution>, ResolutionError>
     Ok(resolutions)
 }
 
-pub fn resolve_with_no_memory<SystemType : System>
+pub fn resolve_with_no_current_file_states<SystemType : System>
 (
     system : &mut SystemType,
     cache : &mut SysCache<SystemType>,

@@ -1,9 +1,9 @@
 use std::fmt;
 
-use crate::memory::
+use crate::current::
 {
-    Memory,
-    MemoryError,
+    CurrentFileStates,
+    CurrentFileStatesError,
 };
 use crate::history::
 {
@@ -26,7 +26,7 @@ pub enum InitDirectoryError
     FailedToCreateDirectory(SystemError),
     FailedToCreateCacheDirectory(SystemError),
     FailedToCreateHistoryDirectory(SystemError),
-    FailedToReadMemoryFile(MemoryError),
+    FailedToReadCurrentFileStates(CurrentFileStatesError),
 }
 
 impl fmt::Display for InitDirectoryError
@@ -44,8 +44,8 @@ impl fmt::Display for InitDirectoryError
             InitDirectoryError::FailedToCreateHistoryDirectory(error) =>
                 write!(formatter, "Failed to create history directory: {}", error),
 
-            InitDirectoryError::FailedToReadMemoryFile(error) =>
-                write!(formatter, "Failed to read memory file: {}", error),
+            InitDirectoryError::FailedToReadCurrentFileStates(error) =>
+                write!(formatter, "Failed to read current_file_states file: {}", error),
         }
     }
 }
@@ -88,14 +88,14 @@ pub fn init<SystemType : System>
         }
     }
 
-    let memoryfile = format!("{}/memory", directory);
+    let current_file_statesfile = format!("{}/current_file_states", directory);
 
     Ok(Elements
     {
-        memory : match Memory::from_file(system.clone(), memoryfile)
+        current_file_states : match CurrentFileStates::from_file(system.clone(), current_file_statesfile)
         {
-            Ok(memory) => memory,
-            Err(error) => return Err(InitDirectoryError::FailedToReadMemoryFile(error)),
+            Ok(current_file_states) => current_file_states,
+            Err(error) => return Err(InitDirectoryError::FailedToReadCurrentFileStates(error)),
         },
         cache : SysCache::new(system.clone(), &cache_path),
         history : History::new(system.clone(), &history_path),
@@ -104,7 +104,7 @@ pub fn init<SystemType : System>
 
 pub struct Elements<SystemType : System>
 {
-    pub memory : Memory<SystemType>,
+    pub current_file_states : CurrentFileStates<SystemType>,
     pub cache : SysCache<SystemType>,
     pub history : History<SystemType>,
 }
