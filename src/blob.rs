@@ -44,7 +44,7 @@ pub enum FileResolution
 pub struct TargetFileInfo
 {
     pub path : String,
-    pub history : TargetHistory,
+    pub file_state : FileState,
 }
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
@@ -221,22 +221,23 @@ pub fn get_file_ticket_from_path<SystemType: System>
 /*  There are two steps to checking if a target file is up-to-date.  First: check the rule-history to see what the target
     hash should be.  Second: compare the hash it should be to the hash it actually is.
 
-    TargetHistory is a small struct meant to be the type of a value in the map 'target_histories' whose purpose is to
-    help ruler tell if a target is up-to-date */
+    The data in FileState are things which would follow the file if it were renamed/moved.  There's a ticket
+    representing the file's contents, a timestamp (modifed date), executable permissions.  Those things would
+    follow the file in a rename/move operation. */
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
-pub struct TargetHistory
+pub struct FileState
 {
     pub ticket : Ticket,
     pub timestamp : u64,
     pub executable : bool,
 }
 
-impl TargetHistory
+impl FileState
 {
-    /*  Create a new empty TargetHistory */
-    pub fn empty() -> TargetHistory
+    /*  Create a new empty FileState */
+    pub fn empty() -> FileState
     {
-        TargetHistory
+        FileState
         {
             ticket : TicketFactory::new().result(),
             timestamp : 0,
@@ -247,9 +248,9 @@ impl TargetHistory
     #[cfg(test)]
     pub fn new(
         ticket : Ticket,
-        timestamp : u64) -> TargetHistory
+        timestamp : u64) -> FileState
     {
-        TargetHistory
+        FileState
         {
             ticket : ticket,
             timestamp : timestamp,
@@ -259,9 +260,9 @@ impl TargetHistory
 
     #[cfg(test)]
     pub fn new_with_ticket(
-        ticket : Ticket) -> TargetHistory
+        ticket : Ticket) -> FileState
     {
-        TargetHistory
+        FileState
         {
             ticket : ticket,
             timestamp : 0,
@@ -271,7 +272,7 @@ impl TargetHistory
 }
 
 /*  Takes a system and a TargetFileInfo, and obtains a ticket for the file described.
-    If the modified date of the file matches the one in TargetHistory exactly, this function
+    If the modified date of the file matches the one in FileState exactly, this function
     assumes the ticket matches, too, this is part of the timestamp optimization. */
 pub fn get_file_ticket<SystemType: System>
 (
@@ -290,9 +291,9 @@ pub fn get_file_ticket<SystemType: System>
             {
                 Ok(timestamp) =>
                 {
-                    if timestamp == target_info.history.timestamp
+                    if timestamp == target_info.file_state.timestamp
                     {
-                        return Ok(Some(target_info.history.ticket.clone()))
+                        return Ok(Some(target_info.file_state.ticket.clone()))
                     }
                 },
                 Err(_) => {},
@@ -334,8 +335,8 @@ impl fmt::Display for GetCurrentFileInfoError
     }
 }
 
-/*  Takes a system and a TargetFileInfo, which contains a path and a TargetHistory.
-    Returns a TargetHistory object, which is a little confiusing, I admit.  TODO:
+/*  Takes a system and a TargetFileInfo, which contains a path and a FileState.
+    Returns a FileState object, which is a little confiusing, I admit.  TODO:
     Rename the arguments and maybe the function to make it more clear what's happening
     here.
 
@@ -345,7 +346,7 @@ impl fmt::Display for GetCurrentFileInfoError
     Why does the function take a TargetFileInfo, then?  Why doens't it just take system
     and path?  Because it does the following optimization:
 
-    If the modified date of the file matches the one in TargetHistory exactly, it
+    If the modified date of the file matches the one in FileState exactly, it
     doesn't bother recomputing the ticket, instead it clones the ticket from the
     target_info's history.
 */
@@ -354,7 +355,7 @@ pub fn get_current_file_info<SystemType: System>
     system : &SystemType,
     target_info : &TargetFileInfo
 )
--> Result<TargetHistory, GetCurrentFileInfoError>
+-> Result<FileState, GetCurrentFileInfoError>
 {
     let system_time =
     match system.get_modified(&target_info.path)
@@ -384,12 +385,12 @@ pub fn get_current_file_info<SystemType: System>
             target_info.path.clone(), system_error))
     };
 
-    if timestamp == target_info.history.timestamp
+    if timestamp == target_info.file_state.timestamp
     {
         return Ok(
-            TargetHistory
+            FileState
             {
-                ticket : target_info.history.ticket.clone(),
+                ticket : target_info.file_state.ticket.clone(),
                 timestamp : timestamp,
                 executable : executable
             }
@@ -399,7 +400,7 @@ pub fn get_current_file_info<SystemType: System>
     match TicketFactory::from_file(system, &target_info.path)
     {
         Ok(mut factory) => Ok(
-            TargetHistory
+            FileState
             {
                 ticket : factory.result(),
                 timestamp : timestamp,
@@ -643,7 +644,7 @@ mod test
     };
     use crate::blob::
     {
-        TargetHistory,
+        FileState,
         TargetTickets,
         BlobError,
         TargetFileInfo,
@@ -677,7 +678,7 @@ mod test
         let target_info = TargetFileInfo
         {
             path: "quine.sh".to_string(),
-            history: TargetHistory
+            file_state: FileState
             {
                 ticket : TicketFactory::from_str("cat $0").result(),
                 timestamp : 23,
@@ -708,7 +709,7 @@ mod test
         let target_info = TargetFileInfo
         {
             path: "quine.sh".to_string(),
-            history: TargetHistory
+            file_state: FileState
             {
                 ticket : TicketFactory::from_str("cat $0").result(),
                 timestamp : 23,
@@ -738,7 +739,7 @@ mod test
         let target_info = TargetFileInfo
         {
             path: "quine.sh".to_string(),
-            history: TargetHistory
+            file_state: FileState
             {
                 ticket : TicketFactory::from_str("cat $0").result(),
                 timestamp : 11,
@@ -753,7 +754,7 @@ mod test
         assert_eq!(target_history.executable, false);
     }
 
-    /*  Create a file, and simulate a reasonable out-of-date TargetHistory for the
+    /*  Create a file, and simulate a reasonable out-of-date FileState for the
         input to get_current_file_info, one where the timestamp is out of date, and
         so is the content.
 
@@ -768,7 +769,7 @@ mod test
         let target_info = TargetFileInfo
         {
             path: "story.txt".to_string(),
-            history: TargetHistory
+            file_state: FileState
             {
                 ticket : TicketFactory::from_str("rough draft").result(),
                 timestamp : 11,
@@ -782,7 +783,7 @@ mod test
         assert_eq!(target_history.executable, false);
     }
 
-    /*  Create a file, and simulate a very unlikely out-of-date TargetHistory for
+    /*  Create a file, and simulate a very unlikely out-of-date FileState for
         the input to get_current_file_info, one in which content is out of date, but
         somehow the timestamp matches.
 
@@ -800,7 +801,7 @@ mod test
         let target_info = TargetFileInfo
         {
             path: "story.txt".to_string(),
-            history: TargetHistory
+            file_state: FileState
             {
                 ticket : TicketFactory::from_str("rough draft").result(),
                 timestamp : 25,
@@ -823,7 +824,7 @@ mod test
         let target_info = TargetFileInfo
         {
             path: "story.txt".to_string(),
-            history: TargetHistory
+            file_state: FileState
             {
                 ticket : TicketFactory::from_str("final draft").result(),
                 timestamp : 10,
@@ -960,7 +961,7 @@ mod test
             &TargetFileInfo
             {
                 path : "quine.sh".to_string(),
-                history : TargetHistory::new_with_ticket(TicketFactory::new().result())
+                file_state : FileState::new_with_ticket(TicketFactory::new().result())
             })
         {
             Ok(ticket_opt) => match ticket_opt
@@ -988,7 +989,7 @@ mod test
         let target_file_info = TargetFileInfo
         {
             path : "game.cpp".to_string(),
-            history : TargetHistory::new(content_ticket.clone(), 11),
+            file_state : FileState::new(content_ticket.clone(), 11),
         };
 
         // Meanwhile, in the filesystem put some incorrect rubbish in game.cpp
@@ -1035,7 +1036,7 @@ mod test
         let target_file_info = TargetFileInfo
         {
             path : "game.cpp".to_string(),
-            history : TargetHistory::new(previous_ticket.clone(), 9),
+            file_state : FileState::new(previous_ticket.clone(), 9),
         };
 
         // Meanwhile, in the filesystem, put new and improved game.cpp

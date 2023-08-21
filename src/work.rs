@@ -231,7 +231,7 @@ Result<WorkResult, WorkError>
         {
             Ok(current_info) =>
             {
-                target_info.history = current_info.clone();
+                target_info.file_state = current_info.clone();
                 infos.push(
                     TargetContentInfo
                     {
@@ -527,7 +527,7 @@ mod test
     };
     use crate::blob::
     {
-        TargetHistory,
+        FileState,
         TargetTickets,
         ResolutionError,
         get_file_ticket
@@ -582,7 +582,7 @@ mod test
                 TargetFileInfo
                 {
                     path : target_path,
-                    history : TargetHistory::new(
+                    file_state : FileState::new(
                         TicketFactory::new().result(),
                         0,
                     ),
@@ -627,7 +627,7 @@ mod test
             &TargetFileInfo
             {
                 path : "game.cpp".to_string(),
-                history : TargetHistory::new_with_ticket(TicketFactory::new().result()),
+                file_state : FileState::new_with_ticket(TicketFactory::new().result()),
             })
         {
             Ok(ticket_opt) =>
@@ -1330,7 +1330,7 @@ mod test
             TargetFileInfo
             {
                 path : "poem.txt".to_string(),
-                history : TargetHistory::new(
+                file_state : FileState::new(
                     TicketFactory::from_str("Roses are red\nViolets are violet\n").result(),
                     19,
                 ),

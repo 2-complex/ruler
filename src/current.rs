@@ -5,7 +5,7 @@ use crate::system::
 };
 use crate::blob::
 {
-    TargetHistory,
+    FileState,
 };
 use std::collections::HashMap;
 use serde::
@@ -51,12 +51,11 @@ pub fn write_file
 pub struct CurrentFileStatesInside
 {
     /*  Map target path to target-history */
-    target_histories : HashMap<String, TargetHistory>,
+    file_states : HashMap<String, FileState>,
 }
 
-/*  CurrentFileStates includes both the rule-histories and target-histories.  Recall that:
-    target_histories: For a given target (file path) stores the most recently observed hash of that target along
-        with the modified timestamp for the file at that time. */
+/*  file_states: For a given target (file path) stores the most recently observed hash of that target along
+        with the modified timestamp for the file at that time, and whether it is exectuable. */
 pub struct CurrentFileStates<SystemType : System>
 {
     system_box : Box<SystemType>,
@@ -178,27 +177,27 @@ impl<SystemType : System> CurrentFileStates<SystemType>
             path : path,
             inside : CurrentFileStatesInside
             {
-                target_histories : HashMap::new(),
+                file_states : HashMap::new(),
             },
         }
     }
 
-    /*  Adds the given TargetHistory to the map for the given file-path. */
-    pub fn insert_target_history(&mut self, target_path: String, target_history : TargetHistory)
+    /*  Adds the given FileState to the map for the given file-path. */
+    pub fn insert_target_history(&mut self, target_path: String, target_history : FileState)
     {
-        self.inside.target_histories.insert(target_path, target_history);
+        self.inside.file_states.insert(target_path, target_history);
     }
 
-    /*  Retrieve a TargetHistory by the target path.  Note: this function removes the TargetHistory from CurrentFileStates,
-        and transfers ownership of the TargetHistory to the caller.
+    /*  Retrieve a FileState by the target path.  Note: this function removes the FileState from CurrentFileStates,
+        and transfers ownership of the FileState to the caller.
 
         If a target history is not present in the map, this function returns a new, empty history instead. */
-    pub fn take_target_history(&mut self, target_path: &str) -> TargetHistory
+    pub fn take_target_history(&mut self, target_path: &str) -> FileState
     {
-        match self.inside.target_histories.remove(target_path)
+        match self.inside.file_states.remove(target_path)
         {
             Some(target_history) => target_history,
-            None => TargetHistory::empty(),
+            None => FileState::empty(),
         }
     }
 }
@@ -210,7 +209,7 @@ mod test
     use crate::current::
     {
         CurrentFileStates,
-        TargetHistory,
+        FileState,
         write_file,
     };
     use crate::ticket::{TicketFactory};
@@ -224,7 +223,7 @@ mod test
         let system = FakeSystem::new(10);
         let mut mem = CurrentFileStates::new(system.clone(), "current_file_states.file".to_string());
 
-        let target_history = TargetHistory::new(
+        let target_history = FileState::new(
             TicketFactory::from_str("main(){}").result(), 123);
 
         mem.insert_target_history("src/meta.c".to_string(), target_history);
@@ -249,7 +248,7 @@ mod test
 
         let mut mem = CurrentFileStates::new(system.clone(), "current_file_states.file".to_string());
         
-        let target_history = TargetHistory::new(
+        let target_history = FileState::new(
             TicketFactory::from_str("main(){}").result(), 123);
 
         mem.insert_target_history("src/meta.c".to_string(), target_history);
@@ -281,7 +280,7 @@ mod test
         let system = FakeSystem::new(10);
         let mut current_file_states = CurrentFileStates::new(system.clone(), "current_file_states.file".to_string());
 
-        let target_history = TargetHistory::new(
+        let target_history = FileState::new(
             TicketFactory::from_str("main(){}").result(), 123);
 
         current_file_states.insert_target_history("src/meta.c".to_string(), target_history);
@@ -314,7 +313,7 @@ mod test
         let system = FakeSystem::new(10);
         let mut current_file_states = CurrentFileStates::new(system, "current_file_states.file".to_string());
 
-        let target_history = TargetHistory::new(
+        let target_history = FileState::new(
             TicketFactory::from_str("main(){}").result(), 17123);
 
         current_file_states.insert_target_history("src/meta.c".to_string(), target_history);
@@ -333,13 +332,13 @@ mod test
         let system = FakeSystem::new(10);
         let mut current_file_states = CurrentFileStates::new(system, "current_file_states.file".to_string());
 
-        let target_history = TargetHistory::new(
+        let target_history = FileState::new(
             TicketFactory::from_str("main(){}").result(), 17123);
 
         current_file_states.insert_target_history("src/meta.c".to_string(), target_history);
         let history = current_file_states.take_target_history("src/math.cpp");
 
-        let empty_target_history = TargetHistory::empty();
+        let empty_target_history = FileState::empty();
 
         assert_eq!(history.ticket, empty_target_history.ticket);
         assert_eq!(history.timestamp, empty_target_history.timestamp);

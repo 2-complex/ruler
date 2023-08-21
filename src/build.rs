@@ -455,7 +455,7 @@ pub fn build
             target_infos.push(
                 TargetFileInfo
                 {
-                    history : elements.current_file_states.take_target_history(&target_path),
+                    file_state : elements.current_file_states.take_target_history(&target_path),
                     path : target_path,
                 }
             );
@@ -691,7 +691,7 @@ pub fn build
 
                         for target_info in work_result.target_infos.drain(..)
                         {
-                            elements.current_file_states.insert_target_history(target_info.path, target_info.history);
+                            elements.current_file_states.insert_target_history(target_info.path, target_info.file_state);
                         }
                     },
                     Err(BuildError::WorkError(work_error)) => work_errors.push(work_error),
@@ -785,7 +785,7 @@ pub fn clean<SystemType : System + 'static>
             target_infos.push(
                 TargetFileInfo
                 {
-                    history : elements.current_file_states.take_target_history(&target_path),
+                    file_state : elements.current_file_states.take_target_history(&target_path),
                     path : target_path,
                 }
             );
@@ -869,7 +869,7 @@ mod test
     use crate::printer::EmptyPrinter;
     use crate::blob::
     {
-        TargetHistory
+        FileState
     };
     use std::io::Write;
 
@@ -1356,7 +1356,7 @@ poem.txt
         {
             let mut elements = directory::init(&mut system, "ruler-directory").unwrap();
             let target_history_before = elements.current_file_states.take_target_history("poem.txt");
-            assert_eq!(target_history_before, TargetHistory::empty());
+            assert_eq!(target_history_before, FileState::empty());
             elements.current_file_states.insert_target_history("poem.txt".to_string(), target_history_before);
         }
 
@@ -1374,7 +1374,7 @@ poem.txt
         {
             let mut elements = directory::init(&mut system, "ruler-directory").unwrap();
             let target_history = elements.current_file_states.take_target_history("poem.txt");
-            assert_eq!(target_history, TargetHistory::new(
+            assert_eq!(target_history, FileState::new(
                 TicketFactory::from_str("Roses are red.\nViolets are violet.\n").result(), 17));
             elements.current_file_states.insert_target_history("poem.txt".to_string(), target_history);
         }
