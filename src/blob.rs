@@ -665,7 +665,7 @@ mod test
         GetCurrentFileInfoError,
     };
 
-    /*  Create a file, and make target_info that matches the reality of that file.
+    /*  Create a file, and make TargetFileInfo that matches the reality of that file.
         Call get_current_file_info and check that the returned data matches. */
     #[test]
     fn blob_get_current_file_info_complete_match()
