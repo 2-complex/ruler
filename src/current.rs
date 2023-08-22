@@ -183,20 +183,20 @@ impl<SystemType : System> CurrentFileStates<SystemType>
     }
 
     /*  Adds the given FileState to the map for the given file-path. */
-    pub fn insert_target_history(&mut self, target_path: String, target_history : FileState)
+    pub fn insert_file_state(&mut self, target_path: String, file_state : FileState)
     {
-        self.inside.file_states.insert(target_path, target_history);
+        self.inside.file_states.insert(target_path, file_state);
     }
 
     /*  Retrieve a FileState by the target path.  Note: this function removes the FileState from CurrentFileStates,
         and transfers ownership of the FileState to the caller.
 
         If a target history is not present in the map, this function returns a new, empty history instead. */
-    pub fn take_target_history(&mut self, target_path: &str) -> FileState
+    pub fn take(&mut self, target_path: &str) -> FileState
     {
         match self.inside.file_states.remove(target_path)
         {
-            Some(target_history) => target_history,
+            Some(file_state) => file_state,
             None => FileState::empty(),
         }
     }
@@ -223,10 +223,10 @@ mod test
         let system = FakeSystem::new(10);
         let mut mem = CurrentFileStates::new(system.clone(), "current_file_states.file".to_string());
 
-        let target_history = FileState::new(
+        let file_state = FileState::new(
             TicketFactory::from_str("main(){}").result(), 123);
 
-        mem.insert_target_history("src/meta.c".to_string(), target_history);
+        mem.insert_file_state("src/meta.c".to_string(), file_state);
 
         let encoded : Vec<u8> = bincode::serialize(&mem.inside).unwrap();
         let inside = bincode::deserialize(&encoded).unwrap();
@@ -234,7 +234,7 @@ mod test
 
         assert_eq!(mem.inside, decoded_current_file_states.inside);
 
-        let decoded_history = decoded_current_file_states.take_target_history("src/meta.c");
+        let decoded_history = decoded_current_file_states.take("src/meta.c");
         assert_eq!(decoded_history.ticket, TicketFactory::from_str("main(){}").result());
     }
 
@@ -248,10 +248,10 @@ mod test
 
         let mut mem = CurrentFileStates::new(system.clone(), "current_file_states.file".to_string());
         
-        let target_history = FileState::new(
+        let file_state = FileState::new(
             TicketFactory::from_str("main(){}").result(), 123);
 
-        mem.insert_target_history("src/meta.c".to_string(), target_history);
+        mem.insert_file_state("src/meta.c".to_string(), file_state);
 
         let encoded : Vec<u8> = bincode::serialize(&mem.inside).unwrap();
         match write_file(&mut system, "current_file_states.file", &encoded)
@@ -280,10 +280,10 @@ mod test
         let system = FakeSystem::new(10);
         let mut current_file_states = CurrentFileStates::new(system.clone(), "current_file_states.file".to_string());
 
-        let target_history = FileState::new(
+        let file_state = FileState::new(
             TicketFactory::from_str("main(){}").result(), 123);
 
-        current_file_states.insert_target_history("src/meta.c".to_string(), target_history);
+        current_file_states.insert_file_state("src/meta.c".to_string(), file_state);
 
         match current_file_states.to_file()
         {
@@ -297,7 +297,7 @@ mod test
             {
                 assert_eq!(new_current_file_states.inside, current_file_states.inside);
 
-                let new_history = new_current_file_states.take_target_history("src/meta.c");
+                let new_history = new_current_file_states.take("src/meta.c");
                 assert_eq!(new_history.ticket, TicketFactory::from_str("main(){}").result());
                 assert_eq!(new_history.timestamp, 123);
             },
@@ -308,17 +308,17 @@ mod test
     /*  Make a CurrentFileStates and insert a target-history.  Then take out the target history, and make sure it matches what was
         inserted. */
     #[test]
-    fn insert_remove_target_history()
+    fn insert_remove_file_state()
     {
         let system = FakeSystem::new(10);
         let mut current_file_states = CurrentFileStates::new(system, "current_file_states.file".to_string());
 
-        let target_history = FileState::new(
+        let file_state = FileState::new(
             TicketFactory::from_str("main(){}").result(), 17123);
 
-        current_file_states.insert_target_history("src/meta.c".to_string(), target_history);
+        current_file_states.insert_file_state("src/meta.c".to_string(), file_state);
 
-        let history = current_file_states.take_target_history("src/meta.c");
+        let history = current_file_states.take("src/meta.c");
 
         assert_eq!(history.ticket, TicketFactory::from_str("main(){}").result());
         assert_eq!(history.timestamp, 17123);
@@ -332,15 +332,15 @@ mod test
         let system = FakeSystem::new(10);
         let mut current_file_states = CurrentFileStates::new(system, "current_file_states.file".to_string());
 
-        let target_history = FileState::new(
+        let file_state = FileState::new(
             TicketFactory::from_str("main(){}").result(), 17123);
 
-        current_file_states.insert_target_history("src/meta.c".to_string(), target_history);
-        let history = current_file_states.take_target_history("src/math.cpp");
+        current_file_states.insert_file_state("src/meta.c".to_string(), file_state);
+        let history = current_file_states.take("src/math.cpp");
 
-        let empty_target_history = FileState::empty();
+        let empty_file_state = FileState::empty();
 
-        assert_eq!(history.ticket, empty_target_history.ticket);
-        assert_eq!(history.timestamp, empty_target_history.timestamp);
+        assert_eq!(history.ticket, empty_file_state.ticket);
+        assert_eq!(history.timestamp, empty_file_state.timestamp);
     }
 }

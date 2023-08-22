@@ -22,7 +22,7 @@ use crate::blob::
     GetCurrentFileInfoError,
     TargetContentInfo,
     get_file_ticket,
-    get_current_file_info,
+    get_actual_file_state,
     resolve_remembered_target_tickets,
     resolve_with_no_current_file_states,
 };
@@ -128,7 +128,7 @@ fn get_current_target_tickets<SystemType: System>
     let mut target_tickets = Vec::new();
     for target_info in target_infos.iter()
     {
-        match get_file_ticket(system, target_info)
+        match get_file_ticket(system, &target_info.path, &target_info.file_state)
         {
             Ok(ticket_opt) =>
             {
@@ -227,7 +227,7 @@ Result<WorkResult, WorkError>
     let mut infos = vec![];
     for target_info in target_infos.iter_mut()
     {
-        match get_current_file_info(system, &target_info)
+        match get_actual_file_state(system, &target_info.path, &target_info.file_state)
         {
             Ok(current_info) =>
             {
@@ -466,7 +466,7 @@ pub fn clean_targets<SystemType: System>
     {
         if system.is_file(&target_info.path)
         {
-            match get_file_ticket(system, &target_info)
+            match get_file_ticket(system, &target_info.path, &target_info.file_state)
             {
                 Ok(Some(current_target_ticket)) =>
                 {
@@ -624,11 +624,8 @@ mod test
         // Then get the file-ticket for the current source file:
         match get_file_ticket(
             &system,
-            &TargetFileInfo
-            {
-                path : "game.cpp".to_string(),
-                file_state : FileState::new_with_ticket(TicketFactory::new().result()),
-            })
+            "game.cpp",
+            &FileState::new_with_ticket(TicketFactory::new().result()))
         {
             Ok(ticket_opt) =>
             {
