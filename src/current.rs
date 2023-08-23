@@ -234,8 +234,8 @@ mod test
 
         assert_eq!(mem.inside, decoded_current_file_states.inside);
 
-        let decoded_history = decoded_current_file_states.take("src/meta.c");
-        assert_eq!(decoded_history.ticket, TicketFactory::from_str("main(){}").result());
+        let decoded_file_state = decoded_current_file_states.take("src/meta.c");
+        assert_eq!(decoded_file_state.ticket, TicketFactory::from_str("main(){}").result());
     }
 
     /*  Create a CurrentFileStates, fill it with rule-histories and target-histories, then write it to a file in a filesystem,
@@ -297,9 +297,9 @@ mod test
             {
                 assert_eq!(new_current_file_states.inside, current_file_states.inside);
 
-                let new_history = new_current_file_states.take("src/meta.c");
-                assert_eq!(new_history.ticket, TicketFactory::from_str("main(){}").result());
-                assert_eq!(new_history.timestamp, 123);
+                let new_file_state = new_current_file_states.take("src/meta.c");
+                assert_eq!(new_file_state.ticket, TicketFactory::from_str("main(){}").result());
+                assert_eq!(new_file_state.timestamp, 123);
             },
             Err(_) => panic!("CurrentFileStates failed to read from file"),
         }
