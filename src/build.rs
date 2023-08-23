@@ -194,7 +194,7 @@ impl fmt::Display for BuildError
     }
 }
 
-fn read_all_rules<SystemType : System>
+fn read_all_rules_files_to_strings<SystemType : System>
 (
     system : &SystemType,
     mut rulefile_paths : Vec<String>
@@ -243,7 +243,7 @@ pub fn get_nodes
 )
 -> Result<Vec<Node>, BuildError>
 {
-    let all_rule_text = read_all_rules(system, rulefile_paths)?;
+    let all_rule_text = read_all_rules_files_to_strings(system, rulefile_paths)?;
 
     let rules =
     match parse_all(all_rule_text)
@@ -461,6 +461,7 @@ pub fn build
             );
         }
 
+
         let mut downloader_cache_urls = vec![];
         let mut downloader_history_urls = vec![];
 
@@ -481,6 +482,7 @@ pub fn build
                 {
                     None =>
                     {
+                        println!("Source only node: {}", target_infos.len());
                         thread::spawn(
                             move || -> Result<WorkResult, BuildError>
                             {
@@ -748,7 +750,7 @@ pub fn clean<SystemType : System + 'static>
     };
 
     let rules =
-    match parse_all(read_all_rules(&system, rulefile_paths)?)
+    match parse_all(read_all_rules_files_to_strings(&system, rulefile_paths)?)
     {
         Ok(rules) => rules,
         Err(error) => return Err(BuildError::RuleFileFailedToParse(error)),
