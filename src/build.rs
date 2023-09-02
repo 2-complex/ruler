@@ -482,7 +482,6 @@ pub fn build
                 {
                     None =>
                     {
-                        println!("Source only node: {}", target_infos.len());
                         thread::spawn(
                             move || -> Result<WorkResult, BuildError>
                             {
