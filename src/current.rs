@@ -55,7 +55,7 @@ pub struct CurrentFileStatesInside
 }
 
 /*  file_states: For a given target (file path) stores the most recently observed hash of that target along
-        with the modified timestamp for the file at that time, and whether it is exectuable. */
+    with the modified timestamp for the file at that time, and whether it is exectuable. */
 pub struct CurrentFileStates<SystemType : System>
 {
     system_box : Box<SystemType>,
@@ -191,13 +191,13 @@ impl<SystemType : System> CurrentFileStates<SystemType>
     /*  Retrieve a FileState by the target path.  Note: this function removes the FileState from CurrentFileStates,
         and transfers ownership of the FileState to the caller.
 
-        If a target history is not present in the map, this function returns a new, empty history instead. */
+        If a FileState is not present in the map, this function returns a new, empty FileState instead. */
     pub fn take(&mut self, target_path: &str) -> FileState
     {
         match self.inside.file_states.remove(target_path)
         {
             Some(file_state) => file_state,
-            None => FileState::empty(),
+            None => FileState::empty(), // TODO: does this ever happen?
         }
     }
 }

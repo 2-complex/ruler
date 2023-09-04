@@ -45,7 +45,8 @@ use crate::packet::
 };
 use crate::blob::
 {
-    TargetFileInfo,
+    Blob,
+    FileInfo,
     FileResolution,
 };
 use crate::work::
@@ -449,18 +450,7 @@ pub fn build
             None => vec![],
         };
 
-        let mut target_infos = vec![];
-        for target_path in node.targets.drain(..)
-        {
-            target_infos.push(
-                TargetFileInfo
-                {
-                    file_state : elements.current_file_states.take(&target_path),
-                    path : target_path,
-                }
-            );
-        }
-
+        let blob = Blob::from_file_paths(&mut elements.current_file_states, node.targets);
 
         let mut downloader_cache_urls = vec![];
         let mut downloader_history_urls = vec![];
@@ -485,7 +475,7 @@ pub fn build
                         thread::spawn(
                             move || -> Result<WorkResult, BuildError>
                             {
-                                match handle_source_only_node(system_clone, target_infos)
+                                match handle_source_only_node(system_clone, blob)
                                 {
                                     Ok(result) =>
                                     {
@@ -531,7 +521,7 @@ pub fn build
                             move || -> Result<WorkResult, BuildError>
                             {
                                 let mut info = HandleNodeInfo::new(system_clone);
-                                info.target_infos = target_infos;
+                                info.blob = blob;
 
                                 let sources_ticket = match wait_for_sources_ticket(receiver_vec)
                                 {
@@ -615,7 +605,7 @@ pub fn build
 
                             WorkOption::Resolutions(resolutions) =>
                             {
-                                for (i, target_info) in work_result.target_infos.iter().enumerate()
+                                for (i, target_info) in work_result.blob.iter().enumerate()
                                 {
                                     let (banner_text, banner_color) =
                                         match resolutions[i]
@@ -639,7 +629,7 @@ pub fn build
 
                             WorkOption::CommandExecuted(output) =>
                             {
-                                for target_info in work_result.target_infos.iter()
+                                for target_info in work_result.blob.iter()
                                 {
                                     printer.print_single_banner_line("     Built", Color::Magenta, &target_info.path);  
                                 }
@@ -690,7 +680,7 @@ pub fn build
                             None => {},
                         }
 
-                        for target_info in work_result.target_infos.drain(..)
+                        for target_info in work_result.blob.drain(..)
                         {
                             elements.current_file_states.insert_file_state(target_info.path, target_info.file_state);
                         }
@@ -780,11 +770,11 @@ pub fn clean<SystemType : System + 'static>
 
     for mut node in nodes.drain(..)
     {
-        let mut target_infos = Vec::new();
+        let mut blob = Vec::new();
         for target_path in node.targets.drain(..)
         {
-            target_infos.push(
-                TargetFileInfo
+            blob.push(
+                FileInfo
                 {
                     file_state : elements.current_file_states.take(&target_path),
                     path : target_path,
@@ -803,7 +793,7 @@ pub fn clean<SystemType : System + 'static>
                         move || -> Result<(), WorkError>
                         {
                             clean_targets(
-                                target_infos,
+                                blob,
                                 &mut system_clone,
                                 &mut local_cache_clone)
                         }

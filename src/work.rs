@@ -15,9 +15,10 @@ use crate::history::
 };
 use crate::blob::
 {
+    Blob,
     TargetTickets,
     FileResolution,
-    TargetFileInfo,
+    FileInfo,
     ResolutionError,
     GetCurrentFileInfoError,
     TargetContentInfo,
@@ -46,7 +47,7 @@ pub enum WorkOption
 pub struct WorkResult
 {
     pub target_tickets : Vec<Ticket>,
-    pub target_infos : Vec<TargetFileInfo>,
+    pub blob : Vec<FileInfo>,
     pub work_option : WorkOption,
     pub rule_history : Option<RuleHistory>,
 }
@@ -118,44 +119,16 @@ impl fmt::Display for WorkError
     }
 }
 
-fn get_current_target_tickets<SystemType: System>
-(
-    system : &SystemType,
-    target_infos : &Vec<TargetFileInfo>,
-)
--> Result<Vec<Ticket>, WorkError>
-{
-    let mut target_tickets = Vec::new();
-    for target_info in target_infos.iter()
-    {
-        match get_file_ticket(system, &target_info.path, &target_info.file_state)
-        {
-            Ok(ticket_opt) =>
-            {
-                match ticket_opt
-                {
-                    Some(ticket) => target_tickets.push(ticket),
-                    None => return Err(WorkError::FileNotFound(target_info.path.clone())),
-                }
-            },
-            Err(error) => return Err(WorkError::ReadWriteError(target_info.path.clone(), error)),
-        }
-    }
-
-    Ok(target_tickets)
-}
-
 pub fn handle_source_only_node<SystemType: System>
 (
     system : SystemType,
-    target_infos : Vec<TargetFileInfo>
+    blob : Blob
 )
 ->
 Result<WorkResult, WorkError>
 {
-    let current_target_tickets = match get_current_target_tickets(
-        &system,
-        &target_infos)
+    let current_target_tickets =
+    match get_current_target_tickets(&system, &blob)
     {
         Ok(target_tickets) => target_tickets,
         Err(WorkError::FileNotFound(path)) =>
@@ -169,7 +142,7 @@ Result<WorkResult, WorkError>
         WorkResult
         {
             target_tickets : current_target_tickets,
-            target_infos : target_infos,
+            blob : blob,
             work_option : WorkOption::SourceOnly,
             rule_history : None
         }
@@ -203,7 +176,7 @@ fn rebuild_node<SystemType : System>
     mut rule_history : RuleHistory,
     sources_ticket : Ticket,
     command : Vec<String>,
-    mut target_infos : Vec<TargetFileInfo>
+    mut blob : Vec<FileInfo>
 )
 ->
 Result<WorkResult, WorkError>
@@ -224,7 +197,7 @@ Result<WorkResult, WorkError>
     }
 
     let mut infos = vec![];
-    for target_info in target_infos.iter_mut()
+    for target_info in blob.iter_mut()
     {
         match get_actual_file_state(system, &target_info.path, &target_info.file_state)
         {
@@ -257,7 +230,7 @@ Result<WorkResult, WorkError>
                     let mut contradicting_target_paths = Vec::new();
                     for index in contradicting_indices
                     {
-                        contradicting_target_paths.push(target_infos[index].path.clone())
+                        contradicting_target_paths.push(blob[index].path.clone())
                     }
                     return Err(WorkError::Contradiction(contradicting_target_paths));
                 }
@@ -272,14 +245,14 @@ Result<WorkResult, WorkError>
         WorkResult
         {
             target_tickets : target_tickets,
-            target_infos : target_infos,
+            blob : blob,
             work_option : WorkOption::CommandExecuted(command_result),
             rule_history : Some(rule_history),
         }
     )
 }
 
-/*  Takes a vector of TargetFileInfos and attempts to resolve the targets using cache or download-urls.
+/*  Takes a vector of FileInfos and attempts to resolve the targets using cache or download-urls.
 
     If there are remembered tickets, then this function appeals to resolve_single_target
     to try to retrieve a backup copy either from the local cache or from the internet (backing up the current copy
@@ -296,7 +269,7 @@ fn resolve_with_cache<SystemType : System>
     rule_history : &RuleHistory,
     downloader_rule_history_opt : &Option<DownloaderRuleHistory>,
     sources_ticket : &Ticket,
-    target_infos : &Vec<TargetFileInfo>,
+    blob : &Blob,
 )
 ->
 Result<Vec<FileResolution>, WorkError>
@@ -306,7 +279,7 @@ Result<Vec<FileResolution>, WorkError>
         Some(remembered_target_tickets) =>
         {
             return match resolve_remembered_target_tickets(
-                system, cache, downloader_cache_opt, target_infos, remembered_target_tickets)
+                system, cache, downloader_cache_opt, blob, remembered_target_tickets)
             {
                 Ok(file_resolution) => Ok(file_resolution),
                 Err(resolution_error) => Err(WorkError::ResolutionError(resolution_error)),
@@ -325,7 +298,7 @@ Result<Vec<FileResolution>, WorkError>
                 Some(target_tickets) =>
                 {
                     return match resolve_remembered_target_tickets(
-                        system, cache, downloader_cache_opt, target_infos, &target_tickets)
+                        system, cache, downloader_cache_opt, blob, &target_tickets)
                     {
                         Ok(file_resolution) => Ok(file_resolution),
                         Err(resolution_error) => Err(WorkError::ResolutionError(resolution_error)),
@@ -339,7 +312,7 @@ Result<Vec<FileResolution>, WorkError>
         None => {},
     }
 
-    match resolve_with_no_current_file_states(system, cache, target_infos)
+    match resolve_with_no_current_file_states(system, cache, blob)
     {
         Ok(file_resolution) => Ok(file_resolution),
         Err(resolution_error) => Err(WorkError::ResolutionError(resolution_error)),
@@ -376,7 +349,7 @@ impl<SystemType: System> RuleExt<SystemType>
 pub struct HandleNodeInfo<SystemType: System>
 {
     pub system : SystemType,
-    pub target_infos : Vec<TargetFileInfo>,
+    pub blob : Blob,
 }
 
 impl<SystemType: System> HandleNodeInfo<SystemType>
@@ -386,7 +359,7 @@ impl<SystemType: System> HandleNodeInfo<SystemType>
         HandleNodeInfo
         {
             system : system,
-            target_infos : Vec::new(),
+            blob : Blob::empty(),
         }
     }
 }
@@ -414,7 +387,7 @@ Result<WorkResult, WorkError>
         & rule_ext.rule_history,
         & rule_ext.downloader_rule_history_opt,
         & rule_ext.sources_ticket,
-        & info.target_infos)
+        & info.blob)
     {
         Ok(resolutions) =>
         {
@@ -425,13 +398,13 @@ Result<WorkResult, WorkError>
                     rule_ext.rule_history,
                     rule_ext.sources_ticket,
                     rule_ext.command,
-                    info.target_infos)
+                    info.blob)
             }
             else
             {
                 let target_tickets = match get_current_target_tickets(
                     &info.system,
-                    &info.target_infos)
+                    &info.blob)
                 {
                     Ok(target_tickets) => target_tickets,
                     Err(error) => return Err(error),
@@ -441,7 +414,7 @@ Result<WorkResult, WorkError>
                     WorkResult
                     {
                         target_tickets : target_tickets,
-                        target_infos : info.target_infos,
+                        blob : info.blob,
                         work_option : WorkOption::Resolutions(resolutions),
                         rule_history : Some(rule_ext.rule_history),
                     }
@@ -455,13 +428,13 @@ Result<WorkResult, WorkError>
 
 pub fn clean_targets<SystemType: System>
 (
-    target_infos : Vec<TargetFileInfo>,
+    blob : Vec<FileInfo>,
     system : &mut SystemType,
     cache : &mut SysCache<SystemType>
 )
 -> Result<(), WorkError>
 {
-    for target_info in target_infos
+    for target_info in blob
     {
         if system.is_file(&target_info.path)
         {
@@ -509,7 +482,7 @@ mod test
         FileResolution,
         WorkOption,
         WorkError,
-        TargetFileInfo,
+        FileInfo,
         HandleNodeInfo,
         RuleExt,
         handle_source_only_node,
@@ -571,14 +544,14 @@ mod test
         Ok(factory.result())
     }
 
-    fn to_info(mut targets : Vec<String>) -> Vec<TargetFileInfo>
+    fn to_info(mut targets : Vec<String>) -> Vec<FileInfo>
     {
         let mut result = Vec::new();
 
         for target_path in targets.drain(..)
         {
             result.push(
-                TargetFileInfo
+                FileInfo
                 {
                     path : target_path,
                     file_state : FileState::new(
@@ -672,7 +645,7 @@ mod test
         system.create_dir(".ruler-cache").unwrap();
 
         let mut info = HandleNodeInfo::new(system.clone());
-        info.target_infos = to_info(vec![]);
+        info.blob = to_info(vec![]);
 
         let mut ticket_factory = TicketFactory::new();
         ticket_factory.input_ticket(TicketFactory::from_str("A-content").result());
@@ -711,7 +684,7 @@ mod test
         rule_ext.command = vec!["mycat".to_string(), "A-source.txt".to_string(), "A.txt".to_string()];
 
         let mut info = HandleNodeInfo::new(system.clone());
-        info.target_infos = to_info(vec!["A.txt".to_string()]);
+        info.blob = to_info(vec!["A.txt".to_string()]);
 
         match handle_rule_node(info, rule_ext)
         {
@@ -747,7 +720,7 @@ mod test
         rule_ext.command = vec!["error".to_string()];
 
         let mut info = HandleNodeInfo::new(system.clone());
-        info.target_infos = to_info(vec!["poem.txt".to_string()]);
+        info.blob = to_info(vec!["poem.txt".to_string()]);
 
         match handle_rule_node(info, rule_ext)
         {
@@ -774,7 +747,7 @@ mod test
         rule_ext.command = vec!["mycat".to_string(),"verse1.txt".to_string(),"verse2.txt".to_string(),"wrong.txt".to_string()];
 
         let mut info = HandleNodeInfo::new(system.clone());
-        info.target_infos = to_info(vec!["poem.txt".to_string()]);
+        info.blob = to_info(vec!["poem.txt".to_string()]);
 
         match handle_rule_node(info, rule_ext)
         {
@@ -802,7 +775,7 @@ mod test
         rule_ext.command = vec!["mycat".to_string(),"verse1.txt".to_string(),"verse2.txt".to_string(),"poem.txt".to_string()];
 
         let mut info = HandleNodeInfo::new(system.clone());
-        info.target_infos = to_info(vec!["poem.txt".to_string()]);
+        info.blob = to_info(vec!["poem.txt".to_string()]);
 
         match handle_rule_node(info, rule_ext)
         {
@@ -866,7 +839,7 @@ mod test
         rule_ext.rule_history = rule_history;
 
         let mut info = HandleNodeInfo::new(system.clone());
-        info.target_infos = to_info(vec!["poem.txt".to_string()]);
+        info.blob = to_info(vec!["poem.txt".to_string()]);
 
         match handle_rule_node(info, rule_ext)
         {
@@ -931,7 +904,7 @@ mod test
         rule_ext.rule_history = rule_history;
 
         let mut info = HandleNodeInfo::new(system.clone());
-        info.target_infos = to_info(vec!["poem.txt".to_string()]);
+        info.blob = to_info(vec!["poem.txt".to_string()]);
 
         match handle_rule_node(info, rule_ext)
         {
@@ -976,7 +949,7 @@ mod test
         rule_ext.rule_history = RuleHistory::new();
 
         let mut info = HandleNodeInfo::new(system.clone());
-        info.target_infos = to_info(vec!["poem.txt".to_string()]);
+        info.blob = to_info(vec!["poem.txt".to_string()]);
 
         match handle_rule_node(info, rule_ext)
         {
@@ -1064,7 +1037,7 @@ mod test
         rule_ext.command = vec!["rm".to_string(), "verse1.txt".to_string()];
 
         let mut info = HandleNodeInfo::new(system.clone());
-        info.target_infos = to_info(vec!["verse1.txt".to_string()]);
+        info.blob = to_info(vec!["verse1.txt".to_string()]);
 
         match handle_rule_node(info, rule_ext)
         {
@@ -1110,7 +1083,7 @@ mod test
         rule_ext.rule_history = RuleHistory::new();
 
         let mut info = HandleNodeInfo::new(system.clone());
-        info.target_infos = to_info(vec![
+        info.blob = to_info(vec![
             "poem.txt".to_string(),
             "poem_copy.txt".to_string()
         ]);
@@ -1165,7 +1138,7 @@ mod test
         rule_ext.rule_history = RuleHistory::new();
 
         let mut info = HandleNodeInfo::new(system.clone());
-        info.target_infos = to_info(vec![
+        info.blob = to_info(vec![
             "poem.txt".to_string()
         ]);
 
@@ -1214,7 +1187,7 @@ mod test
         rule_ext.command = vec!["error".to_string()];
 
         let mut info = HandleNodeInfo::new(system.clone());
-        info.target_infos = to_info(vec![
+        info.blob = to_info(vec![
             "poem.txt".to_string()
         ]);
 
@@ -1263,7 +1236,7 @@ mod test
         rule_ext.command = vec!["error".to_string()];
 
         let mut info = HandleNodeInfo::new(system.clone());
-        info.target_infos = to_info(vec![
+        info.blob = to_info(vec![
             "poem.txt".to_string(),
             "poem_copy.txt".to_string()
         ]);
@@ -1322,8 +1295,8 @@ mod test
         rule_ext.rule_history = rule_history;
 
         let mut info = HandleNodeInfo::new(system.clone());
-        info.target_infos = vec![
-            TargetFileInfo
+        info.blob = vec![
+            FileInfo
             {
                 path : "poem.txt".to_string(),
                 file_state : FileState::new(

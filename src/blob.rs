@@ -13,6 +13,11 @@ use crate::cache::
     DownloadResult,
 };
 
+use crate::current::
+{
+    CurrentFileStates
+};
+
 use crate::system::util::get_timestamp;
 
 use crate::ticket::
@@ -41,10 +46,77 @@ pub enum FileResolution
 }
 
 #[derive(Debug)]
-pub struct TargetFileInfo
+pub struct FileInfo
 {
     pub path : String,
     pub file_state : FileState,
+}
+
+#[derive(Debug)]
+pub enum BlobError
+{
+    FileNotFound(String),
+    ReadWriteError(String, ReadWriteError),
+    Contradiction(Vec<usize>),
+    TargetSizesDifferWeird,
+}
+
+#[derive(Debug)]
+pub struct Blob
+{
+    files : Vec<FileInfo>
+}
+
+impl Blob
+{
+    pub fn from_file_paths<SystemType : System>(
+        current_file_states : &mut CurrentFileStates<SystemType>,
+        paths : Vec<String>) -> Self
+    {
+        let mut files = Vec::new();
+        for target_path in paths.drain(..)
+        {
+            files.push(
+                FileInfo
+                {
+                    file_state : current_file_states.take(&target_path),
+                    path : target_path,
+                }
+            );
+        }
+
+        Blob
+        {
+            files : files
+        }
+    }
+
+    fn get_current_target_tickets<SystemType: System>
+    (
+        self : &Self,
+        system : &SystemType,
+    )
+    -> Result<Vec<Ticket>, Blob>
+    {
+        let mut target_tickets = Vec::new();
+        for target_info in self.files.iter()
+        {
+            match get_file_ticket(system, &target_info.path, &target_info.file_state)
+            {
+                Ok(ticket_opt) =>
+                {
+                    match ticket_opt
+                    {
+                        Some(ticket) => target_tickets.push(ticket),
+                        None => return Err(BlobError::FileNotFound(target_info.path.clone())),
+                    }
+                },
+                Err(error) => return Err(BlobError::ReadWriteError(target_info.path.clone(), error)),
+            }
+        }
+
+        Ok(target_tickets)
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
@@ -52,13 +124,6 @@ pub struct TargetContentInfo
 {
     pub ticket : Ticket,
     pub executable : bool,
-}
-
-#[derive(Debug)]
-pub enum BlobError
-{
-    Contradiction(Vec<usize>),
-    TargetSizesDifferWeird,
 }
 
 #[derive(Debug)]
@@ -444,7 +509,7 @@ fn restore_or_download<SystemType : System>
     cache : &mut SysCache<SystemType>,
     downloader_cache_opt : &Option<DownloaderCache>,
     remembered_target_content_info : &TargetContentInfo,
-    target_info : &TargetFileInfo
+    target_info : &FileInfo
 )
 -> Result<FileResolution, ResolutionError>
 {
@@ -497,7 +562,7 @@ fn restore_or_download<SystemType : System>
 
 /*  Given a target-info and a remembered ticket for that target file, check the current
     ticket, and if it matches, return AlreadyCorrect.  If it doesn't match, back up the current
-    file, and then attempt to restore the remembered file from cache, if the cache doesn't have it
+    file, and then attempt to restore the remembered file from cache, if the cache doesn't have it,
     attempt to download.  If no recovery or download works, shrug and return NeedsRebuild */
 pub fn resolve_single_target<SystemType : System>
 (
@@ -505,7 +570,7 @@ pub fn resolve_single_target<SystemType : System>
     cache : &mut SysCache<SystemType>,
     downloader_cache_opt : &Option<DownloaderCache>,
     remembered_target_content_info : &TargetContentInfo,
-    target_info : &TargetFileInfo
+    target_info : &FileInfo
 )
 ->
 Result<FileResolution, ResolutionError>
@@ -539,7 +604,7 @@ Result<FileResolution, ResolutionError>
                 target_info)
         },
 
-        // None means the file is not there, in which case, we just try to restore/download, and then go home.
+        // None means the file is not there, in which case, we just try to restore/download, and go home.
         Ok(None) =>
         {
             restore_or_download(
@@ -562,14 +627,14 @@ pub fn resolve_remembered_target_tickets<SystemType : System>
     system : &mut SystemType,
     cache : &mut SysCache<SystemType>,
     downloader_cache_opt : &Option<DownloaderCache>,
-    target_infos : &Vec<TargetFileInfo>,
+    blob : &Blob,
     remembered_tickets : &TargetTickets,
 )
 ->
 Result<Vec<FileResolution>, ResolutionError>
 {
     let mut resolutions = vec![];
-    for (i, target_info) in target_infos.iter().enumerate()
+    for (i, target_info) in blob.files.iter().enumerate()
     {
         match resolve_single_target(
             system,
@@ -590,13 +655,13 @@ pub fn resolve_with_no_current_file_states<SystemType : System>
 (
     system : &mut SystemType,
     cache : &mut SysCache<SystemType>,
-    target_infos : &Vec<TargetFileInfo>,
+    blob : &Blob,
 )
 ->
 Result<Vec<FileResolution>, ResolutionError>
 {
     let mut resolutions = vec![];
-    for target_info in target_infos.iter()
+    for target_info in blob.files.iter()
     {
         match get_file_ticket(system, &target_info.path, &target_info.file_state)
         {
@@ -661,7 +726,7 @@ mod test
         GetCurrentFileInfoError,
     };
 
-    /*  Create a file, and make TargetFileInfo that matches the reality of that file.
+    /*  Create a file, and make FileInfo that matches the reality of that file.
         Call get_actual_file_state and check that the returned data matches. */
     #[test]
     fn blob_get_actual_file_state_complete_match()
@@ -791,7 +856,7 @@ mod test
         assert_eq!(file_state.executable, false);
     }
 
-    /*  Create a TargetFileInfo for a file that does not exist.
+    /*  Create a FileInfo for a file that does not exist.
         Check that get_actual_file_state returns an appropriate error. */
     #[test]
     fn blob_get_actual_file_state_file_not_found()
@@ -943,7 +1008,7 @@ mod test
         }
     }
 
-    /*  Create a file and a TargetFileInfo for that file with matching timestamp.  Then fill the file
+    /*  Create a file and a FileInfo for that file with matching timestamp.  Then fill the file
         with some other data.  Make sure that when we get_file_ticket, we get the one from the history
         instead of the one from the file. */
     #[test]
@@ -962,7 +1027,7 @@ mod test
             Err(why) => panic!("Failed to make fake file: {}", why),
         }
 
-        // Then get the ticket for the current target file, passing the TargetFileInfo
+        // Then get the ticket for the current target file, passing the FileInfo
         // with timestamp 11.  Check that it gives the ticket for the C++ code.
         match get_file_ticket(
             &system,
@@ -981,7 +1046,7 @@ mod test
         }
     }
 
-    /*  Create a file and a TargetFileInfo for that file with not-matching timestamp.  Fill the file
+    /*  Create a file and a FileInfo for that file with not-matching timestamp.  Fill the file
         with new and improved code.  Make sure that when we get_file_ticket, we get the one from the
         file because the history doesn't match. */
     #[test]
@@ -1003,7 +1068,7 @@ mod test
             Err(why) => panic!("Failed to make fake file: {}", why),
         }
 
-        // Then get the ticket for the current target file, passing the TargetFileInfo
+        // Then get the ticket for the current target file, passing the FileInfo
         // with timestamp 11.  Check that it gives the ticket for the C++ code.
         match get_file_ticket(
             &system,
