@@ -46,7 +46,6 @@ use crate::packet::
 use crate::blob::
 {
     Blob,
-    FileInfo,
     FileResolution,
 };
 use crate::work::
@@ -450,7 +449,7 @@ pub fn build
             None => vec![],
         };
 
-        let blob = Blob::from_file_paths(&mut elements.current_file_states, node.targets);
+        let blob = Blob::from_file_paths(elements.current_file_states, node.targets);
 
         let mut downloader_cache_urls = vec![];
         let mut downloader_history_urls = vec![];
@@ -605,7 +604,7 @@ pub fn build
 
                             WorkOption::Resolutions(resolutions) =>
                             {
-                                for (i, target_info) in work_result.blob.iter().enumerate()
+                                for (i, target_info) in work_result.target_infos.iter().enumerate()
                                 {
                                     let (banner_text, banner_color) =
                                         match resolutions[i]
@@ -629,9 +628,9 @@ pub fn build
 
                             WorkOption::CommandExecuted(output) =>
                             {
-                                for target_info in work_result.blob.iter()
+                                for target_info in work_result.target_infos.iter()
                                 {
-                                    printer.print_single_banner_line("     Built", Color::Magenta, &target_info.path);  
+                                    printer.print_single_banner_line("     Built", Color::Magenta, &target_info.path);
                                 }
 
                                 if output.out != ""
@@ -647,7 +646,7 @@ pub fn build
                                 if !output.success
                                 {
                                     printer.error(
-                                        &format!("RESULT: {}", 
+                                        &format!("RESULT: {}",
                                             match output.code
                                             {
                                                 Some(code) => format!("{}", code),
@@ -680,7 +679,7 @@ pub fn build
                             None => {},
                         }
 
-                        for target_info in work_result.blob.drain(..)
+                        for target_info in work_result.target_infos.drain(..)
                         {
                             elements.current_file_states.insert_file_state(target_info.path, target_info.file_state);
                         }
@@ -770,11 +769,11 @@ pub fn clean<SystemType : System + 'static>
 
     for mut node in nodes.drain(..)
     {
-        let mut blob = Vec::new();
+        let mut target_infos = Vec::new();
         for target_path in node.targets.drain(..)
         {
-            blob.push(
-                FileInfo
+            target_infos.push(
+                TargetFileInfo
                 {
                     file_state : elements.current_file_states.take(&target_path),
                     path : target_path,
@@ -793,7 +792,7 @@ pub fn clean<SystemType : System + 'static>
                         move || -> Result<(), WorkError>
                         {
                             clean_targets(
-                                blob,
+                                target_infos,
                                 &mut system_clone,
                                 &mut local_cache_clone)
                         }

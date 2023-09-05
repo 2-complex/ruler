@@ -16,6 +16,7 @@ use crate::history::
 use crate::blob::
 {
     Blob,
+    GetTicketsError,
     TargetTickets,
     FileResolution,
     FileInfo,
@@ -47,7 +48,7 @@ pub enum WorkOption
 pub struct WorkResult
 {
     pub target_tickets : Vec<Ticket>,
-    pub blob : Vec<FileInfo>,
+    pub blob : Blob,
     pub work_option : WorkOption,
     pub rule_history : Option<RuleHistory>,
 }
@@ -128,14 +129,11 @@ pub fn handle_source_only_node<SystemType: System>
 Result<WorkResult, WorkError>
 {
     let current_target_tickets =
-    match get_current_target_tickets(&system, &blob)
+    match blob.get_current_target_tickets(&system)
     {
-        Ok(target_tickets) => target_tickets,
-        Err(WorkError::FileNotFound(path)) =>
-        {
-            return Err(WorkError::FileNotFound(path));
-        },
-        Err(error) => return Err(error),
+        Ok(tickets) => tickets,
+        Err(GetTicketsError::FileNotFound(path)) => return Err(WorkError::FileNotFound(path)),
+        Err(GetTicketsError::ReadWriteError(path, error)) => return Err(WorkError::ReadWriteError(path, error)),
     };
 
     Ok(

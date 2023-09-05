@@ -53,10 +53,15 @@ pub struct FileInfo
 }
 
 #[derive(Debug)]
-pub enum BlobError
+pub enum GetTicketsError
 {
     FileNotFound(String),
     ReadWriteError(String, ReadWriteError),
+}
+
+#[derive(Debug)]
+pub enum BlobError
+{
     Contradiction(Vec<usize>),
     TargetSizesDifferWeird,
 }
@@ -91,12 +96,12 @@ impl Blob
         }
     }
 
-    fn get_current_target_tickets<SystemType: System>
+    pub fn get_current_target_tickets<SystemType: System>
     (
         self : &Self,
         system : &SystemType,
     )
-    -> Result<Vec<Ticket>, Blob>
+    -> Result<Vec<Ticket>, GetTicketsError>
     {
         let mut target_tickets = Vec::new();
         for target_info in self.files.iter()
@@ -108,10 +113,10 @@ impl Blob
                     match ticket_opt
                     {
                         Some(ticket) => target_tickets.push(ticket),
-                        None => return Err(BlobError::FileNotFound(target_info.path.clone())),
+                        None => return Err(GetTicketsError::FileNotFound(target_info.path.clone())),
                     }
                 },
-                Err(error) => return Err(BlobError::ReadWriteError(target_info.path.clone(), error)),
+                Err(error) => return Err(GetTicketsError::ReadWriteError(target_info.path.clone(), error)),
             }
         }
 
