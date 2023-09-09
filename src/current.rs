@@ -5,6 +5,8 @@ use crate::system::
 };
 use crate::blob::
 {
+    Blob,
+    FileInfo,
     FileState,
 };
 use std::collections::HashMap;
@@ -198,6 +200,36 @@ impl<SystemType : System> CurrentFileStates<SystemType>
         {
             Some(file_state) => file_state,
             None => FileState::empty(), // TODO: does this ever happen?
+        }
+    }
+
+    pub fn take_blob(
+        self : &mut Self,
+        paths : Vec<String>) -> Blob
+    {
+        let mut files = Vec::new();
+        for target_path in paths.drain(..)
+        {
+            files.push(
+                FileInfo
+                {
+                    file_state : self.take(&target_path),
+                    path : target_path,
+                }
+            );
+        }
+
+        Blob
+        {
+            files : files
+        }
+    }
+
+    pub fn insert_blob(self : &mut Self, blob : Blob)
+    {
+        for target_info in blob.files.drain(..)
+        {
+            self.insert_file_state(target_info.path, target_info.file_state);
         }
     }
 }

@@ -45,7 +45,6 @@ use crate::packet::
 };
 use crate::blob::
 {
-    Blob,
     FileResolution,
 };
 use crate::work::
@@ -449,7 +448,7 @@ pub fn build
             None => vec![],
         };
 
-        let blob = Blob::from_file_paths(elements.current_file_states, node.targets);
+        let blob = elements.current_file_states.take_blob(node.targets);
 
         let mut downloader_cache_urls = vec![];
         let mut downloader_history_urls = vec![];
@@ -604,7 +603,7 @@ pub fn build
 
                             WorkOption::Resolutions(resolutions) =>
                             {
-                                for (i, target_info) in work_result.target_infos.iter().enumerate()
+                                for (i, path) in work_result.blob.get_paths().iter().enumerate()
                                 {
                                     let (banner_text, banner_color) =
                                         match resolutions[i]
@@ -622,15 +621,15 @@ pub fn build
                                                 ("  Outdated", Color::Red),
                                         };
 
-                                    printer.print_single_banner_line(banner_text, banner_color, &target_info.path);
+                                    printer.print_single_banner_line(banner_text, banner_color, &path);
                                 }
                             },
 
                             WorkOption::CommandExecuted(output) =>
                             {
-                                for target_info in work_result.target_infos.iter()
+                                for path in work_result.blob.get_paths().iter()
                                 {
-                                    printer.print_single_banner_line("     Built", Color::Magenta, &target_info.path);
+                                    printer.print_single_banner_line("     Built", Color::Magenta, &path);
                                 }
 
                                 if output.out != ""
@@ -679,10 +678,7 @@ pub fn build
                             None => {},
                         }
 
-                        for target_info in work_result.target_infos.drain(..)
-                        {
-                            elements.current_file_states.insert_file_state(target_info.path, target_info.file_state);
-                        }
+                        elements.current_file_states.insert_blob(work_result.blob);
                     },
                     Err(BuildError::WorkError(work_error)) => work_errors.push(work_error),
                     Err(BuildError::Canceled) => {},
@@ -769,17 +765,7 @@ pub fn clean<SystemType : System + 'static>
 
     for mut node in nodes.drain(..)
     {
-        let mut target_infos = Vec::new();
-        for target_path in node.targets.drain(..)
-        {
-            target_infos.push(
-                TargetFileInfo
-                {
-                    file_state : elements.current_file_states.take(&target_path),
-                    path : target_path,
-                }
-            );
-        }
+        let mut blob = elements.current_file_states.take_blob(node.targets);
 
         let mut system_clone = system.clone();
         let mut local_cache_clone = elements.cache.clone();
@@ -792,7 +778,7 @@ pub fn clean<SystemType : System + 'static>
                         move || -> Result<(), WorkError>
                         {
                             clean_targets(
-                                target_infos,
+                                blob,
                                 &mut system_clone,
                                 &mut local_cache_clone)
                         }

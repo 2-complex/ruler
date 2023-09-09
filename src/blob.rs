@@ -13,11 +13,6 @@ use crate::cache::
     DownloadResult,
 };
 
-use crate::current::
-{
-    CurrentFileStates
-};
-
 use crate::system::util::get_timestamp;
 
 use crate::ticket::
@@ -69,31 +64,18 @@ pub enum BlobError
 #[derive(Debug)]
 pub struct Blob
 {
-    files : Vec<FileInfo>
+    pub files : Vec<FileInfo>
 }
 
 impl Blob
 {
-    pub fn from_file_paths<SystemType : System>(
-        current_file_states : &mut CurrentFileStates<SystemType>,
-        paths : Vec<String>) -> Self
+    pub fn get_paths
+    (
+        self : &Self
+    )
+    -> Vec<String>
     {
-        let mut files = Vec::new();
-        for target_path in paths.drain(..)
-        {
-            files.push(
-                FileInfo
-                {
-                    file_state : current_file_states.take(&target_path),
-                    path : target_path,
-                }
-            );
-        }
-
-        Blob
-        {
-            files : files
-        }
+        return self.files.iter().map(|f|{return f.path.clone()}).collect();
     }
 
     pub fn get_current_target_tickets<SystemType: System>

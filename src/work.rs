@@ -174,7 +174,7 @@ fn rebuild_node<SystemType : System>
     mut rule_history : RuleHistory,
     sources_ticket : Ticket,
     command : Vec<String>,
-    mut blob : Vec<FileInfo>
+    mut blob : Blob
 )
 ->
 Result<WorkResult, WorkError>
@@ -195,7 +195,7 @@ Result<WorkResult, WorkError>
     }
 
     let mut infos = vec![];
-    for target_info in blob.iter_mut()
+    for target_info in blob.files.iter_mut()
     {
         match get_actual_file_state(system, &target_info.path, &target_info.file_state)
         {
@@ -426,13 +426,13 @@ Result<WorkResult, WorkError>
 
 pub fn clean_targets<SystemType: System>
 (
-    blob : Vec<FileInfo>,
+    blob : Blob,
     system : &mut SystemType,
     cache : &mut SysCache<SystemType>
 )
 -> Result<(), WorkError>
 {
-    for target_info in blob
+    for target_info in blob.files
     {
         if system.is_file(&target_info.path)
         {
