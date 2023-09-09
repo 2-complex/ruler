@@ -449,7 +449,7 @@ pub fn build
             None => vec![],
         };
 
-        let blob = Blob::from_file_paths(elements.current_file_states, node.targets);
+        let blob = Blob::from_file_paths(&mut elements.current_file_states, node.targets);
 
         let mut downloader_cache_urls = vec![];
         let mut downloader_history_urls = vec![];
@@ -604,7 +604,7 @@ pub fn build
 
                             WorkOption::Resolutions(resolutions) =>
                             {
-                                for (i, target_info) in work_result.target_infos.iter().enumerate()
+                                for (i, target_info) in work_result.blob.files.iter().enumerate()
                                 {
                                     let (banner_text, banner_color) =
                                         match resolutions[i]
@@ -628,7 +628,7 @@ pub fn build
 
                             WorkOption::CommandExecuted(output) =>
                             {
-                                for target_info in work_result.target_infos.iter()
+                                for target_info in work_result.blob.files.iter()
                                 {
                                     printer.print_single_banner_line("     Built", Color::Magenta, &target_info.path);
                                 }
@@ -769,17 +769,7 @@ pub fn clean<SystemType : System + 'static>
 
     for mut node in nodes.drain(..)
     {
-        let mut target_infos = Vec::new();
-        for target_path in node.targets.drain(..)
-        {
-            target_infos.push(
-                TargetFileInfo
-                {
-                    file_state : elements.current_file_states.take(&target_path),
-                    path : target_path,
-                }
-            );
-        }
+        let blob = Blob::from_file_paths(elements.current_file_states, node.targets);
 
         let mut system_clone = system.clone();
         let mut local_cache_clone = elements.cache.clone();
@@ -792,7 +782,7 @@ pub fn clean<SystemType : System + 'static>
                         move || -> Result<(), WorkError>
                         {
                             clean_targets(
-                                target_infos,
+                                blob,
                                 &mut system_clone,
                                 &mut local_cache_clone)
                         }

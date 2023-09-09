@@ -69,7 +69,7 @@ pub enum BlobError
 #[derive(Debug)]
 pub struct Blob
 {
-    files : Vec<FileInfo>
+    pub files : Vec<FileInfo>
 }
 
 impl Blob
