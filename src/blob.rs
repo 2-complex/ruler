@@ -64,7 +64,7 @@ pub enum BlobError
 #[derive(Debug)]
 pub struct Blob
 {
-    pub files : Vec<FileInfo>
+    pub file_infos : Vec<FileInfo>
 }
 
 impl Blob
@@ -75,7 +75,33 @@ impl Blob
     )
     -> Vec<String>
     {
-        return self.files.iter().map(|f|{return f.path.clone()}).collect();
+        return self.file_infos.iter().map(|f|{return f.path.clone()}).collect();
+    }
+
+    #[cfg(test)]
+    pub fn from_paths(paths : Vec<String>)
+    -> Blob
+    {
+        Blob
+        { 
+            file_infos : paths.into_iter().map(|path|
+            {
+                FileInfo
+                {
+                    path : path,
+                    file_state : FileState::new(TicketFactory::new().result(), 0),
+                }
+            }
+        ).collect()}
+    }
+
+    pub fn empty()
+    -> Blob
+    {
+        Blob
+        { 
+            file_infos : vec![]
+        }
     }
 
     pub fn get_current_target_tickets<SystemType: System>
@@ -86,7 +112,7 @@ impl Blob
     -> Result<Vec<Ticket>, GetTicketsError>
     {
         let mut target_tickets = Vec::new();
-        for target_info in self.files.iter()
+        for target_info in self.file_infos.iter()
         {
             match get_file_ticket(system, &target_info.path, &target_info.file_state)
             {
@@ -104,6 +130,80 @@ impl Blob
 
         Ok(target_tickets)
     }
+
+    pub fn resolve_remembered_target_tickets<SystemType : System>
+    (
+        self : &Self,
+        system : &mut SystemType,
+        cache : &mut SysCache<SystemType>,
+        downloader_cache_opt : &Option<DownloaderCache>,
+        remembered_tickets : &TargetTickets,
+    )
+    ->
+    Result<Vec<FileResolution>, ResolutionError>
+    {
+        let mut resolutions = vec![];
+        for (i, info) in self.file_infos.iter().enumerate()
+        {
+            match resolve_single_target(
+                system,
+                cache,
+                downloader_cache_opt,
+                &remembered_tickets.get_info(i),
+                info)
+            {
+                Ok(resolution) => resolutions.push(resolution),
+                Err(error) => return Err(error),
+            }
+        }
+
+        Ok(resolutions)
+    }
+
+    pub fn resolve_with_no_current_file_states<SystemType : System>
+    (
+        self : &Blob,
+        system : &mut SystemType,
+        cache : &mut SysCache<SystemType>,
+    )
+    ->
+    Result<Vec<FileResolution>, ResolutionError>
+    {
+        let mut resolutions = vec![];
+        for file_info in self.file_infos.iter()
+        {
+            match get_file_ticket(system, &file_info.path, &file_info.file_state)
+            {
+                Ok(Some(current_target_ticket)) =>
+                {
+                    match cache.back_up_file_with_ticket(
+                        &current_target_ticket,
+                        &file_info.path)
+                    {
+                        Ok(_) =>
+                        {
+                            // TODO: Maybe encode whether it was cached in the FileResoluton
+                            resolutions.push(FileResolution::NeedsRebuild);
+                        },
+                        Err(error) =>
+                        {
+                            return Err(
+                                ResolutionError::FileNotAvailableToCache(
+                                    file_info.path.clone(), error));
+                        }
+                    }
+                },
+
+                Ok(None) => resolutions.push(FileResolution::NeedsRebuild),
+
+                Err(error) =>
+                    return Err(ResolutionError::TicketAlignmentError(error)),
+            }
+        }
+
+        Ok(resolutions)
+    }
+
 }
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
@@ -608,80 +708,6 @@ Result<FileResolution, ResolutionError>
         },
     }
 }
-
-pub fn resolve_remembered_target_tickets<SystemType : System>
-(
-    system : &mut SystemType,
-    cache : &mut SysCache<SystemType>,
-    downloader_cache_opt : &Option<DownloaderCache>,
-    blob : &Blob,
-    remembered_tickets : &TargetTickets,
-)
-->
-Result<Vec<FileResolution>, ResolutionError>
-{
-    let mut resolutions = vec![];
-    for (i, target_info) in blob.files.iter().enumerate()
-    {
-        match resolve_single_target(
-            system,
-            cache,
-            downloader_cache_opt,
-            &remembered_tickets.get_info(i),
-            target_info)
-        {
-            Ok(resolution) => resolutions.push(resolution),
-            Err(error) => return Err(error),
-        }
-    }
-
-    Ok(resolutions)
-}
-
-pub fn resolve_with_no_current_file_states<SystemType : System>
-(
-    system : &mut SystemType,
-    cache : &mut SysCache<SystemType>,
-    blob : &Blob,
-)
-->
-Result<Vec<FileResolution>, ResolutionError>
-{
-    let mut resolutions = vec![];
-    for target_info in blob.files.iter()
-    {
-        match get_file_ticket(system, &target_info.path, &target_info.file_state)
-        {
-            Ok(Some(current_target_ticket)) =>
-            {
-                match cache.back_up_file_with_ticket(
-                    &current_target_ticket,
-                    &target_info.path)
-                {
-                    Ok(_) =>
-                    {
-                        // TODO: Maybe encode whether it was cached in the FileResoluton
-                        resolutions.push(FileResolution::NeedsRebuild);
-                    },
-                    Err(error) =>
-                    {
-                        return Err(
-                            ResolutionError::FileNotAvailableToCache(
-                                target_info.path.clone(), error));
-                    }
-                }
-            },
-
-            Ok(None) => resolutions.push(FileResolution::NeedsRebuild),
-
-            Err(error) =>
-                return Err(ResolutionError::TicketAlignmentError(error)),
-        }
-    }
-
-    Ok(resolutions)
-}
-
 
 #[cfg(test)]
 mod test

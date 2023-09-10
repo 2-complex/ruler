@@ -448,7 +448,9 @@ pub fn build
             None => vec![],
         };
 
-        let blob = elements.current_file_states.take_blob(node.targets);
+        let temp_targets = node.targets;
+        node.targets = vec![];
+        let blob = elements.current_file_states.take_blob(temp_targets);
 
         let mut downloader_cache_urls = vec![];
         let mut downloader_history_urls = vec![];
@@ -593,7 +595,7 @@ pub fn build
             {
                 match work_result_result
                 {
-                    Ok(mut work_result) =>
+                    Ok(work_result) =>
                     {
                         match work_result.work_option
                         {
@@ -762,11 +764,9 @@ pub fn clean<SystemType : System + 'static>
     };
 
     let mut handles = Vec::new();
-
-    for mut node in nodes.drain(..)
+    for node in nodes.drain(..)
     {
-        let mut blob = elements.current_file_states.take_blob(node.targets);
-
+        let blob = elements.current_file_states.take_blob(node.targets);
         let mut system_clone = system.clone();
         let mut local_cache_clone = elements.cache.clone();
 

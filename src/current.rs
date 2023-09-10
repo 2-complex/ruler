@@ -207,29 +207,22 @@ impl<SystemType : System> CurrentFileStates<SystemType>
         self : &mut Self,
         paths : Vec<String>) -> Blob
     {
-        let mut files = Vec::new();
-        for target_path in paths.drain(..)
-        {
-            files.push(
+        Blob{file_infos : paths.into_iter().map(|path|
+            {
                 FileInfo
                 {
-                    file_state : self.take(&target_path),
-                    path : target_path,
+                    file_state : self.take(&path),
+                    path : path,
                 }
-            );
-        }
-
-        Blob
-        {
-            files : files
-        }
+            }
+        ).collect()}
     }
 
     pub fn insert_blob(self : &mut Self, blob : Blob)
     {
-        for target_info in blob.files.drain(..)
+        for info in blob.file_infos.into_iter()
         {
-            self.insert_file_state(target_info.path, target_info.file_state);
+            self.insert_file_state(info.path, info.file_state)
         }
     }
 }

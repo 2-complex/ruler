@@ -19,14 +19,11 @@ use crate::blob::
     GetTicketsError,
     TargetTickets,
     FileResolution,
-    FileInfo,
     ResolutionError,
     GetCurrentFileInfoError,
     TargetContentInfo,
     get_file_ticket,
     get_actual_file_state,
-    resolve_remembered_target_tickets,
-    resolve_with_no_current_file_states,
 };
 use crate::cache::
 {
@@ -195,7 +192,7 @@ Result<WorkResult, WorkError>
     }
 
     let mut infos = vec![];
-    for target_info in blob.files.iter_mut()
+    for target_info in blob.file_infos.iter_mut()
     {
         match get_actual_file_state(system, &target_info.path, &target_info.file_state)
         {
@@ -226,9 +223,10 @@ Result<WorkResult, WorkError>
                 RuleHistoryInsertError::Contradiction(contradicting_indices) =>
                 {
                     let mut contradicting_target_paths = Vec::new();
+                    let paths = blob.get_paths();
                     for index in contradicting_indices
                     {
-                        contradicting_target_paths.push(blob[index].path.clone())
+                        contradicting_target_paths.push(paths[index].clone());
                     }
                     return Err(WorkError::Contradiction(contradicting_target_paths));
                 }
@@ -276,8 +274,8 @@ Result<Vec<FileResolution>, WorkError>
     {
         Some(remembered_target_tickets) =>
         {
-            return match resolve_remembered_target_tickets(
-                system, cache, downloader_cache_opt, blob, remembered_target_tickets)
+            return match blob.resolve_remembered_target_tickets(
+                system, cache, downloader_cache_opt, remembered_target_tickets)
             {
                 Ok(file_resolution) => Ok(file_resolution),
                 Err(resolution_error) => Err(WorkError::ResolutionError(resolution_error)),
@@ -295,8 +293,8 @@ Result<Vec<FileResolution>, WorkError>
             {
                 Some(target_tickets) =>
                 {
-                    return match resolve_remembered_target_tickets(
-                        system, cache, downloader_cache_opt, blob, &target_tickets)
+                    return match blob.resolve_remembered_target_tickets(
+                        system, cache, downloader_cache_opt, &target_tickets)
                     {
                         Ok(file_resolution) => Ok(file_resolution),
                         Err(resolution_error) => Err(WorkError::ResolutionError(resolution_error)),
@@ -310,9 +308,9 @@ Result<Vec<FileResolution>, WorkError>
         None => {},
     }
 
-    match resolve_with_no_current_file_states(system, cache, blob)
+    match blob.resolve_with_no_current_file_states(system, cache)
     {
-        Ok(file_resolution) => Ok(file_resolution),
+        Ok(resolutions) => Ok(resolutions),
         Err(resolution_error) => Err(WorkError::ResolutionError(resolution_error)),
     }
 }
@@ -400,12 +398,11 @@ Result<WorkResult, WorkError>
             }
             else
             {
-                let target_tickets = match get_current_target_tickets(
-                    &info.system,
-                    &info.blob)
+                let target_tickets = match info.blob.get_current_target_tickets(&info.system)
                 {
                     Ok(target_tickets) => target_tickets,
-                    Err(error) => return Err(error),
+                    Err(GetTicketsError::FileNotFound(path)) => return Err(WorkError::FileNotFound(path)),
+                    Err(GetTicketsError::ReadWriteError(path, error)) => return Err(WorkError::ReadWriteError(path, error)),
                 };
 
                 Ok(
@@ -432,7 +429,7 @@ pub fn clean_targets<SystemType: System>
 )
 -> Result<(), WorkError>
 {
-    for target_info in blob.files
+    for target_info in blob.file_infos
     {
         if system.is_file(&target_info.path)
         {
@@ -497,6 +494,7 @@ mod test
     };
     use crate::blob::
     {
+        Blob,
         FileState,
         TargetTickets,
         ResolutionError,
@@ -540,27 +538,6 @@ mod test
                 });
         }
         Ok(factory.result())
-    }
-
-    fn to_info(mut targets : Vec<String>) -> Vec<FileInfo>
-    {
-        let mut result = Vec::new();
-
-        for target_path in targets.drain(..)
-        {
-            result.push(
-                FileInfo
-                {
-                    path : target_path,
-                    file_state : FileState::new(
-                        TicketFactory::new().result(),
-                        0,
-                    ),
-                }
-            );
-        }
-
-        result
     }
 
     /*  Create a rule-history and populate it simulating a game having been built from a
@@ -643,7 +620,7 @@ mod test
         system.create_dir(".ruler-cache").unwrap();
 
         let mut info = HandleNodeInfo::new(system.clone());
-        info.blob = to_info(vec![]);
+        info.blob = Blob::empty();
 
         let mut ticket_factory = TicketFactory::new();
         ticket_factory.input_ticket(TicketFactory::from_str("A-content").result());
@@ -682,7 +659,7 @@ mod test
         rule_ext.command = vec!["mycat".to_string(), "A-source.txt".to_string(), "A.txt".to_string()];
 
         let mut info = HandleNodeInfo::new(system.clone());
-        info.blob = to_info(vec!["A.txt".to_string()]);
+        info.blob = Blob::from_paths(vec!["A.txt".to_string()]);
 
         match handle_rule_node(info, rule_ext)
         {
@@ -718,7 +695,7 @@ mod test
         rule_ext.command = vec!["error".to_string()];
 
         let mut info = HandleNodeInfo::new(system.clone());
-        info.blob = to_info(vec!["poem.txt".to_string()]);
+        info.blob = Blob::from_paths(vec!["poem.txt".to_string()]);
 
         match handle_rule_node(info, rule_ext)
         {
@@ -745,7 +722,7 @@ mod test
         rule_ext.command = vec!["mycat".to_string(),"verse1.txt".to_string(),"verse2.txt".to_string(),"wrong.txt".to_string()];
 
         let mut info = HandleNodeInfo::new(system.clone());
-        info.blob = to_info(vec!["poem.txt".to_string()]);
+        info.blob = Blob::from_paths(vec!["poem.txt".to_string()]);
 
         match handle_rule_node(info, rule_ext)
         {
@@ -773,7 +750,7 @@ mod test
         rule_ext.command = vec!["mycat".to_string(),"verse1.txt".to_string(),"verse2.txt".to_string(),"poem.txt".to_string()];
 
         let mut info = HandleNodeInfo::new(system.clone());
-        info.blob = to_info(vec!["poem.txt".to_string()]);
+        info.blob = Blob::from_paths(vec!["poem.txt".to_string()]);
 
         match handle_rule_node(info, rule_ext)
         {
@@ -837,7 +814,7 @@ mod test
         rule_ext.rule_history = rule_history;
 
         let mut info = HandleNodeInfo::new(system.clone());
-        info.blob = to_info(vec!["poem.txt".to_string()]);
+        info.blob = Blob::from_paths(vec!["poem.txt".to_string()]);
 
         match handle_rule_node(info, rule_ext)
         {
@@ -902,7 +879,7 @@ mod test
         rule_ext.rule_history = rule_history;
 
         let mut info = HandleNodeInfo::new(system.clone());
-        info.blob = to_info(vec!["poem.txt".to_string()]);
+        info.blob = Blob::from_paths(vec!["poem.txt".to_string()]);
 
         match handle_rule_node(info, rule_ext)
         {
@@ -947,7 +924,7 @@ mod test
         rule_ext.rule_history = RuleHistory::new();
 
         let mut info = HandleNodeInfo::new(system.clone());
-        info.blob = to_info(vec!["poem.txt".to_string()]);
+        info.blob = Blob::from_paths(vec!["poem.txt".to_string()]);
 
         match handle_rule_node(info, rule_ext)
         {
@@ -1004,7 +981,7 @@ mod test
             Err(_) => panic!("File write operation failed"),
         }
 
-        match handle_source_only_node(system, to_info(vec!["verse1.txt".to_string()]))
+        match handle_source_only_node(system, Blob::from_paths(vec!["verse1.txt".to_string()]))
         {
             Ok(_) =>
             {
@@ -1035,7 +1012,7 @@ mod test
         rule_ext.command = vec!["rm".to_string(), "verse1.txt".to_string()];
 
         let mut info = HandleNodeInfo::new(system.clone());
-        info.blob = to_info(vec!["verse1.txt".to_string()]);
+        info.blob = Blob::from_paths(vec!["verse1.txt".to_string()]);
 
         match handle_rule_node(info, rule_ext)
         {
@@ -1081,7 +1058,7 @@ mod test
         rule_ext.rule_history = RuleHistory::new();
 
         let mut info = HandleNodeInfo::new(system.clone());
-        info.blob = to_info(vec![
+        info.blob = Blob::from_paths(vec![
             "poem.txt".to_string(),
             "poem_copy.txt".to_string()
         ]);
@@ -1136,7 +1113,7 @@ mod test
         rule_ext.rule_history = RuleHistory::new();
 
         let mut info = HandleNodeInfo::new(system.clone());
-        info.blob = to_info(vec![
+        info.blob = Blob::from_paths(vec![
             "poem.txt".to_string()
         ]);
 
@@ -1185,7 +1162,7 @@ mod test
         rule_ext.command = vec!["error".to_string()];
 
         let mut info = HandleNodeInfo::new(system.clone());
-        info.blob = to_info(vec![
+        info.blob = Blob::from_paths(vec![
             "poem.txt".to_string()
         ]);
 
@@ -1234,7 +1211,7 @@ mod test
         rule_ext.command = vec!["error".to_string()];
 
         let mut info = HandleNodeInfo::new(system.clone());
-        info.blob = to_info(vec![
+        info.blob = Blob::from_paths(vec![
             "poem.txt".to_string(),
             "poem_copy.txt".to_string()
         ]);
@@ -1293,7 +1270,7 @@ mod test
         rule_ext.rule_history = rule_history;
 
         let mut info = HandleNodeInfo::new(system.clone());
-        info.blob = vec![
+        info.blob = Blob{file_infos : vec![
             FileInfo
             {
                 path : "poem.txt".to_string(),
@@ -1301,8 +1278,8 @@ mod test
                     TicketFactory::from_str("Roses are red\nViolets are violet\n").result(),
                     19,
                 ),
-            }
-        ];
+            }]
+        };
 
         match handle_rule_node(info, rule_ext)
         {
