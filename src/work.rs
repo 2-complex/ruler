@@ -477,7 +477,6 @@ mod test
         FileResolution,
         WorkOption,
         WorkError,
-        FileInfo,
         HandleNodeInfo,
         RuleExt,
         handle_source_only_node,
@@ -495,6 +494,7 @@ mod test
     use crate::blob::
     {
         Blob,
+        FileInfo,
         FileState,
         TargetTickets,
         ResolutionError,
