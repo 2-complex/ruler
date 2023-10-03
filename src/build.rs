@@ -735,33 +735,7 @@ pub fn clean<SystemType : System + 'static>
         }
     };
 
-    let rules =
-    match parse_all(read_all_rules_files_to_strings(&system, rulefile_paths)?)
-    {
-        Ok(rules) => rules,
-        Err(error) => return Err(BuildError::RuleFileFailedToParse(error)),
-    };
-
-    let mut nodes =
-    match goal_target_opt
-    {
-        Some(goal_target) =>
-        {
-            match topological_sort(rules, &goal_target)
-            {
-                Ok(nodes) => nodes,
-                Err(error) => return Err(BuildError::TopologicalSortFailed(error)),
-            }
-        },
-        None =>
-        {
-            match topological_sort_all(rules)
-            {
-                Ok(nodes) => nodes,
-                Err(error) => return Err(BuildError::TopologicalSortFailed(error)),
-            }
-        }
-    };
+    let mut nodes = get_nodes(&mut system, rulefile_paths, goal_target_opt)?;
 
     let mut handles = Vec::new();
     for node in nodes.drain(..)
