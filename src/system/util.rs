@@ -37,6 +37,7 @@ pub fn get_timestamp(system_time : SystemTime) -> Result<u64, SystemTimeError>
 
 /*  Takes a System, a path as a &str and content, and content as a &str.  Writes content to the file.
     If system fails, forwards the system error.  If file-io fails, forwards the std::io::Error. */
+#[allow(dead_code)]
 pub fn write_str_to_file
 <
     SystemType : System,

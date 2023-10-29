@@ -229,8 +229,7 @@ fn read_all_rules_files_to_strings<SystemType : System>
     Ok(result)
 }
 
-/*  This is the function that runs when you type "ruler nodes" at the commandline.
-    It opens the rulefile, parses it, and returns the vector of rule Nodes. */
+/*  Opens the rulefile, parses it, and returns the vector of rule Nodes. */
 pub fn get_nodes
 <
     SystemType : System,
