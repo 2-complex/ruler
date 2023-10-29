@@ -43,7 +43,7 @@ struct RunConfig
 {
     #[arg(index=1, required=true, value_name = "EXECUTABLE", help =
 "A path to the executable to build and run.")]
-    executable : Option<String>,
+    executable : String,
 
     #[arg(index=2, help=
 "Arguments forwarded to the executable when it runs.")]
@@ -125,9 +125,20 @@ fn main()
                 Err(error) => eprintln!("{}", error),
             }
         },
-        RulerSubcommand::Run(_run_config) =>
+        RulerSubcommand::Run(run_config) =>
         {
-            println!("Run!");
+            match build::run(
+                RealSystem::new(),
+                &command_line.directory,
+                command_line.rules,
+                None,
+                run_config.executable,
+                run_config.extra_args,
+                &mut StandardPrinter::new())
+            {
+                Ok(()) => {},
+                Err(error) => eprintln!("{}", error),
+            }
         },
         RulerSubcommand::Clean(build_config) =>
         {

@@ -131,7 +131,6 @@ pub enum BuildError
     Weird,
 }
 
-
 impl fmt::Display for BuildError
 {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
@@ -189,6 +188,27 @@ impl fmt::Display for BuildError
 
             BuildError::Weird =>
                 write!(formatter, "Weird! How did you do that!"),
+        }
+    }
+}
+
+pub enum RunError
+{
+    BuildError(BuildError),
+    ExecutionError(SystemError),
+}
+
+impl fmt::Display for RunError
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
+    {
+        match self
+        {
+            RunError::BuildError(build_error) =>
+                write!(formatter, "{}", build_error),
+
+            RunError::ExecutionError(system_error) =>
+                write!(formatter, "Target built but failed to execute cleanly: {}", system_error),
         }
     }
 }
@@ -703,6 +723,47 @@ pub fn build
     else
     {
         Err(BuildError::WorkErrors(work_errors))
+    }
+}
+
+/*  Called when you type "ruler run".  Appeals to build() function to do the build.
+    If there are no errors, executes the target file specified, passing it extra_args. */
+pub fn run
+<
+    SystemType : System + 'static,
+    PrinterType : Printer,
+>
+(
+    mut system : SystemType,
+    directory_path : &str,
+    rulefile_paths : Vec<String>,
+    urlfile_path_opt : Option<String>,
+    executable : String,
+    mut extra_args : Vec<String>,
+    printer : &mut PrinterType
+)
+-> Result<(), RunError>
+{
+    match build(
+        system.clone(),
+        directory_path,
+        rulefile_paths,
+        urlfile_path_opt,
+        Some(executable.clone()),
+        printer,
+    )
+    {
+        Err(error) => return Err(RunError::BuildError(error)),
+        Ok(()) => {},
+    }
+
+    let mut all = vec![format!("./{}", executable)];
+    all.append(&mut extra_args);
+
+    match system.execute_command(all)
+    {
+        Err(system_error) => Err(RunError::ExecutionError(system_error)),
+        Ok(_command_line_output) => Ok(()),
     }
 }
 
