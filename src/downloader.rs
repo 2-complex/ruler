@@ -26,7 +26,7 @@ impl fmt::Display for DownloadError
         match self
         {
             DownloadError::UrlInaccessible(url) =>
-                write!(formatter, "Url did not work: {}", url),
+                write!(formatter, "Url inaccessible: {}", url),
 
             DownloadError::FailedMidDownload(url) =>
                 write!(formatter, "Failed mid download: {}", url),

@@ -31,10 +31,9 @@ use crate::system::util::
 };
 use crate::system::real::RealSystem;
 use crate::printer::StandardPrinter;
-
 use crate::downloader::
 {
-    download_string
+    download_file
 };
 
 mod blob;
@@ -60,26 +59,152 @@ struct BuildInvocation
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
-struct Config
+struct PersistentInfo
 {
     again: Option<BuildInvocation>,
 }
 
-impl Config
+impl PersistentInfo
 {
-    fn new() -> Config
+    fn new() -> PersistentInfo
     {
-        Config
+        PersistentInfo
         {
             again : None
         }
     }
 }
 
-pub enum ConfigError
+pub enum PersistentInfoError
 {
     FailedToCreateDirectory(SystemError),
-    FailedToCreateConfigFile(ReadWriteError),
+    FailedToCreatePersistentInfoFile(ReadWriteError),
+    FailedToReadPersistentInfoFile(ReadFileToStringError),
+    TomlDeError(toml::de::Error),
+    TomlSerError(toml::ser::Error),
+}
+
+impl fmt::Display for PersistentInfoError
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
+    {
+        match self
+        {
+            PersistentInfoError::FailedToCreateDirectory(error) =>
+                write!(formatter, "Failed to create directory: {}", error),
+
+            PersistentInfoError::FailedToCreatePersistentInfoFile(error) =>
+                write!(formatter, "Failed to create persistent_info file: {}", error),
+
+            PersistentInfoError::FailedToReadPersistentInfoFile(error) =>
+                write!(formatter, "Failed to create cache directory: {}", error),
+
+            PersistentInfoError::TomlDeError(error) =>
+                write!(formatter, "PersistentInfo file opened, but failed to parse as toml: {}", error),
+
+            PersistentInfoError::TomlSerError(error) =>
+                write!(formatter, "PersistentInfo failed to encode as toml: {}", error),
+        }
+    }
+}
+
+/*  From the given .ruler directry read the persistent_info.toml file and parse as toml to
+    obtain a PersistentInfo object.  If any part of that fails, forward the appropriate error. */
+fn read_persistent_info<SystemType : System>
+(
+    system : &mut SystemType,
+    directory : &str
+)
+->
+Result<PersistentInfo, PersistentInfoError>
+{
+    if ! system.is_dir(directory)
+    {
+        match system.create_dir(directory)
+        {
+            Ok(_) => {},
+            Err(error) => return Err(PersistentInfoError::FailedToCreateDirectory(error)),
+        }
+    }
+
+    let persistent_info_path = format!("{}/persistent_info.toml", directory);
+
+    if system.is_file(&persistent_info_path)
+    {
+        match read_file_to_string(system, &persistent_info_path)
+        {
+            Ok(content_string) =>
+            {
+                return
+                match toml::from_str(&content_string)
+                {
+                    Ok(persistent_info) => Ok(persistent_info),
+                    Err(error) => Err(PersistentInfoError::TomlDeError(error)),
+                }
+            },
+            Err(error) => return Err(PersistentInfoError::FailedToReadPersistentInfoFile(error)),
+        }
+    }
+    else
+    {
+        let default_persistent_info = PersistentInfo::new();
+        match toml::to_string(&default_persistent_info)
+        {
+            Ok(persistent_info_toml) =>
+            match write_str_to_file(system, &persistent_info_path, &persistent_info_toml)
+            {
+                Ok(_) => Ok(default_persistent_info),
+                Err(error) => Err(PersistentInfoError::FailedToCreatePersistentInfoFile(error)),
+            },
+            Err(error) => Err(PersistentInfoError::TomlSerError(error)),
+        }
+    }
+}
+
+/*  In the given directory, write the persistent info object to toml file.  If any part of that
+    goes wrong, error. */
+fn write_persistent_info<SystemType : System>
+(
+    system : &mut SystemType,
+    directory : &str,
+    persistent_info : &PersistentInfo
+)
+->
+Result<(), PersistentInfoError>
+{
+    if ! system.is_dir(directory)
+    {
+        match system.create_dir(directory)
+        {
+            Ok(_) => {},
+            Err(error) => return Err(PersistentInfoError::FailedToCreateDirectory(error)),
+        }
+    }
+
+    let persistent_info_path = format!("{}/persistent_info.toml", directory);
+
+    match toml::to_string(persistent_info)
+    {
+        Ok(persistent_info_toml) =>
+        match write_str_to_file(system, &persistent_info_path, &persistent_info_toml)
+        {
+            Ok(_) => Ok(()),
+            Err(error) => Err(PersistentInfoError::FailedToCreatePersistentInfoFile(error)),
+        },
+        Err(error) => Err(PersistentInfoError::TomlSerError(error)),
+    }
+}
+
+
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+struct Config
+{
+    download_urls: Option<Vec<String>>,
+}
+
+pub enum ConfigError
+{
+    FileNotFound,
     FailedToReadConfigFile(ReadFileToStringError),
     TomlDeError(toml::de::Error),
     TomlSerError(toml::ser::Error),
@@ -91,11 +216,8 @@ impl fmt::Display for ConfigError
     {
         match self
         {
-            ConfigError::FailedToCreateDirectory(error) =>
-                write!(formatter, "Failed to create directory: {}", error),
-
-            ConfigError::FailedToCreateConfigFile(error) =>
-                write!(formatter, "Failed to create config file: {}", error),
+            ConfigError::FileNotFound =>
+                write!(formatter, "Config file not found"),
 
             ConfigError::FailedToReadConfigFile(error) =>
                 write!(formatter, "Failed to create cache directory: {}", error),
@@ -109,90 +231,31 @@ impl fmt::Display for ConfigError
     }
 }
 
-/*  From the given .ruler directry read the config file and parse as toml to obtain a
-    Config object.  If any part of that fails, forward the appropriate error. */
+/*  Open ruler.toml if it exists, load config data */
 fn read_config<SystemType : System>
 (
-    system : &mut SystemType,
-    directory : &str
+    system : &mut SystemType
 )
 ->
 Result<Config, ConfigError>
 {
-    if ! system.is_dir(directory)
+    let config_path = "ruler.toml";
+    if ! system.is_file(config_path)
     {
-        match system.create_dir(directory)
-        {
-            Ok(_) => {},
-            Err(error) => return Err(ConfigError::FailedToCreateDirectory(error)),
-        }
+        return Err(ConfigError::FileNotFound);
     }
 
-    let config_path = format!("{}/config.toml", directory);
-
-    if system.is_file(&config_path)
+    match read_file_to_string(system, config_path)
     {
-        match read_file_to_string(system, &config_path)
+        Ok(content_string) =>
         {
-            Ok(content_string) =>
+            match toml::from_str(&content_string)
             {
-                return
-                match toml::from_str(&content_string)
-                {
-                    Ok(config) => Ok(config),
-                    Err(error) => Err(ConfigError::TomlDeError(error)),
-                }
-            },
-            Err(error) => return Err(ConfigError::FailedToReadConfigFile(error)),
-        }
-    }
-    else
-    {
-        let default_config = Config::new();
-        match toml::to_string(&default_config)
-        {
-            Ok(config_toml) =>
-            match write_str_to_file(system, &config_path, &config_toml)
-            {
-                Ok(_) => Ok(default_config),
-                Err(error) => Err(ConfigError::FailedToCreateConfigFile(error)),
-            },
-            Err(error) => Err(ConfigError::TomlSerError(error)),
-        }
-    }
-}
-
-/*  In the given directory, write the config object to toml file.  If any part of that
-    goes wrong, error. */
-fn write_config<SystemType : System>
-(
-    system : &mut SystemType,
-    directory : &str,
-    config : &Config
-)
-->
-Result<(), ConfigError>
-{
-    if ! system.is_dir(directory)
-    {
-        match system.create_dir(directory)
-        {
-            Ok(_) => {},
-            Err(error) => return Err(ConfigError::FailedToCreateDirectory(error)),
-        }
-    }
-
-    let config_path = format!("{}/config.toml", directory);
-
-    match toml::to_string(config)
-    {
-        Ok(config_toml) =>
-        match write_str_to_file(system, &config_path, &config_toml)
-        {
-            Ok(_) => Ok(()),
-            Err(error) => Err(ConfigError::FailedToCreateConfigFile(error)),
+                Ok(config) => Ok(config),
+                Err(error) => Err(ConfigError::TomlDeError(error)),
+            }
         },
-        Err(error) => Err(ConfigError::TomlSerError(error)),
+        Err(error) => return Err(ConfigError::FailedToReadConfigFile(error)),
     }
 }
 
@@ -334,12 +397,17 @@ and its ancestors, as needed.")
         )
         .subcommand(
             SubCommand::with_name("download")
-            .about("Repeats the most recent build command")
-            .help("Downloads!")
-            .arg(Arg::with_name("url")
+            .about("Downloads a file from a ruler server to the target path")
+            .help("Downloads a file from a ruler server to the target path")
+            .arg(Arg::with_name("hash")
                 .help("")
                 .required(true)
                 .index(1)
+            )
+            .arg(Arg::with_name("path")
+                .help("")
+                .required(true)
+                .index(2)
             )
         )
         .subcommand(
@@ -360,17 +428,64 @@ network access to the files in the cache.")
 
     if let Some(matches) = big_matches.subcommand_matches("download")
     {
-        let url =
-        match matches.value_of("url")
+        let mut system = RealSystem::new();
+
+        let download_urls =
+        match read_config(&mut system)
         {
-            Some(value) => value,
-            None => "apple.com",
+            Ok(config) =>
+            {
+                match config.download_urls
+                {
+                    Some(download_urls) =>
+                    {
+                        if download_urls.len() == 0
+                        {
+                            println!("Download urls list empty");
+                            return;
+                        }
+                        download_urls
+                    },
+                    None =>
+                    {
+                        println!("No download_urls in config file");
+                        return;
+                    }
+                }
+            },
+            Err(config_error) =>
+            {
+                println!("{}", config_error);
+                return;
+            }
         };
 
-        match download_string(url)
+        let hash =
+        match matches.value_of("hash")
         {
-            Ok(s) => println!("contents: {}", s),
-            Err(error) => println!("error: {}", error),
+            Some(value) => value,
+            None => panic!("Agument name mismatch"),
+        };
+
+        let path =
+        match matches.value_of("path")
+        {
+            Some(value) => value,
+            None => panic!("Agument name mismatch"),
+        };
+
+        let mut success = false;
+        for url in download_urls
+        {
+            match download_file(&mut system, &format!("{}/files/{}", url, hash), &path)
+            {
+                Ok(_) => {success = true},
+                Err(_error) => {},
+            }
+        }
+        if ! success
+        {
+            println!("Download failed");
         }
     }
 
@@ -384,10 +499,10 @@ network access to the files in the cache.")
         };
 
         let mut system = RealSystem::new();
-        match read_config(&mut system, &directory)
+        match read_persistent_info(&mut system, &directory)
         {
-            Ok(config) =>
-                match config.again
+            Ok(persistent_info) =>
+                match persistent_info.again
                 {
                     Some(again) => 
                     {
@@ -424,7 +539,7 @@ network access to the files in the cache.")
 The next time you run `ruler again`, it will repeat that `ruler build` with the same options.");
                     },
                 }
-            Err(config_error) => println!("Error reading config: {}", config_error),
+            Err(persistent_info_error) => println!("Error reading persistent_info: {}", persistent_info_error),
         }
     }
 
@@ -493,7 +608,7 @@ The next time you run `ruler again`, it will repeat that `ruler build` with the 
             None => None,
         };
 
-        let config = Config
+        let persistent_info = PersistentInfo
         {
             again : Some(
                 BuildInvocation
@@ -507,7 +622,7 @@ The next time you run `ruler again`, it will repeat that `ruler build` with the 
         let mut system = RealSystem::new();
         let mut printer = StandardPrinter::new();
 
-        match write_config(&mut system, &directory, &config)
+        match write_persistent_info(&mut system, &directory, &persistent_info)
         {
             Ok(()) =>
             {
@@ -525,7 +640,7 @@ The next time you run `ruler again`, it will repeat that `ruler build` with the 
             },
             Err(error) =>
             {
-                println!("Error writing config file: {}", error);
+println!("Error writing persistent_info.toml: {}", error);
             }
         }
     }
