@@ -392,8 +392,8 @@ pub fn build
 (
     mut system : SystemType,
     directory_path : &str,
+    download_urls : Vec<String>,
     rulefile_paths : Vec<String>,
-    urlfile_path_opt : Option<String>,
     goal_target_opt: Option<String>,
     printer: &mut PrinterType,
 )
@@ -410,20 +410,6 @@ pub fn build
                 InitDirectoryError::FailedToReadCurrentFileStates(current_file_states_error) =>
                     Err(BuildError::FailedToReadCurrentFileStates(current_file_states_error)),
                 _ => Err(BuildError::DirectoryMalfunction),
-            }
-        }
-    };
-
-    let download_urls =
-    match urlfile_path_opt
-    {
-        None => DownloadUrls::new(),
-        Some(path_string) =>
-        {
-            match read_download_urls(&system, &path_string)
-            {
-                Ok(download_urls) => download_urls,
-                Err(error) => return Err(BuildError::DownloadUrlsError(error)),
             }
         }
     };
@@ -452,10 +438,10 @@ pub fn build
         node.targets = vec![];
         let blob = elements.current_file_states.take_blob(temp_targets);
 
-        let mut downloader_cache_urls = vec![];
-        let mut downloader_history_urls = vec![];
+        let downloader_cache_urls = Vec::new();
+        let downloader_history_urls = Vec::new();
 
-        for url in &download_urls.urls
+        for url in &download_urls
         {
             downloader_cache_urls.push(format!("{}/files", url));
             downloader_history_urls.push(format!("{}/rules", url));

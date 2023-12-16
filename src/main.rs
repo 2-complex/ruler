@@ -524,6 +524,7 @@ network access to the files in the cache.")
                         match build::build(
                             system,
                             directory,
+                            vec![],
                             rules,
                             None,
                             target,
@@ -629,6 +630,7 @@ The next time you run `ruler again`, it will repeat that `ruler build` with the 
                 match build::build(
                     system,
                     directory,
+                    vec![],
                     rulefiles,
                     None,
                     target,
