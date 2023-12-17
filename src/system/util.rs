@@ -1,15 +1,20 @@
 use crate::system::SystemError;
 use std::io;
-use crate::system::
-{
-    System,
-    ReadWriteError,
-};
+
+#[cfg(test)]
+use crate::system::ReadWriteError;
+
+use crate::system::System;
+
 #[cfg(test)]
 use std::io::Read;
+
+#[cfg(test)]
 use std::io::Write;
+
 #[cfg(test)]
 use std::time::Duration;
+
 use std::time::
 {
     SystemTime,
@@ -37,6 +42,7 @@ pub fn get_timestamp(system_time : SystemTime) -> Result<u64, SystemTimeError>
 
 /*  Takes a System, a path as a &str and content, and content as a &str.  Writes content to the file.
     If system fails, forwards the system error.  If file-io fails, forwards the std::io::Error. */
+#[cfg(test)]
 pub fn write_str_to_file
 <
     SystemType : System,

@@ -216,8 +216,7 @@ pub fn parse_all(mut contents : Vec<(String, String)>)
     let mut result : Vec<Rule> = vec![];
     for (filename, content) in contents.drain(..)
     {
-        let single_parse_result = parse(filename, content)?;
-        result.extend(single_parse_result);
+        result.extend(parse(filename, content)?);
     }
 
     Ok(result)

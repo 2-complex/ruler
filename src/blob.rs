@@ -41,17 +41,17 @@ pub enum FileResolution
 }
 
 #[derive(Debug)]
-pub struct TargetFileInfo
+pub struct FileInfo
 {
     pub path : String,
-    pub history : TargetHistory,
+    pub file_state : FileState,
 }
 
-#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
-pub struct TargetContentInfo
+#[derive(Debug)]
+pub enum GetTicketsError
 {
-    pub ticket : Ticket,
-    pub executable : bool,
+    FileNotFound(String),
+    ReadWriteError(String, ReadWriteError),
 }
 
 #[derive(Debug)]
@@ -59,6 +59,158 @@ pub enum BlobError
 {
     Contradiction(Vec<usize>),
     TargetSizesDifferWeird,
+}
+
+#[derive(Debug)]
+pub struct Blob
+{
+    pub file_infos : Vec<FileInfo>
+}
+
+impl Blob
+{
+    pub fn get_paths
+    (
+        self : &Self
+    )
+    -> Vec<String>
+    {
+        return self.file_infos.iter().map(|f|{return f.path.clone()}).collect();
+    }
+
+    #[cfg(test)]
+    pub fn from_paths(paths : Vec<String>)
+    -> Blob
+    {
+        Blob
+        { 
+            file_infos : paths.into_iter().map(|path|
+            {
+                FileInfo
+                {
+                    path : path,
+                    file_state : FileState::new(TicketFactory::new().result(), 0),
+                }
+            }
+        ).collect()}
+    }
+
+    pub fn empty()
+    -> Blob
+    {
+        Blob
+        { 
+            file_infos : vec![]
+        }
+    }
+
+    pub fn get_current_target_tickets<SystemType: System>
+    (
+        self : &Self,
+        system : &SystemType,
+    )
+    -> Result<Vec<Ticket>, GetTicketsError>
+    {
+        let mut target_tickets = Vec::new();
+        for target_info in self.file_infos.iter()
+        {
+            match get_file_ticket(system, &target_info.path, &target_info.file_state)
+            {
+                Ok(ticket_opt) =>
+                {
+                    match ticket_opt
+                    {
+                        Some(ticket) => target_tickets.push(ticket),
+                        None => return Err(GetTicketsError::FileNotFound(target_info.path.clone())),
+                    }
+                },
+                Err(error) => return Err(GetTicketsError::ReadWriteError(target_info.path.clone(), error)),
+            }
+        }
+
+        Ok(target_tickets)
+    }
+
+    pub fn resolve_remembered_target_tickets<SystemType : System>
+    (
+        self : &Self,
+        system : &mut SystemType,
+        cache : &mut SysCache<SystemType>,
+        downloader_cache_opt : &Option<DownloaderCache>,
+        remembered_tickets : &TargetTickets,
+    )
+    ->
+    Result<Vec<FileResolution>, ResolutionError>
+    {
+        let mut resolutions = vec![];
+        for (i, info) in self.file_infos.iter().enumerate()
+        {
+            match resolve_single_target(
+                system,
+                cache,
+                downloader_cache_opt,
+                &remembered_tickets.get_info(i),
+                info)
+            {
+                Ok(resolution) => resolutions.push(resolution),
+                Err(error) => return Err(error),
+            }
+        }
+
+        Ok(resolutions)
+    }
+
+    pub fn resolve_with_no_current_file_states<SystemType : System>
+    (
+        self : &Blob,
+        system : &mut SystemType,
+        cache : &mut SysCache<SystemType>,
+    )
+    ->
+    Result<Vec<FileResolution>, ResolutionError>
+    {
+        let mut resolutions = vec![];
+        for file_info in self.file_infos.iter()
+        {
+            match get_file_ticket(system, &file_info.path, &file_info.file_state)
+            {
+                Ok(Some(current_target_ticket)) =>
+                {
+                    match cache.back_up_file_with_ticket(
+                        &current_target_ticket,
+                        &file_info.path)
+                    {
+                        Ok(_) =>
+                        {
+                            // TODO: Maybe encode whether it was cached in the FileResoluton
+                            resolutions.push(FileResolution::NeedsRebuild);
+                        },
+                        Err(error) =>
+                        {
+                            return Err(
+                                ResolutionError::FileNotAvailableToCache(
+                                    file_info.path.clone(), error));
+                        }
+                    }
+                },
+
+                Ok(None) => resolutions.push(FileResolution::NeedsRebuild),
+
+                Err(error) =>
+                    return Err(ResolutionError::TicketAlignmentError(error)),
+            }
+        }
+
+        Ok(resolutions)
+    }
+
+}
+
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
+pub struct TargetContentInfo
+{
+    pub ticket : Ticket,
+    pub executable : bool,
 }
 
 #[derive(Debug)]
@@ -221,22 +373,23 @@ pub fn get_file_ticket_from_path<SystemType: System>
 /*  There are two steps to checking if a target file is up-to-date.  First: check the rule-history to see what the target
     hash should be.  Second: compare the hash it should be to the hash it actually is.
 
-    TargetHistory is a small struct meant to be the type of a value in the map 'target_histories' whose purpose is to
-    help ruler tell if a target is up-to-date */
+    The data in FileState are things which would follow the file if it were renamed/moved.  There's a ticket
+    representing the file's contents, a timestamp (modifed date), executable permissions.  Those things would
+    follow the file in a rename/move operation. */
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
-pub struct TargetHistory
+pub struct FileState
 {
     pub ticket : Ticket,
     pub timestamp : u64,
     pub executable : bool,
 }
 
-impl TargetHistory
+impl FileState
 {
-    /*  Create a new empty TargetHistory */
-    pub fn empty() -> TargetHistory
+    /*  Create a new empty FileState */
+    pub fn empty() -> FileState
     {
-        TargetHistory
+        FileState
         {
             ticket : TicketFactory::new().result(),
             timestamp : 0,
@@ -247,9 +400,9 @@ impl TargetHistory
     #[cfg(test)]
     pub fn new(
         ticket : Ticket,
-        timestamp : u64) -> TargetHistory
+        timestamp : u64) -> FileState
     {
-        TargetHistory
+        FileState
         {
             ticket : ticket,
             timestamp : timestamp,
@@ -259,9 +412,9 @@ impl TargetHistory
 
     #[cfg(test)]
     pub fn new_with_ticket(
-        ticket : Ticket) -> TargetHistory
+        ticket : Ticket) -> FileState
     {
-        TargetHistory
+        FileState
         {
             ticket : ticket,
             timestamp : 0,
@@ -270,19 +423,20 @@ impl TargetHistory
     }
 }
 
-/*  Takes a system and a TargetFileInfo, and obtains a ticket for the file described.
-    If the modified date of the file matches the one in TargetHistory exactly, this function
-    assumes the ticket matches, too, this is part of the timestamp optimization. */
+/*  Takes a system, a path, and an assumed FileState, obtains a ticket for the file described.
+    If the modified date of the file matches the one in FileState exactly, this function
+    assumes the ticket matches.  This is part of the timestamp optimization. */
 pub fn get_file_ticket<SystemType: System>
 (
     system : &SystemType,
-    target_info : &TargetFileInfo
+    path : &str,
+    assumed_file_state : &FileState,
 )
 -> Result<Option<Ticket>, ReadWriteError>
 {
     /*  The body of this match looks like it has unhandled errors.  What's happening is:
         if any error occurs with the timestamp optimization, we skip the optimization. */
-    match system.get_modified(&target_info.path)
+    match system.get_modified(&path)
     {
         Ok(system_time) =>
         {
@@ -290,9 +444,9 @@ pub fn get_file_ticket<SystemType: System>
             {
                 Ok(timestamp) =>
                 {
-                    if timestamp == target_info.history.timestamp
+                    if timestamp == assumed_file_state.timestamp
                     {
-                        return Ok(Some(target_info.history.ticket.clone()))
+                        return Ok(Some(assumed_file_state.ticket.clone()))
                     }
                 },
                 Err(_) => {},
@@ -301,7 +455,7 @@ pub fn get_file_ticket<SystemType: System>
         Err(_) => {},
     }
 
-    get_file_ticket_from_path(system, &target_info.path)
+    get_file_ticket_from_path(system, path)
 }
 
 #[derive(Debug)]
@@ -334,38 +488,33 @@ impl fmt::Display for GetCurrentFileInfoError
     }
 }
 
-/*  Takes a system and a TargetFileInfo, which contains a path and a TargetHistory.
-    Returns a TargetHistory object, which is a little confiusing, I admit.  TODO:
-    Rename the arguments and maybe the function to make it more clear what's happening
-    here.
+/*  Takes a system, a path and an assumed FileState.
+    Returns a FileState object which is current according to the file system.
 
-    The function takes input and output.  The input is: what state we last saw the file in
-    the output is what state the file is currently.
-
-    Why does the function take a TargetFileInfo, then?  Why doens't it just take system
+    Why does the function take the assumed FileState at all?  Why doens't it just take system
     and path?  Because it does the following optimization:
 
-    If the modified date of the file matches the one in TargetHistory exactly, it
-    doesn't bother recomputing the ticket, instead it clones the ticket from the
+    If the modified date of the file matches the one in FileState exactly, it
+    doesn't bother recomputing the ticket, instead it takes the ticket from the
     target_info's history.
 */
-pub fn get_current_file_info<SystemType: System>
+pub fn get_actual_file_state<SystemType: System>
 (
     system : &SystemType,
-    target_info : &TargetFileInfo
+    path : &str,
+    assumed_file_state : &FileState,
 )
--> Result<TargetHistory, GetCurrentFileInfoError>
+-> Result<FileState, GetCurrentFileInfoError>
 {
     let system_time =
-    match system.get_modified(&target_info.path)
+    match system.get_modified(path)
     {
         Ok(system_time) => system_time,
 
         // Note: possibly there are other ways get_modified can fail than the file being absent.
         // Maybe this logic should change.
         Err(system_error) => return Err(
-            GetCurrentFileInfoError::TargetFileNotFound(
-                target_info.path.clone(), system_error)),
+            GetCurrentFileInfoError::TargetFileNotFound(path.to_string(), system_error)),
     };
 
     let timestamp =
@@ -373,40 +522,40 @@ pub fn get_current_file_info<SystemType: System>
     {
         Ok(timestamp) => timestamp,
         Err(error) => return Err(GetCurrentFileInfoError::ErrorConveratingModifiedDateToNumber(
-            target_info.path.clone(), error)),
+            path.to_string(), error)),
     };
 
     let executable =
-    match system.is_executable(&target_info.path)
+    match system.is_executable(path)
     {
         Ok(executable) => executable,
         Err(system_error) => return Err(GetCurrentFileInfoError::ErrorGettingFilePermissions(
-            target_info.path.clone(), system_error))
+            path.to_string(), system_error))
     };
 
-    if timestamp == target_info.history.timestamp
+    if timestamp == assumed_file_state.timestamp
     {
         return Ok(
-            TargetHistory
+            FileState
             {
-                ticket : target_info.history.ticket.clone(),
+                ticket : assumed_file_state.ticket.clone(),
                 timestamp : timestamp,
                 executable : executable
             }
         )
     }
 
-    match TicketFactory::from_file(system, &target_info.path)
+    match TicketFactory::from_file(system, &path)
     {
         Ok(mut factory) => Ok(
-            TargetHistory
+            FileState
             {
                 ticket : factory.result(),
                 timestamp : timestamp,
                 executable : executable
             }),
         Err(read_write_error) => Err(GetCurrentFileInfoError::ErrorGettingTicketForFile(
-            target_info.path.clone(),
+            path.to_string(),
             read_write_error)),
     }
 }
@@ -447,7 +596,7 @@ fn restore_or_download<SystemType : System>
     cache : &mut SysCache<SystemType>,
     downloader_cache_opt : &Option<DownloaderCache>,
     remembered_target_content_info : &TargetContentInfo,
-    target_info : &TargetFileInfo
+    target_info : &FileInfo
 )
 -> Result<FileResolution, ResolutionError>
 {
@@ -500,7 +649,7 @@ fn restore_or_download<SystemType : System>
 
 /*  Given a target-info and a remembered ticket for that target file, check the current
     ticket, and if it matches, return AlreadyCorrect.  If it doesn't match, back up the current
-    file, and then attempt to restore the remembered file from cache, if the cache doesn't have it
+    file, and then attempt to restore the remembered file from cache, if the cache doesn't have it,
     attempt to download.  If no recovery or download works, shrug and return NeedsRebuild */
 pub fn resolve_single_target<SystemType : System>
 (
@@ -508,12 +657,12 @@ pub fn resolve_single_target<SystemType : System>
     cache : &mut SysCache<SystemType>,
     downloader_cache_opt : &Option<DownloaderCache>,
     remembered_target_content_info : &TargetContentInfo,
-    target_info : &TargetFileInfo
+    target_info : &FileInfo
 )
 ->
 Result<FileResolution, ResolutionError>
 {
-    match get_file_ticket(system, target_info)
+    match get_file_ticket(system, &target_info.path, &target_info.file_state)
     {
         Ok(Some(current_target_ticket)) =>
         {
@@ -542,7 +691,7 @@ Result<FileResolution, ResolutionError>
                 target_info)
         },
 
-        // None means the file is not there, in which case, we just try to restore/download, and then go home.
+        // None means the file is not there, in which case, we just try to restore/download, and go home.
         Ok(None) =>
         {
             restore_or_download(
@@ -560,80 +709,6 @@ Result<FileResolution, ResolutionError>
     }
 }
 
-pub fn resolve_remembered_target_tickets<SystemType : System>
-(
-    system : &mut SystemType,
-    cache : &mut SysCache<SystemType>,
-    downloader_cache_opt : &Option<DownloaderCache>,
-    target_infos : &Vec<TargetFileInfo>,
-    remembered_tickets : &TargetTickets,
-)
-->
-Result<Vec<FileResolution>, ResolutionError>
-{
-    let mut resolutions = vec![];
-    for (i, target_info) in target_infos.iter().enumerate()
-    {
-        match resolve_single_target(
-            system,
-            cache,
-            downloader_cache_opt,
-            &remembered_tickets.get_info(i),
-            target_info)
-        {
-            Ok(resolution) => resolutions.push(resolution),
-            Err(error) => return Err(error),
-        }
-    }
-
-    Ok(resolutions)
-}
-
-pub fn resolve_with_no_memory<SystemType : System>
-(
-    system : &mut SystemType,
-    cache : &mut SysCache<SystemType>,
-    target_infos : &Vec<TargetFileInfo>,
-)
-->
-Result<Vec<FileResolution>, ResolutionError>
-{
-    let mut resolutions = vec![];
-    for target_info in target_infos.iter()
-    {
-        match get_file_ticket(system, target_info)
-        {
-            Ok(Some(current_target_ticket)) =>
-            {
-                match cache.back_up_file_with_ticket(
-                    &current_target_ticket,
-                    &target_info.path)
-                {
-                    Ok(_) =>
-                    {
-                        // TODO: Maybe encode whether it was cached in the FileResoluton
-                        resolutions.push(FileResolution::NeedsRebuild);
-                    },
-                    Err(error) =>
-                    {
-                        return Err(
-                            ResolutionError::FileNotAvailableToCache(
-                                target_info.path.clone(), error));
-                    }
-                }
-            },
-
-            Ok(None) => resolutions.push(FileResolution::NeedsRebuild),
-
-            Err(error) =>
-                return Err(ResolutionError::TicketAlignmentError(error)),
-        }
-    }
-
-    Ok(resolutions)
-}
-
-
 #[cfg(test)]
 mod test
 {
@@ -643,10 +718,9 @@ mod test
     };
     use crate::blob::
     {
-        TargetHistory,
+        FileState,
         TargetTickets,
         BlobError,
-        TargetFileInfo,
         get_file_ticket
     };
     use crate::system::
@@ -661,177 +735,155 @@ mod test
     use crate::blob::
     {
         get_file_ticket_from_path,
-        get_current_file_info,
+        get_actual_file_state,
         GetCurrentFileInfoError,
     };
 
-    /*  Create a file, and make target_info that matches the reality of that file.
-        Call get_current_file_info and check that the returned data matches. */
+    /*  Create a file, and make FileInfo that matches the reality of that file.
+        Call get_actual_file_state and check that the returned data matches. */
     #[test]
-    fn blob_get_current_file_info_complete_match()
+    fn blob_get_actual_file_state_complete_match()
     {
         let mut system = FakeSystem::new(23);
 
         write_str_to_file(&mut system, "quine.sh", "cat $0").unwrap();
 
-        let target_info = TargetFileInfo
-        {
-            path: "quine.sh".to_string(),
-            history: TargetHistory
+        let file_state = get_actual_file_state(&system,
+            "quine.sh",
+            &FileState
             {
                 ticket : TicketFactory::from_str("cat $0").result(),
                 timestamp : 23,
                 executable : false,
-            }
-        };
+            }).unwrap();
 
-        let target_history = get_current_file_info(&system, &target_info).unwrap();
-
-        assert_eq!(target_history.ticket, TicketFactory::from_str("cat $0").result());
-        assert_eq!(target_history.timestamp, 23);
-        assert_eq!(target_history.executable, false);
+        assert_eq!(file_state.ticket, TicketFactory::from_str("cat $0").result());
+        assert_eq!(file_state.timestamp, 23);
+        assert_eq!(file_state.executable, false);
     }
 
     /*  Create a file, and make target_info that matches the reality of that file,
         except for one detail: executable is different.
 
-        Call get_current_file_info and check that the returned data matches, except
+        Call get_actual_file_state and check that the returned data matches, except
         executable. */
     #[test]
-    fn blob_get_current_file_info_executable_contradicts()
+    fn blob_get_actual_file_state_executable_contradicts()
     {
         let mut system = FakeSystem::new(23);
 
         write_str_to_file(&mut system, "quine.sh", "cat $0").unwrap();
         system.set_is_executable("quine.sh", true).unwrap();
 
-        let target_info = TargetFileInfo
-        {
-            path: "quine.sh".to_string(),
-            history: TargetHistory
+        let file_state = get_actual_file_state(&system,
+            "quine.sh",
+            &FileState
             {
                 ticket : TicketFactory::from_str("cat $0").result(),
                 timestamp : 23,
                 executable : false,
-            }
-        };
+            }).unwrap();
 
-        let target_history = get_current_file_info(&system, &target_info).unwrap();
-
-        assert_eq!(target_history.ticket, TicketFactory::from_str("cat $0").result());
-        assert_eq!(target_history.timestamp, 23);
-        assert_eq!(target_history.executable, true);
+        assert_eq!(file_state.ticket, TicketFactory::from_str("cat $0").result());
+        assert_eq!(file_state.timestamp, 23);
+        assert_eq!(file_state.executable, true);
     }
 
     /*  Create a file, and make target_info that matches the reality of that file,
         except for one detail: the timestamp is different.
 
-        Call get_current_file_info and check that the returned data matches, except
+        Call get_actual_file_state and check that the returned data matches, except
         the timestamp which should be up-to-date. */
     #[test]
-    fn blob_get_current_file_info_old_timestamp()
+    fn blob_get_actual_file_state_old_timestamp()
     {
         let mut system = FakeSystem::new(24);
 
         write_str_to_file(&mut system, "quine.sh", "cat $0").unwrap();
 
-        let target_info = TargetFileInfo
-        {
-            path: "quine.sh".to_string(),
-            history: TargetHistory
+        let file_state = get_actual_file_state(&system,
+            "quine.sh",
+            &FileState
             {
                 ticket : TicketFactory::from_str("cat $0").result(),
                 timestamp : 11,
                 executable : false,
-            }
-        };
+            }).unwrap();
 
-        let target_history = get_current_file_info(&system, &target_info).unwrap();
-
-        assert_eq!(target_history.ticket, TicketFactory::from_str("cat $0").result());
-        assert_eq!(target_history.timestamp, 24);
-        assert_eq!(target_history.executable, false);
+        assert_eq!(file_state.ticket, TicketFactory::from_str("cat $0").result());
+        assert_eq!(file_state.timestamp, 24);
+        assert_eq!(file_state.executable, false);
     }
 
-    /*  Create a file, and simulate a reasonable out-of-date TargetHistory for the
-        input to get_current_file_info, one where the timestamp is out of date, and
+    /*  Create a file, and simulate a reasonable out-of-date FileState for the
+        input to get_actual_file_state, one where the timestamp is out of date, and
         so is the content.
 
-        Call get_current_file_info and check that the returned data matches the
+        Call get_actual_file_state and check that the returned data matches the
         current file. */
     #[test]
-    fn blob_get_current_file_info_rough_draft_final_draft()
+    fn blob_get_actual_file_state_rough_draft_final_draft()
     {
         let mut system = FakeSystem::new(25);
         write_str_to_file(&mut system, "story.txt", "final draft").unwrap();
 
-        let target_info = TargetFileInfo
-        {
-            path: "story.txt".to_string(),
-            history: TargetHistory
+        let file_state = get_actual_file_state(&system,
+            "story.txt",
+            &FileState
             {
                 ticket : TicketFactory::from_str("rough draft").result(),
                 timestamp : 11,
                 executable : false,
-            }
-        };
+            }).unwrap();
 
-        let target_history = get_current_file_info(&system, &target_info).unwrap();
-        assert_eq!(target_history.ticket, TicketFactory::from_str("final draft").result());
-        assert_eq!(target_history.timestamp, 25);
-        assert_eq!(target_history.executable, false);
+        assert_eq!(file_state.ticket, TicketFactory::from_str("final draft").result());
+        assert_eq!(file_state.timestamp, 25);
+        assert_eq!(file_state.executable, false);
     }
 
-    /*  Create a file, and simulate a very unlikely out-of-date TargetHistory for
-        the input to get_current_file_info, one in which content is out of date, but
+    /*  Create a file, and simulate a very unlikely out-of-date FileState for
+        the input to get_actual_file_state, one in which content is out of date, but
         somehow the timestamp matches.
 
-        In this scenario, get_current_file_info should actually give the wrong
+        In this scenario, get_actual_file_state should actually give the wrong
         answer, because it does the optimization where if the timestamp matches
         what's in the filesystem, it doesn't bother looking at the file's actual
         contents to compute a new ticket.  Instead, it just repeats back the assumed
         ticket. */
     #[test]
-    fn blob_get_current_file_info_subvert_the_timestamp_optimization()
+    fn blob_get_actual_file_state_subvert_the_timestamp_optimization()
     {
         let mut system = FakeSystem::new(25);
         write_str_to_file(&mut system, "story.txt", "final draft").unwrap();
 
-        let target_info = TargetFileInfo
-        {
-            path: "story.txt".to_string(),
-            history: TargetHistory
+        let file_state = get_actual_file_state(&system,
+            "story.txt",
+            &FileState
             {
                 ticket : TicketFactory::from_str("rough draft").result(),
                 timestamp : 25,
                 executable : false,
-            }
-        };
-
-        let target_history = get_current_file_info(&system, &target_info).unwrap();
-        assert_eq!(target_history.ticket, TicketFactory::from_str("rough draft").result());
-        assert_eq!(target_history.timestamp, 25);
-        assert_eq!(target_history.executable, false);
+            }).unwrap();
+        assert_eq!(file_state.ticket, TicketFactory::from_str("rough draft").result());
+        assert_eq!(file_state.timestamp, 25);
+        assert_eq!(file_state.executable, false);
     }
 
-    /*  Create a TargetFileInfo for a file that does not exist.
-        Check that get_current_file_info returns an appropriate error. */
+    /*  Create a FileInfo for a file that does not exist.
+        Check that get_actual_file_state returns an appropriate error. */
     #[test]
-    fn blob_get_current_file_info_file_not_found()
+    fn blob_get_actual_file_state_file_not_found()
     {
         let system = FakeSystem::new(25);
-        let target_info = TargetFileInfo
-        {
-            path: "story.txt".to_string(),
-            history: TargetHistory
+
+        match get_actual_file_state(&system,
+            "story.txt",
+            &FileState
             {
                 ticket : TicketFactory::from_str("final draft").result(),
                 timestamp : 10,
                 executable : false,
-            }
-        };
-
-        match get_current_file_info(&system, &target_info)
+            })
         {
             Ok(_) => panic!("Unexpected success"),
             Err(GetCurrentFileInfoError::TargetFileNotFound(path, _system_error)) =>
@@ -957,11 +1009,8 @@ mod test
 
         match get_file_ticket(
             &system,
-            &TargetFileInfo
-            {
-                path : "quine.sh".to_string(),
-                history : TargetHistory::new_with_ticket(TicketFactory::new().result())
-            })
+            "quine.sh",
+            &FileState::new_with_ticket(TicketFactory::new().result()))
         {
             Ok(ticket_opt) => match ticket_opt
             {
@@ -972,7 +1021,7 @@ mod test
         }
     }
 
-    /*  Create a file and a TargetFileInfo for that file with matching timestamp.  Then fill the file
+    /*  Create a file and a FileInfo for that file with matching timestamp.  Then fill the file
         with some other data.  Make sure that when we get_file_ticket, we get the one from the history
         instead of the one from the file. */
     #[test]
@@ -984,13 +1033,6 @@ mod test
         let content = "int main(){printf(\"my game\"); return 0;}";
         let content_ticket = TicketFactory::from_str(content).result();
 
-        // Doctor a TargetFileInfo to indicate the game.cpp was written at time 11
-        let target_file_info = TargetFileInfo
-        {
-            path : "game.cpp".to_string(),
-            history : TargetHistory::new(content_ticket.clone(), 11),
-        };
-
         // Meanwhile, in the filesystem put some incorrect rubbish in game.cpp
         match write_str_to_file(&mut system, "game.cpp", "some rubbish")
         {
@@ -998,11 +1040,12 @@ mod test
             Err(why) => panic!("Failed to make fake file: {}", why),
         }
 
-        // Then get the ticket for the current target file, passing the TargetFileInfo
+        // Then get the ticket for the current target file, passing the FileInfo
         // with timestamp 11.  Check that it gives the ticket for the C++ code.
         match get_file_ticket(
             &system,
-            &target_file_info)
+            "game.cpp",
+            &FileState::new(content_ticket.clone(), 11))
         {
             Ok(ticket_opt) =>
             {
@@ -1016,7 +1059,7 @@ mod test
         }
     }
 
-    /*  Create a file and a TargetFileInfo for that file with not-matching timestamp.  Fill the file
+    /*  Create a file and a FileInfo for that file with not-matching timestamp.  Fill the file
         with new and improved code.  Make sure that when we get_file_ticket, we get the one from the
         file because the history doesn't match. */
     #[test]
@@ -1031,13 +1074,6 @@ mod test
         let current_content = "int main(){printf(\"my better game\"); return 0;}";
         let current_ticket = TicketFactory::from_str(current_content).result();
 
-        // Doctor a TargetFileInfo to indicate the game.cpp was written at time 9
-        let target_file_info = TargetFileInfo
-        {
-            path : "game.cpp".to_string(),
-            history : TargetHistory::new(previous_ticket.clone(), 9),
-        };
-
         // Meanwhile, in the filesystem, put new and improved game.cpp
         match write_str_to_file(&mut system, "game.cpp", current_content)
         {
@@ -1045,11 +1081,12 @@ mod test
             Err(why) => panic!("Failed to make fake file: {}", why),
         }
 
-        // Then get the ticket for the current target file, passing the TargetFileInfo
+        // Then get the ticket for the current target file, passing the FileInfo
         // with timestamp 11.  Check that it gives the ticket for the C++ code.
         match get_file_ticket(
             &system,
-            &target_file_info)
+            "game.cpp",
+            &FileState::new(previous_ticket.clone(), 9))
         {
             Ok(ticket_opt) =>
             {

@@ -4,12 +4,8 @@ extern crate serde;
 use crypto::sha2::Sha256;
 use base64::
 {
-    encode_config,
-};
-
-use base64::
-{
-    decode_config,
+    Engine,
+    engine::general_purpose,
     DecodeError,
 };
 use crypto::digest::Digest;
@@ -119,6 +115,7 @@ pub struct Ticket
 
 pub enum From64Error
 {
+    DecodeInvalidPadding,
     DecodeInvalidByte(usize, u8),
     DecodeInvalidLastSymbol(usize, u8),
     DecodeInvalidLength,
@@ -131,6 +128,9 @@ impl fmt::Display for From64Error
     {
         match self
         {
+            From64Error::DecodeInvalidPadding =>
+                write!(formatter, "Invalid padding"),
+
             From64Error::DecodeInvalidByte(location, byte) =>
                 write!(formatter, "Invalid byte: {} at location {}", byte, location),
 
@@ -151,7 +151,7 @@ impl Ticket
     /*  Returns a string URL-safe base64-encoded hash */
     pub fn base64(&self) -> String
     {
-        format!("{}", encode_config(&self.sha, base64::URL_SAFE))
+        format!("{}", general_purpose::URL_SAFE.encode(&self.sha))
     }
 
     /*  Takes a url-safe base64 encoded hash and returns a ticket objcet
@@ -159,7 +159,7 @@ impl Ticket
     pub fn from_base64(base64_str: &str) ->
         Result<Ticket, From64Error>
     {
-        match decode_config(base64_str, base64::URL_SAFE)
+        match general_purpose::URL_SAFE.decode(base64_str)
         {
             Ok(sha) => 
             {
@@ -172,6 +172,7 @@ impl Ticket
                     Err(From64Error::ShaInvalidLength)
                 }
             },
+            Err(DecodeError::InvalidPadding) => Err(From64Error::DecodeInvalidPadding),
             Err(DecodeError::InvalidByte(location, byte)) => Err(From64Error::DecodeInvalidByte(location, byte)),
             Err(DecodeError::InvalidLastSymbol(location, byte)) => Err(From64Error::DecodeInvalidLastSymbol(location, byte)),
             Err(DecodeError::InvalidLength) => Err(From64Error::DecodeInvalidLength),

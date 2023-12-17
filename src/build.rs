@@ -45,7 +45,6 @@ use crate::packet::
 };
 use crate::blob::
 {
-    TargetFileInfo,
     FileResolution,
 };
 use crate::work::
@@ -68,9 +67,9 @@ use crate::history::
     HistoryError,
     DownloaderHistory,
 };
-use crate::memory::
+use crate::current::
 {
-    MemoryError
+    CurrentFileStatesError
 };
 use crate::printer::Printer;
 use termcolor::
@@ -118,7 +117,7 @@ pub enum BuildError
     Canceled,
     ReceiverError(RecvError),
     SenderError(SendError<Packet>),
-    MemoryFileFailedToRead(MemoryError),
+    FailedToReadCurrentFileStates(CurrentFileStatesError),
     RuleFileNotUTF8,
     RuleFileFailedToRead(String, io::Error),
     RuleFileFailedToOpen(String, SystemError),
@@ -131,7 +130,6 @@ pub enum BuildError
     WorkError(WorkError),
     Weird,
 }
-
 
 impl fmt::Display for BuildError
 {
@@ -148,7 +146,7 @@ impl fmt::Display for BuildError
             BuildError::SenderError(error) =>
                 write!(formatter, "Failed to send to dependent: {}", error),
 
-            BuildError::MemoryFileFailedToRead(error) =>
+            BuildError::FailedToReadCurrentFileStates(error) =>
                 write!(formatter, "Error history file not found: {}", error),
 
             BuildError::RuleFileNotUTF8 =>
@@ -194,7 +192,28 @@ impl fmt::Display for BuildError
     }
 }
 
-fn read_all_rules<SystemType : System>
+pub enum RunError
+{
+    BuildError(BuildError),
+    ExecutionError(SystemError),
+}
+
+impl fmt::Display for RunError
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
+    {
+        match self
+        {
+            RunError::BuildError(build_error) =>
+                write!(formatter, "{}", build_error),
+
+            RunError::ExecutionError(system_error) =>
+                write!(formatter, "Target built but failed to execute cleanly: {}", system_error),
+        }
+    }
+}
+
+fn read_all_rules_files_to_strings<SystemType : System>
 (
     system : &SystemType,
     mut rulefile_paths : Vec<String>
@@ -230,8 +249,7 @@ fn read_all_rules<SystemType : System>
     Ok(result)
 }
 
-/*  This is the function that runs when you type "ruler nodes" at the commandline.
-    It opens the rulefile, parses it, and returns the vector of rule Nodes. */
+/*  Opens the rulefile, parses it, and returns the vector of rule Nodes. */
 pub fn get_nodes
 <
     SystemType : System,
@@ -243,7 +261,7 @@ pub fn get_nodes
 )
 -> Result<Vec<Node>, BuildError>
 {
-    let all_rule_text = read_all_rules(system, rulefile_paths)?;
+    let all_rule_text = read_all_rules_files_to_strings(system, rulefile_paths)?;
 
     let rules =
     match parse_all(all_rule_text)
@@ -432,8 +450,8 @@ pub fn build
         {
             return match error
             {
-                InitDirectoryError::FailedToReadMemoryFile(memory_error) =>
-                    Err(BuildError::MemoryFileFailedToRead(memory_error)),
+                InitDirectoryError::FailedToReadCurrentFileStates(current_file_states_error) =>
+                    Err(BuildError::FailedToReadCurrentFileStates(current_file_states_error)),
                 _ => Err(BuildError::DirectoryMalfunction),
             }
         }
@@ -473,17 +491,9 @@ pub fn build
             None => vec![],
         };
 
-        let mut target_infos = vec![];
-        for target_path in node.targets.drain(..)
-        {
-            target_infos.push(
-                TargetFileInfo
-                {
-                    history : elements.memory.take_target_history(&target_path),
-                    path : target_path,
-                }
-            );
-        }
+        let temp_targets = node.targets;
+        node.targets = vec![];
+        let blob = elements.current_file_states.take_blob(temp_targets);
 
         let mut downloader_cache_urls = vec![];
         let mut downloader_history_urls = vec![];
@@ -508,7 +518,7 @@ pub fn build
                         thread::spawn(
                             move || -> Result<WorkResult, BuildError>
                             {
-                                match handle_source_only_node(system_clone, target_infos)
+                                match handle_source_only_node(system_clone, blob)
                                 {
                                     Ok(result) =>
                                     {
@@ -554,7 +564,7 @@ pub fn build
                             move || -> Result<WorkResult, BuildError>
                             {
                                 let mut info = HandleNodeInfo::new(system_clone);
-                                info.target_infos = target_infos;
+                                info.blob = blob;
 
                                 let sources_ticket = match wait_for_sources_ticket(receiver_vec)
                                 {
@@ -628,7 +638,7 @@ pub fn build
             {
                 match work_result_result
                 {
-                    Ok(mut work_result) =>
+                    Ok(work_result) =>
                     {
                         match work_result.work_option
                         {
@@ -638,7 +648,7 @@ pub fn build
 
                             WorkOption::Resolutions(resolutions) =>
                             {
-                                for (i, target_info) in work_result.target_infos.iter().enumerate()
+                                for (i, path) in work_result.blob.get_paths().iter().enumerate()
                                 {
                                     let (banner_text, banner_color) =
                                         match resolutions[i]
@@ -656,15 +666,15 @@ pub fn build
                                                 ("  Outdated", Color::Red),
                                         };
 
-                                    printer.print_single_banner_line(banner_text, banner_color, &target_info.path);
+                                    printer.print_single_banner_line(banner_text, banner_color, &path);
                                 }
                             },
 
                             WorkOption::CommandExecuted(output) =>
                             {
-                                for target_info in work_result.target_infos.iter()
+                                for path in work_result.blob.get_paths().iter()
                                 {
-                                    printer.print_single_banner_line("     Built", Color::Magenta, &target_info.path);  
+                                    printer.print_single_banner_line("     Built", Color::Magenta, &path);
                                 }
 
                                 if output.out != ""
@@ -680,7 +690,7 @@ pub fn build
                                 if !output.success
                                 {
                                     printer.error(
-                                        &format!("RESULT: {}", 
+                                        &format!("RESULT: {}",
                                             match output.code
                                             {
                                                 Some(code) => format!("{}", code),
@@ -713,10 +723,7 @@ pub fn build
                             None => {},
                         }
 
-                        for target_info in work_result.target_infos.drain(..)
-                        {
-                            elements.memory.insert_target_history(target_info.path, target_info.history);
-                        }
+                        elements.current_file_states.insert_blob(work_result.blob);
                     },
                     Err(BuildError::WorkError(work_error)) => work_errors.push(work_error),
                     Err(BuildError::Canceled) => {},
@@ -727,7 +734,7 @@ pub fn build
         }
     }
 
-    match elements.memory.to_file()
+    match elements.current_file_states.to_file()
     {
         Ok(_) => {},
         Err(_) => printer.error("Error writing history"),
@@ -740,6 +747,47 @@ pub fn build
     else
     {
         Err(BuildError::WorkErrors(work_errors))
+    }
+}
+
+/*  Called when you type "ruler run".  Appeals to build() function to do the build.
+    If there are no errors, executes the target file specified, passing it extra_args. */
+pub fn run
+<
+    SystemType : System + 'static,
+    PrinterType : Printer,
+>
+(
+    mut system : SystemType,
+    directory_path : &str,
+    rulefile_paths : Vec<String>,
+    urlfile_path_opt : Option<String>,
+    executable : String,
+    mut extra_args : Vec<String>,
+    printer : &mut PrinterType
+)
+-> Result<(), RunError>
+{
+    match build(
+        system.clone(),
+        directory_path,
+        rulefile_paths,
+        urlfile_path_opt,
+        Some(executable.clone()),
+        printer,
+    )
+    {
+        Err(error) => return Err(RunError::BuildError(error)),
+        Ok(()) => {},
+    }
+
+    let mut all = vec![format!("./{}", executable)];
+    all.append(&mut extra_args);
+
+    match system.execute_command(all)
+    {
+        Err(system_error) => Err(RunError::ExecutionError(system_error)),
+        Ok(_command_line_output) => Ok(()),
     }
 }
 
@@ -764,57 +812,19 @@ pub fn clean<SystemType : System + 'static>
         {
             return match error
             {
-                InitDirectoryError::FailedToReadMemoryFile(memory_error) =>
-                    Err(BuildError::MemoryFileFailedToRead(memory_error)),
+                InitDirectoryError::FailedToReadCurrentFileStates(current_file_states_error) =>
+                    Err(BuildError::FailedToReadCurrentFileStates(current_file_states_error)),
                 _ => Err(BuildError::DirectoryMalfunction),
             }
         }
     };
 
-    let rules =
-    match parse_all(read_all_rules(&system, rulefile_paths)?)
-    {
-        Ok(rules) => rules,
-        Err(error) => return Err(BuildError::RuleFileFailedToParse(error)),
-    };
-
-    let mut nodes =
-    match goal_target_opt
-    {
-        Some(goal_target) =>
-        {
-            match topological_sort(rules, &goal_target)
-            {
-                Ok(nodes) => nodes,
-                Err(error) => return Err(BuildError::TopologicalSortFailed(error)),
-            }
-        },
-        None =>
-        {
-            match topological_sort_all(rules)
-            {
-                Ok(nodes) => nodes,
-                Err(error) => return Err(BuildError::TopologicalSortFailed(error)),
-            }
-        }
-    };
+    let mut nodes = get_nodes(&mut system, rulefile_paths, goal_target_opt)?;
 
     let mut handles = Vec::new();
-
-    for mut node in nodes.drain(..)
+    for node in nodes.drain(..)
     {
-        let mut target_infos = Vec::new();
-        for target_path in node.targets.drain(..)
-        {
-            target_infos.push(
-                TargetFileInfo
-                {
-                    history : elements.memory.take_target_history(&target_path),
-                    path : target_path,
-                }
-            );
-        }
-
+        let blob = elements.current_file_states.take_blob(node.targets);
         let mut system_clone = system.clone();
         let mut local_cache_clone = elements.cache.clone();
 
@@ -826,7 +836,7 @@ pub fn clean<SystemType : System + 'static>
                         move || -> Result<(), WorkError>
                         {
                             clean_targets(
-                                target_infos,
+                                blob,
                                 &mut system_clone,
                                 &mut local_cache_clone)
                         }
@@ -894,7 +904,7 @@ mod test
     use crate::printer::EmptyPrinter;
     use crate::blob::
     {
-        TargetHistory
+        FileState
     };
     use std::io::Write;
 
@@ -1392,7 +1402,7 @@ someotherpoem.txt
     }
 
     #[test]
-    fn build_check_target_history()
+    fn build_check_file_state()
     {
         let rules = "\
 poem.txt
@@ -1414,9 +1424,9 @@ poem.txt
 
         {
             let mut elements = directory::init(&mut system, "ruler-directory").unwrap();
-            let target_history_before = elements.memory.take_target_history("poem.txt");
-            assert_eq!(target_history_before, TargetHistory::empty());
-            elements.memory.insert_target_history("poem.txt".to_string(), target_history_before);
+            let file_state_before = elements.current_file_states.take("poem.txt");
+            assert_eq!(file_state_before, FileState::empty());
+            elements.current_file_states.insert_file_state("poem.txt".to_string(), file_state_before);
         }
 
         build(
@@ -1434,10 +1444,10 @@ poem.txt
 
         {
             let mut elements = directory::init(&mut system, "ruler-directory").unwrap();
-            let target_history = elements.memory.take_target_history("poem.txt");
-            assert_eq!(target_history, TargetHistory::new(
+            let file_state = elements.current_file_states.take("poem.txt");
+            assert_eq!(file_state, FileState::new(
                 TicketFactory::from_str("Roses are red.\nViolets are violet.\n").result(), 17));
-            elements.memory.insert_target_history("poem.txt".to_string(), target_history);
+            elements.current_file_states.insert_file_state("poem.txt".to_string(), file_state);
         }
     }
 

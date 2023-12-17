@@ -1,5 +1,8 @@
 use std::fmt;
 use std::io::Read;
+use std::net::SocketAddr;
+use std::net::Ipv4Addr;
+use std::net::IpAddr;
 
 use warp::http::
 {
@@ -169,8 +172,11 @@ pub async fn serve
                     .body(format!("{}", target_tickets.download_string()).into_bytes())
             });
 
+    let address = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
+    println!("Serving on {}", address);
+
     warp::serve(files_endpoint.or(rules_endpoint))
-        .run(([127, 0, 0, 1], 8080))
+        .run(address)
         .await;
 
     Err(ServerError::Weird) 
