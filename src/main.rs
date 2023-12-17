@@ -408,11 +408,13 @@ network access to the files in the cache.")
                         let mut printer = StandardPrinter::new();
                         match build::build(
                             system,
-                            directory,
-                            rules,
-                            None,
-                            target,
-                            &mut printer)
+                            &mut printer,
+                            build::BuildParams::new(
+                                directory.to_string(),
+                                rules,
+                                None,
+                                target)
+                        )
                         {
                             Ok(()) => {},
                             Err(error) => eprintln!("{}", error),
@@ -513,11 +515,13 @@ The next time you run `ruler again`, it will repeat that `ruler build` with the 
             {
                 match build::build(
                     system,
-                    directory,
-                    rulefiles,
-                    None,
-                    target,
-                    &mut printer)
+                    &mut printer,
+                    build::BuildParams::new(
+                        directory.to_string(),
+                        rulefiles,
+                        None,
+                        target)
+                    )
                 {
                     Ok(()) => {},
                     Err(error) => eprintln!("{}", error),

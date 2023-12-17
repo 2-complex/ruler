@@ -381,6 +381,33 @@ fn wait_for_sources_ticket(receiver_vec : Vec<Receiver<Packet>>) -> Result<Ticke
     Ok(factory.result())
 }
 
+pub struct BuildParams
+{
+    directory_path : String,
+    rulefile_paths : Vec<String>,
+    urlfile_path_opt : Option<String>,
+    goal_target_opt: Option<String>,
+}
+
+impl BuildParams
+{
+    pub fn new(
+        directory_path : String,
+        rulefile_paths : Vec<String>,
+        urlfile_path_opt : Option<String>,
+        goal_target_opt : Option<String>,
+    ) -> Self
+    {
+        BuildParams
+        {
+            directory_path : directory_path,
+            rulefile_paths : rulefile_paths,
+            urlfile_path_opt : urlfile_path_opt,
+            goal_target_opt : goal_target_opt,
+        }
+    }
+}
+
 /*  This is the function that runs when you type "ruler build" at the commandline.
     It opens the rulefile, parses it, and then either updates all targets in all rules
     or, if goal_target_opt is Some, only the targets that are ancestors of goal_target_opt
@@ -392,16 +419,13 @@ pub fn build
 >
 (
     mut system : SystemType,
-    directory_path : &str,
-    rulefile_paths : Vec<String>,
-    urlfile_path_opt : Option<String>,
-    goal_target_opt: Option<String>,
-    printer: &mut PrinterType,
+    printer : &mut PrinterType,
+    params : BuildParams
 )
 -> Result<(), BuildError>
 {
     let mut elements =
-    match directory::init(&mut system, directory_path)
+    match directory::init(&mut system, &params.directory_path)
     {
         Ok(elements) => elements,
         Err(error) =>
@@ -416,7 +440,7 @@ pub fn build
     };
 
     let download_urls =
-    match urlfile_path_opt
+    match params.urlfile_path_opt
     {
         None => DownloadUrls::new(),
         Some(path_string) =>
@@ -429,7 +453,7 @@ pub fn build
         }
     };
 
-    let mut nodes = get_nodes(&system, rulefile_paths, goal_target_opt)?;
+    let mut nodes = get_nodes(&system, params.rulefile_paths, params.goal_target_opt)?;
 
     let (mut senders, mut receivers) = make_multimaps(&nodes);
     let mut handles = Vec::new();
@@ -847,6 +871,7 @@ mod test
     use crate::build::
     {
         build,
+        BuildParams,
         BuildError,
     };
     use crate::system::
@@ -897,13 +922,18 @@ poem.txt
         write_str_to_file(&mut system, "verse2.txt", "Violets are violet.\n").unwrap();
         write_str_to_file(&mut system, "test.rules", rules).unwrap();
 
+
+
         build(
             system.clone(),
-            "test.directory",
-            vec!["test.rules".to_string()],
-            None,
-            Some("poem.txt".to_string()),
-            &mut EmptyPrinter::new()).unwrap();
+            &mut EmptyPrinter::new(),
+            BuildParams::new(
+                "test.directory".to_string(),
+                vec!["test.rules".to_string()],
+                None,
+                Some("poem.txt".to_string())
+            )
+        ).unwrap();
 
         assert_eq!(read_file_to_string(&mut system, "poem.txt").unwrap(), "Roses are red.\nViolets are violet.\n");
     }
@@ -933,11 +963,13 @@ poem.txt
 
         match build(
             system.clone(),
-            "test.directory",
-            vec!["test.rules".to_string()],
-            None,
-            Some("poem.txt".to_string()),
-            &mut EmptyPrinter::new())
+            &mut EmptyPrinter::new(),
+            BuildParams::new(
+                "test.directory".to_string(),
+                vec!["test.rules".to_string()],
+                None,
+                Some("poem.txt".to_string())
+            ))
         {
             Ok(_) => panic!("unexpected success"),
             Err(BuildError::WorkErrors(errors)) =>
@@ -980,13 +1012,18 @@ poem.txt
         write_str_to_file(&mut system, "verse1.txt", "I looked over Jordan, and what did I see?\n").unwrap();
         write_str_to_file(&mut system, "test.rules", rules).unwrap();
 
+        
+
         match build(
             system.clone(),
-            "test.directory",
-            vec!["test.rules".to_string()],
-            None,
-            Some("poem.txt".to_string()),
-            &mut EmptyPrinter::new())
+            &mut EmptyPrinter::new(),
+            BuildParams::new(
+                "test.directory".to_string(),
+                vec!["test.rules".to_string()],
+                None,
+                Some("poem.txt".to_string())
+            )
+        )
         {
             Ok(_) =>
             {
@@ -1025,13 +1062,17 @@ poem.txt
         write_str_to_file(&mut system, "stanza1.txt", "Some wrong content\n").unwrap();
         write_str_to_file(&mut system, "test.rules", rules).unwrap();
 
+
+
         match build(
             system.clone(),
-            "test.directory",
-            vec!["test.rules".to_string()],
-            None,
-            Some("poem.txt".to_string()),
-            &mut EmptyPrinter::new())
+            &mut EmptyPrinter::new(),
+            BuildParams::new(
+                "test.directory".to_string(),
+                vec!["test.rules".to_string()],
+                None,
+                Some("poem.txt".to_string()),
+            ))
         {
             Ok(_) =>
             {
@@ -1102,13 +1143,17 @@ poem.txt
 
             write_str_to_file(&mut system, "test.rules", rules).unwrap();
 
+
+
             match build(
                 system.clone(),
-                "test.directory",
-                vec!["test.rules".to_string()],
-                None,
-                Some("poem.txt".to_string()),
-                &mut EmptyPrinter::new())
+                &mut EmptyPrinter::new(),
+                BuildParams::new(
+                    "test.directory".to_string(),
+                    vec!["test.rules".to_string()],
+                    None,
+                    Some("poem.txt".to_string()),
+                ))
             {
                 Ok(_) => panic!("unexpected success"),
                 Err(BuildError::WorkErrors(errors)) =>
@@ -1138,11 +1183,13 @@ poem.txt
 
         match build(
             system.clone(),
-            "test.directory",
-            vec!["test.rules".to_string()],
-            None,
-            Some("poem.txt".to_string()),
-            &mut EmptyPrinter::new())
+            &mut EmptyPrinter::new(),
+            BuildParams::new(
+                "test.directory".to_string(),
+                vec!["test.rules".to_string()],
+                None,
+                Some("poem.txt".to_string()),
+            ))
         {
             Ok(_) => panic!("Unexpected success with invalid rules file."),
             Err(BuildError::RuleFileNotUTF8) => {},
@@ -1177,11 +1224,13 @@ poem.txt
 
         build(
             system.clone(),
-            "test.directory",
-            vec!["test.rules".to_string()],
-            None,
-            Some("poem.txt".to_string()),
-            &mut EmptyPrinter::new()).unwrap();
+            &mut EmptyPrinter::new(),
+            BuildParams::new(
+                "test.directory".to_string(),
+                vec!["test.rules".to_string()],
+                None,
+                Some("poem.txt".to_string())
+        )).unwrap();
 
         system.time_passes(1);
 
@@ -1191,11 +1240,13 @@ poem.txt
 
         match build(
             system.clone(),
-            "test.directory",
-            vec!["test.rules".to_string()],
-            None,
-            Some("poem.txt".to_string()),
-            &mut EmptyPrinter::new())
+            &mut EmptyPrinter::new(),
+            BuildParams::new(
+                "test.directory".to_string(),
+                vec!["test.rules".to_string()],
+                None,
+                Some("poem.txt".to_string())
+            ))
         {
             Ok(()) => panic!("Unexpected silence when contradiction should arise"),
             Err(error) =>
@@ -1243,11 +1294,13 @@ poem.txt
 
         build(
             system.clone(),
-            ".ruler",
-            vec!["test.rules".to_string()],
-            None,
-            Some("poem.txt".to_string()),
-            &mut EmptyPrinter::new()).unwrap();
+            &mut EmptyPrinter::new(),
+            BuildParams::new(
+                ".ruler".to_string(),
+                vec!["test.rules".to_string()],
+                None,
+                Some("poem.txt".to_string())
+            )).unwrap();
 
         system.time_passes(1);
 
@@ -1259,11 +1312,13 @@ poem.txt
 
         build(
             system.clone(),
-            ".ruler",
-            vec!["test.rules".to_string()],
-            None,
-            Some("poem.txt".to_string()),
-            &mut EmptyPrinter::new()).unwrap();
+            &mut EmptyPrinter::new(),
+            BuildParams::new(
+                ".ruler".to_string(),
+                vec!["test.rules".to_string()],
+                None,
+                Some("poem.txt".to_string())
+            )).unwrap();
 
         assert_eq!(read_file_to_string(&mut system, "poem.txt").unwrap(),
             "Roses are red.\nViolets are violet.\n");
@@ -1279,11 +1334,13 @@ poem.txt
 
         build(
             system.clone(),
-            ".ruler",
-            vec!["test.rules".to_string()],
-            None,
-            Some("poem.txt".to_string()),
-            &mut EmptyPrinter::new()).unwrap();
+            &mut EmptyPrinter::new(),
+            BuildParams::new(
+                ".ruler".to_string(),
+                vec!["test.rules".to_string()],
+                None,
+                Some("poem.txt".to_string()))
+        ).unwrap();
 
         assert_eq!(read_file_to_string(&mut system, "poem.txt").unwrap(), "Roses are red.\nViolets are blue.\n");
     }
@@ -1312,11 +1369,13 @@ someotherpoem.txt
 
         match build(
             system.clone(),
-            ".ruler",
-            vec!["test.rules".to_string()],
-            None,
-            Some("poem.txt".to_string()),
-            &mut EmptyPrinter::new())
+            &mut EmptyPrinter::new(),
+            BuildParams::new(
+                ".ruler".to_string(),
+                vec!["test.rules".to_string()],
+                None,
+                Some("poem.txt".to_string()))
+        )
         {
             Ok(_) => panic!("unexpected success"),
             Err(BuildError::WorkErrors(errors)) =>
@@ -1362,11 +1421,13 @@ poem.txt
 
         build(
             system.clone(),
-            "ruler-directory",
-            vec!["test.rules".to_string()],
-            None,
-            Some("poem.txt".to_string()),
-            &mut EmptyPrinter::new()).unwrap();
+            &mut EmptyPrinter::new(),
+            BuildParams::new(
+                "ruler-directory".to_string(),
+                vec!["test.rules".to_string()],
+                None,
+                Some("poem.txt".to_string()))
+            ).unwrap();
 
         assert_eq!(read_file_to_string(&mut system, "poem.txt").unwrap(),
             "Roses are red.\nViolets are violet.\n");
@@ -1403,11 +1464,13 @@ poem.txt
 
         build(
             system.clone(),
-            "ruler-directory",
-            vec!["test.rules".to_string()],
-            None,
-            Some("poem.txt".to_string()),
-            &mut EmptyPrinter::new()).unwrap();
+            &mut EmptyPrinter::new(),
+            BuildParams::new(
+                "ruler-directory".to_string(),
+                vec!["test.rules".to_string()],
+                None,
+                Some("poem.txt".to_string()))
+            ).unwrap();
 
         assert_eq!(
             read_file_to_string(&mut system, "poem.txt").unwrap(),
