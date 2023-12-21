@@ -115,11 +115,13 @@ fn main()
         {
             match build::build(
                 RealSystem::new(),
-                &command_line.directory,
-                command_line.rules,
-                None,
-                build_config.target,
-                &mut StandardPrinter::new())
+                &mut StandardPrinter::new(),
+                build::BuildParams::from_all(
+                    command_line.directory,
+                    command_line.rules,
+                    None,
+                    build_config.target
+                ))
             {
                 Ok(()) => {},
                 Err(error) => eprintln!("{}", error),

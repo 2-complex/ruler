@@ -409,7 +409,23 @@ pub struct BuildParams
 
 impl BuildParams
 {
+    #[cfg(test)]
     pub fn new(
+        rulefile_paths : Vec<String>,
+        urlfile_path_opt : Option<String>,
+        goal_target_opt : Option<String>,
+    ) -> Self
+    {
+        BuildParams
+        {
+            directory_path : ".ruler".to_string(),
+            rulefile_paths : rulefile_paths,
+            urlfile_path_opt : urlfile_path_opt,
+            goal_target_opt : goal_target_opt,
+        }
+    }
+
+    pub fn from_all(
         directory_path : String,
         rulefile_paths : Vec<String>,
         urlfile_path_opt : Option<String>,
@@ -770,11 +786,12 @@ pub fn run
 {
     match build(
         system.clone(),
-        directory_path,
-        rulefile_paths,
-        urlfile_path_opt,
-        Some(executable.clone()),
         printer,
+        BuildParams::from_all(
+            directory_path.to_string(),
+            rulefile_paths,
+            urlfile_path_opt,
+            Some(executable.clone()))
     )
     {
         Err(error) => return Err(RunError::BuildError(error)),
@@ -938,7 +955,6 @@ poem.txt
             system.clone(),
             &mut EmptyPrinter::new(),
             BuildParams::new(
-                "test.directory".to_string(),
                 vec!["test.rules".to_string()],
                 None,
                 Some("poem.txt".to_string())
@@ -975,7 +991,6 @@ poem.txt
             system.clone(),
             &mut EmptyPrinter::new(),
             BuildParams::new(
-                "test.directory".to_string(),
                 vec!["test.rules".to_string()],
                 None,
                 Some("poem.txt".to_string())
@@ -1028,7 +1043,6 @@ poem.txt
             system.clone(),
             &mut EmptyPrinter::new(),
             BuildParams::new(
-                "test.directory".to_string(),
                 vec!["test.rules".to_string()],
                 None,
                 Some("poem.txt".to_string())
@@ -1078,7 +1092,6 @@ poem.txt
             system.clone(),
             &mut EmptyPrinter::new(),
             BuildParams::new(
-                "test.directory".to_string(),
                 vec!["test.rules".to_string()],
                 None,
                 Some("poem.txt".to_string()),
@@ -1159,7 +1172,6 @@ poem.txt
                 system.clone(),
                 &mut EmptyPrinter::new(),
                 BuildParams::new(
-                    "test.directory".to_string(),
                     vec!["test.rules".to_string()],
                     None,
                     Some("poem.txt".to_string()),
@@ -1195,7 +1207,6 @@ poem.txt
             system.clone(),
             &mut EmptyPrinter::new(),
             BuildParams::new(
-                "test.directory".to_string(),
                 vec!["test.rules".to_string()],
                 None,
                 Some("poem.txt".to_string()),
@@ -1236,7 +1247,6 @@ poem.txt
             system.clone(),
             &mut EmptyPrinter::new(),
             BuildParams::new(
-                "test.directory".to_string(),
                 vec!["test.rules".to_string()],
                 None,
                 Some("poem.txt".to_string())
@@ -1252,7 +1262,6 @@ poem.txt
             system.clone(),
             &mut EmptyPrinter::new(),
             BuildParams::new(
-                "test.directory".to_string(),
                 vec!["test.rules".to_string()],
                 None,
                 Some("poem.txt".to_string())
@@ -1306,7 +1315,6 @@ poem.txt
             system.clone(),
             &mut EmptyPrinter::new(),
             BuildParams::new(
-                ".ruler".to_string(),
                 vec!["test.rules".to_string()],
                 None,
                 Some("poem.txt".to_string())
@@ -1324,7 +1332,6 @@ poem.txt
             system.clone(),
             &mut EmptyPrinter::new(),
             BuildParams::new(
-                ".ruler".to_string(),
                 vec!["test.rules".to_string()],
                 None,
                 Some("poem.txt".to_string())
@@ -1346,7 +1353,6 @@ poem.txt
             system.clone(),
             &mut EmptyPrinter::new(),
             BuildParams::new(
-                ".ruler".to_string(),
                 vec!["test.rules".to_string()],
                 None,
                 Some("poem.txt".to_string()))
@@ -1381,7 +1387,6 @@ someotherpoem.txt
             system.clone(),
             &mut EmptyPrinter::new(),
             BuildParams::new(
-                ".ruler".to_string(),
                 vec!["test.rules".to_string()],
                 None,
                 Some("poem.txt".to_string()))
@@ -1433,7 +1438,6 @@ poem.txt
             system.clone(),
             &mut EmptyPrinter::new(),
             BuildParams::new(
-                "ruler-directory".to_string(),
                 vec!["test.rules".to_string()],
                 None,
                 Some("poem.txt".to_string()))
@@ -1443,7 +1447,7 @@ poem.txt
             "Roses are red.\nViolets are violet.\n");
 
         {
-            let mut elements = directory::init(&mut system, "ruler-directory").unwrap();
+            let mut elements = directory::init(&mut system, ".ruler").unwrap();
             let file_state = elements.current_file_states.take("poem.txt");
             assert_eq!(file_state, FileState::new(
                 TicketFactory::from_str("Roses are red.\nViolets are violet.\n").result(), 17));
@@ -1476,7 +1480,6 @@ poem.txt
             system.clone(),
             &mut EmptyPrinter::new(),
             BuildParams::new(
-                "ruler-directory".to_string(),
                 vec!["test.rules".to_string()],
                 None,
                 Some("poem.txt".to_string()))
