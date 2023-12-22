@@ -495,10 +495,10 @@ pub fn build
         node.targets = vec![];
         let blob = elements.current_file_states.take_blob(temp_targets);
 
-        let downloader_cache_urls = Vec::new();
-        let downloader_history_urls = Vec::new();
+        let mut downloader_cache_urls = Vec::new();
+        let mut downloader_history_urls = Vec::new();
 
-        for url in &download_urls
+        for url in &download_urls.urls
         {
             downloader_cache_urls.push(format!("{}/files", url));
             downloader_history_urls.push(format!("{}/rules", url));
