@@ -385,7 +385,6 @@ impl Node
         {
             Some(moving_node) =>
             {
-                drop(from_name_to_node);
                 match self.get_dir_map_mut(&to_dir_components)
                 {
                     Ok(to_name_to_node) =>
