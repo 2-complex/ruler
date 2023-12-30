@@ -21,9 +21,7 @@ use crate::blob::
     FileResolution,
     ResolutionError,
     GetCurrentFileInfoError,
-    TargetContentInfo,
     get_file_ticket,
-    get_actual_file_state,
 };
 use crate::cache::
 {
@@ -171,7 +169,7 @@ fn rebuild_node<SystemType : System>
     mut rule_history : RuleHistory,
     sources_ticket : Ticket,
     command : Vec<String>,
-    mut blob : Blob
+    blob : Blob
 )
 ->
 Result<WorkResult, WorkError>
@@ -191,29 +189,17 @@ Result<WorkResult, WorkError>
         return Err(WorkError::CommandExecutedButErrored);
     }
 
-    let mut infos = vec![];
-    for target_info in blob.file_infos.iter_mut()
+    let target_content_infos =
+    match blob.update_to_match_system_file_state(system)
     {
-        match get_actual_file_state(system, &target_info.path, &target_info.file_state)
-        {
-            Ok(current_info) =>
-            {
-                target_info.file_state = current_info.clone();
-                infos.push(
-                    TargetContentInfo
-                    {
-                        ticket : current_info.ticket,
-                        executable : current_info.executable,
-                    });
-            },
-            Err(GetCurrentFileInfoError::TargetFileNotFound(path, _system_error)) => return Err(WorkError::TargetFileNotGenerated(path)),
-            Err(error) => return Err(WorkError::GetCurrentFileInfoError(error)),
-        }
-    }
+        Ok(target_content_infos) => target_content_infos,
+        Err(GetCurrentFileInfoError::TargetFileNotFound(path, _system_error)) => return Err(WorkError::TargetFileNotGenerated(path)),
+        Err(error) => return Err(WorkError::GetCurrentFileInfoError(error)),
+    };
 
-    let target_tickets = infos.iter().map(|info| info.ticket.clone()).collect();
+    let target_tickets = target_content_infos.iter().map(|info| info.ticket.clone()).collect();
 
-    match rule_history.insert(sources_ticket, TargetTickets::from_infos(infos))
+    match rule_history.insert(sources_ticket, TargetTickets::from_infos(target_content_infos))
     {
         Ok(_) => {},
         Err(error) =>
@@ -429,7 +415,7 @@ pub fn clean_targets<SystemType: System>
 )
 -> Result<(), WorkError>
 {
-    for target_info in blob.file_infos
+    for target_info in blob.get_file_infos()
     {
         if system.is_file(&target_info.path)
         {
@@ -494,7 +480,6 @@ mod test
     use crate::blob::
     {
         Blob,
-        FileInfo,
         FileState,
         TargetTickets,
         ResolutionError,
@@ -659,7 +644,7 @@ mod test
         rule_ext.command = vec!["mycat".to_string(), "A-source.txt".to_string(), "A.txt".to_string()];
 
         let mut info = HandleNodeInfo::new(system.clone());
-        info.blob = Blob::from_paths(vec!["A.txt".to_string()]);
+        info.blob = Blob::from_paths_fn(vec!["A.txt".to_string()], |_path|{FileState::empty()});
 
         match handle_rule_node(info, rule_ext)
         {
@@ -1270,16 +1255,14 @@ mod test
         rule_ext.rule_history = rule_history;
 
         let mut info = HandleNodeInfo::new(system.clone());
-        info.blob = Blob{file_infos : vec![
-            FileInfo
+        info.blob = Blob::from_paths_fn(
+            vec!["poem.txt".to_string()], |_path|
             {
-                path : "poem.txt".to_string(),
-                file_state : FileState::new(
+                FileState::new(
                     TicketFactory::from_str("Roses are red\nViolets are violet\n").result(),
                     19,
-                ),
-            }]
-        };
+                )
+            });
 
         match handle_rule_node(info, rule_ext)
         {

@@ -6,7 +6,6 @@ use crate::system::
 use crate::blob::
 {
     Blob,
-    FileInfo,
     FileState,
 };
 use std::collections::HashMap;
@@ -24,7 +23,7 @@ use std::io::
 
 /*  Takes a System, a path a a str and a vector of binary data.  Supplants the file at the given path in the
     filesystem with the binary content.  If file-opening fails, this function echoes the std::io error. */
-pub fn write_file
+fn write_file
 <
     SystemType : System,
 >
@@ -207,20 +206,12 @@ impl<SystemType : System> CurrentFileStates<SystemType>
         self : &mut Self,
         paths : Vec<String>) -> Blob
     {
-        Blob{file_infos : paths.into_iter().map(|path|
-            {
-                FileInfo
-                {
-                    file_state : self.take(&path),
-                    path : path,
-                }
-            }
-        ).collect()}
+        return Blob::from_paths_fn(paths, |path|{self.take(path)});
     }
 
     pub fn insert_blob(self : &mut Self, blob : Blob)
     {
-        for info in blob.file_infos.into_iter()
+        for info in blob.get_file_infos().into_iter()
         {
             self.insert_file_state(info.path, info.file_state)
         }

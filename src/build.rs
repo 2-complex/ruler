@@ -1358,6 +1358,9 @@ someotherpoem.txt
         }
     }
 
+    /*  In a file system, create source files and rules file for a poem. 
+        Access the .ruler direcotry, and use the take() function to get the state of the poem.
+        Verify that it is uninitialized.  Then run the build.  Verify that the build  */
     #[test]
     fn build_check_file_state()
     {
@@ -1380,7 +1383,7 @@ poem.txt
         write_str_to_file(&mut system, "build.rules", rules).unwrap();
 
         {
-            let mut elements = directory::init(&mut system, "ruler-directory").unwrap();
+            let mut elements = directory::init(&mut system, ".ruler").unwrap();
             let file_state_before = elements.current_file_states.take("poem.txt");
             assert_eq!(file_state_before, FileState::empty());
             elements.current_file_states.insert_file_state("poem.txt".to_string(), file_state_before);

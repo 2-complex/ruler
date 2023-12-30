@@ -40,7 +40,7 @@ pub enum FileResolution
     NeedsRebuild,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FileInfo
 {
     pub path : String,
@@ -64,7 +64,7 @@ pub enum BlobError
 #[derive(Debug)]
 pub struct Blob
 {
-    pub file_infos : Vec<FileInfo>
+    file_infos : Vec<FileInfo>
 }
 
 impl Blob
@@ -129,6 +129,63 @@ impl Blob
         }
 
         Ok(target_tickets)
+    }
+
+    /*  Takes a system, and updates the file contents in the blob to reflect the files in the system.
+        Returns a vector of TargetContentInfos FileState object which is current according to the file system. */
+    pub fn update_to_match_system_file_state<SystemType: System>
+    (
+        self : &Self,
+        system : &SystemType
+    )
+    -> Result<Vec<TargetContentInfo>, GetCurrentFileInfoError>
+    {
+        let mut infos = vec![];
+        for target_info in self.get_file_infos().iter_mut()
+        {
+            match get_actual_file_state(system, &target_info.path, &target_info.file_state)
+            {
+                Ok(current_info) =>
+                {
+                    target_info.file_state = current_info.clone();
+                    infos.push(
+                        TargetContentInfo
+                        {
+                            ticket : current_info.ticket,
+                            executable : current_info.executable,
+                        });
+                },
+                Err(error) => return Err(error),
+            }
+        }
+
+        return Ok(infos);
+    }
+
+    pub fn get_file_infos
+    (
+        self : &Self
+    )
+    -> Vec<FileInfo>
+    {
+        return self.file_infos.clone();
+    }
+
+    pub fn from_paths_fn
+    (
+        paths : Vec<String>,
+        mut get_state : impl FnMut(&String) -> FileState
+    ) -> Self
+    {
+        Blob{file_infos : paths.into_iter().map(|path|
+            {
+                FileInfo
+                {
+                    file_state : get_state(&path),
+                    path : path,
+                }
+            }
+        ).collect()}
     }
 
     pub fn resolve_remembered_target_tickets<SystemType : System>
