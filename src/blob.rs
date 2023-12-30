@@ -135,13 +135,13 @@ impl Blob
         Returns a vector of TargetContentInfos FileState object which is current according to the file system. */
     pub fn update_to_match_system_file_state<SystemType: System>
     (
-        self : &Self,
+        self : &mut Self,
         system : &SystemType
     )
     -> Result<Vec<TargetContentInfo>, GetCurrentFileInfoError>
     {
         let mut infos = vec![];
-        for target_info in self.get_file_infos().iter_mut()
+        for target_info in self.file_infos.iter_mut()
         {
             match get_actual_file_state(system, &target_info.path, &target_info.file_state)
             {

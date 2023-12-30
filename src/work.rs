@@ -169,7 +169,7 @@ fn rebuild_node<SystemType : System>
     mut rule_history : RuleHistory,
     sources_ticket : Ticket,
     command : Vec<String>,
-    blob : Blob
+    mut blob : Blob
 )
 ->
 Result<WorkResult, WorkError>
