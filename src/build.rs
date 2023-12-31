@@ -1359,9 +1359,10 @@ someotherpoem.txt
         }
     }
 
-    /*  In a file system, create source files and rules file for a poem. 
+    /*  In a file system, create source files and rules file for a poem.
         Access the .ruler direcotry, and use the take() function to get the state of the poem.
-        Verify that it is uninitialized.  Then run the build.  Verify that the build  */
+        Verify that it is uninitialized.  Then run the build.  Verify that the build imparted
+        the new FileState on the poem. */
     #[test]
     fn build_check_file_state()
     {
@@ -1384,8 +1385,10 @@ poem.txt
         write_str_to_file(&mut system, "build.rules", rules).unwrap();
 
         let expected_poem_blob_before = Blob::from_paths(vec!["poem.txt".to_string()], |_path|{FileState::empty()});
-        let expected_poem_blob_after = Blob::from_paths(vec!["poem.txt".to_string()], |_path|{FileState::new(
-                TicketFactory::from_str("Roses are red.\nViolets are violet.\n").result(), 17)});
+        let expected_poem_blob_after = Blob::from_paths(vec!["poem.txt".to_string()], |_path|
+            {FileState::new(
+                TicketFactory::from_str("Roses are red.\nViolets are violet.\n").result(), 17)
+            });
 
         {
             let mut elements = directory::init(&mut system, ".ruler").unwrap();
