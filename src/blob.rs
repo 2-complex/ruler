@@ -78,23 +78,6 @@ impl Blob
         return self.file_infos.iter().map(|f|{return f.path.clone()}).collect();
     }
 
-    #[cfg(test)]
-    pub fn from_paths(paths : Vec<String>)
-    -> Blob
-    {
-        Blob
-        { 
-            file_infos : paths.into_iter().map(|path|
-            {
-                FileInfo
-                {
-                    path : path,
-                    file_state : FileState::new(TicketFactory::new().result(), 0),
-                }
-            }
-        ).collect()}
-    }
-
     pub fn empty()
     -> Blob
     {
