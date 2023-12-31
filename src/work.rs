@@ -627,6 +627,13 @@ mod test
         }
     }
 
+    fn make_handle_node_info(system : FakeSystem, paths : Vec<String>) -> HandleNodeInfo<FakeSystem>
+    {
+        let mut info = HandleNodeInfo::new(system);
+        info.blob = Blob::from_paths_fn(paths, |_path|{FileState::empty()});
+        info
+    }
+
     #[test]
     fn work_handle_rule_node_command_executed()
     {
@@ -643,8 +650,7 @@ mod test
         let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"), ticket_factory.result());
         rule_ext.command = vec!["mycat".to_string(), "A-source.txt".to_string(), "A.txt".to_string()];
 
-        let mut info = HandleNodeInfo::new(system.clone());
-        info.blob = Blob::from_paths_fn(vec!["A.txt".to_string()], |_path|{FileState::empty()});
+        let info = make_handle_node_info(system.clone(), vec!["A.txt".to_string()]);
 
         match handle_rule_node(info, rule_ext)
         {
@@ -679,8 +685,7 @@ mod test
         let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"), ticket_factory.result());
         rule_ext.command = vec!["error".to_string()];
 
-        let mut info = HandleNodeInfo::new(system.clone());
-        info.blob = Blob::from_paths(vec!["poem.txt".to_string()]);
+        let info = make_handle_node_info(system.clone(), vec!["poem.txt".to_string()]);
 
         match handle_rule_node(info, rule_ext)
         {
@@ -706,8 +711,7 @@ mod test
         let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"), ticket_factory.result());
         rule_ext.command = vec!["mycat".to_string(),"verse1.txt".to_string(),"verse2.txt".to_string(),"wrong.txt".to_string()];
 
-        let mut info = HandleNodeInfo::new(system.clone());
-        info.blob = Blob::from_paths(vec!["poem.txt".to_string()]);
+        let info = make_handle_node_info(system.clone(), vec!["poem.txt".to_string()]);
 
         match handle_rule_node(info, rule_ext)
         {
@@ -734,8 +738,7 @@ mod test
         let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"), ticket_factory.result());
         rule_ext.command = vec!["mycat".to_string(),"verse1.txt".to_string(),"verse2.txt".to_string(),"poem.txt".to_string()];
 
-        let mut info = HandleNodeInfo::new(system.clone());
-        info.blob = Blob::from_paths(vec!["poem.txt".to_string()]);
+        let info = make_handle_node_info(system.clone(), vec!["poem.txt".to_string()]);
 
         match handle_rule_node(info, rule_ext)
         {
@@ -798,8 +801,7 @@ mod test
         rule_ext.command = vec!["mycat".to_string(), "verse1.txt".to_string(), "verse2.txt".to_string(), "poem.txt".to_string()];
         rule_ext.rule_history = rule_history;
 
-        let mut info = HandleNodeInfo::new(system.clone());
-        info.blob = Blob::from_paths(vec!["poem.txt".to_string()]);
+        let info = make_handle_node_info(system.clone(), vec!["poem.txt".to_string()]);
 
         match handle_rule_node(info, rule_ext)
         {
@@ -863,8 +865,7 @@ mod test
         rule_ext.command = vec!["mycat".to_string(), "verse1.txt".to_string(), "verse2.txt".to_string(), "poem.txt".to_string()];
         rule_ext.rule_history = rule_history;
 
-        let mut info = HandleNodeInfo::new(system.clone());
-        info.blob = Blob::from_paths(vec!["poem.txt".to_string()]);
+        let info = make_handle_node_info(system.clone(), vec!["poem.txt".to_string()]);
 
         match handle_rule_node(info, rule_ext)
         {
@@ -908,8 +909,7 @@ mod test
         rule_ext.command = vec!["mycat".to_string(), "verse1.txt".to_string(), "verse2.txt".to_string(), "poem.txt".to_string()];
         rule_ext.rule_history = RuleHistory::new();
 
-        let mut info = HandleNodeInfo::new(system.clone());
-        info.blob = Blob::from_paths(vec!["poem.txt".to_string()]);
+        let info = make_handle_node_info(system.clone(), vec!["poem.txt".to_string()]);
 
         match handle_rule_node(info, rule_ext)
         {
@@ -996,8 +996,7 @@ mod test
         let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".rule-cache"), TicketFactory::new().result());
         rule_ext.command = vec!["rm".to_string(), "verse1.txt".to_string()];
 
-        let mut info = HandleNodeInfo::new(system.clone());
-        info.blob = Blob::from_paths(vec!["verse1.txt".to_string()]);
+        let info = make_handle_node_info(system.clone(), vec!["verse1.txt".to_string()]);
 
         match handle_rule_node(info, rule_ext)
         {
@@ -1042,11 +1041,9 @@ mod test
             "poem_copy.txt".to_string()];
         rule_ext.rule_history = RuleHistory::new();
 
-        let mut info = HandleNodeInfo::new(system.clone());
-        info.blob = Blob::from_paths(vec![
-            "poem.txt".to_string(),
-            "poem_copy.txt".to_string()
-        ]);
+        let info = make_handle_node_info(
+            system.clone(),
+            vec!["poem.txt".to_string(), "poem_copy.txt".to_string()]);
 
         match handle_rule_node(info, rule_ext)
         {
