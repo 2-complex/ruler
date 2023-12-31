@@ -154,10 +154,13 @@ impl Blob
         return self.file_infos.clone();
     }
 
-    pub fn from_paths_fn
+    /*  Takes a vector of paths, and a function mapping path to FileState.  Populates
+        the Blob with the paths in the vector, with FileStates returnd by the function.
+        The format of this function might be unusual, but it covers all the use-cases. */
+    pub fn from_paths
     (
         paths : Vec<String>,
-        mut get_state : impl FnMut(&String) -> FileState
+        mut get_state : impl FnMut(&str) -> FileState
     ) -> Self
     {
         Blob{file_infos : paths.into_iter().map(|path|

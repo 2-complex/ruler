@@ -601,7 +601,7 @@ mod test
     fn make_handle_node_info(system : FakeSystem, paths : Vec<String>) -> HandleNodeInfo<FakeSystem>
     {
         let mut info = HandleNodeInfo::new(system);
-        info.blob = Blob::from_paths_fn(paths, |_path|{FileState::empty()});
+        info.blob = Blob::from_paths(paths, |_path|{FileState::empty()});
         info
     }
 
@@ -951,7 +951,7 @@ mod test
             Err(_) => panic!("File write operation failed"),
         }
 
-        match handle_source_only_node(system, Blob::from_paths_fn(
+        match handle_source_only_node(system, Blob::from_paths(
             vec!["verse1.txt".to_string()],
             |_path|{FileState::empty()}
         ))
@@ -1226,7 +1226,7 @@ mod test
         rule_ext.rule_history = rule_history;
 
         let mut info = HandleNodeInfo::new(system.clone());
-        info.blob = Blob::from_paths_fn(
+        info.blob = Blob::from_paths(
             vec!["poem.txt".to_string()], |_path|
             {
                 FileState::new(

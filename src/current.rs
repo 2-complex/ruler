@@ -206,7 +206,7 @@ impl<SystemType : System> CurrentFileStates<SystemType>
         self : &mut Self,
         paths : Vec<String>) -> Blob
     {
-        return Blob::from_paths_fn(paths, |path|{self.take(path)});
+        return Blob::from_paths(paths, |path|{self.take(path)});
     }
 
     pub fn insert_blob(self : &mut Self, blob : Blob)
