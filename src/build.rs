@@ -905,6 +905,7 @@ mod test
     use crate::printer::EmptyPrinter;
     use crate::blob::
     {
+        Blob,
         FileState
     };
     use std::io::Write;
@@ -1382,11 +1383,13 @@ poem.txt
         write_str_to_file(&mut system, "verse2.txt", "Violets are violet.\n").unwrap();
         write_str_to_file(&mut system, "build.rules", rules).unwrap();
 
+        let expected_poem_blob_before = Blob::from_paths(vec!["poem.txt".to_string()], |_path|{FileState::empty()});
+        let expected_poem_blob_after = Blob::from_paths(vec!["poem.txt".to_string()], |_path|{FileState::new(
+                TicketFactory::from_str("Roses are red.\nViolets are violet.\n").result(), 17)});
+
         {
             let mut elements = directory::init(&mut system, ".ruler").unwrap();
-            let file_state_before = elements.current_file_states.take("poem.txt");
-            assert_eq!(file_state_before, FileState::empty());
-            elements.current_file_states.insert_file_state("poem.txt".to_string(), file_state_before);
+            assert_eq!(elements.current_file_states.take_blob(vec!["poem.txt".to_string()]), expected_poem_blob_before);
         }
 
         build(
@@ -1400,10 +1403,7 @@ poem.txt
 
         {
             let mut elements = directory::init(&mut system, ".ruler").unwrap();
-            let file_state = elements.current_file_states.take("poem.txt");
-            assert_eq!(file_state, FileState::new(
-                TicketFactory::from_str("Roses are red.\nViolets are violet.\n").result(), 17));
-            elements.current_file_states.insert_file_state("poem.txt".to_string(), file_state);
+            assert_eq!(elements.current_file_states.take_blob(vec!["poem.txt".to_string()]), expected_poem_blob_after);
         }
     }
 

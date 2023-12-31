@@ -189,24 +189,21 @@ impl<SystemType : System> CurrentFileStates<SystemType>
         self.inside.file_states.insert(target_path, file_state);
     }
 
-    /*  Retrieve a FileState by the target path.  Note: this function removes the FileState from CurrentFileStates,
-        and transfers ownership of the FileState to the caller.
+    /*  Takes a vector of paths and returns a blob with current FileStates for those paths.
 
         If a FileState is not present in the map, this function returns a new, empty FileState instead. */
-    pub fn take(&mut self, target_path: &str) -> FileState
-    {
-        match self.inside.file_states.remove(target_path)
-        {
-            Some(file_state) => file_state,
-            None => FileState::empty(), // TODO: does this ever happen?
-        }
-    }
-
     pub fn take_blob(
         self : &mut Self,
         paths : Vec<String>) -> Blob
     {
-        return Blob::from_paths(paths, |path|{self.take(path)});
+        return Blob::from_paths(paths, |path|
+        {
+            match self.inside.file_states.remove(path)
+            {
+                Some(file_state) => file_state,
+                None => FileState::empty(), // TODO: does this ever happen?
+            }
+        });
     }
 
     pub fn insert_blob(self : &mut Self, blob : Blob)
@@ -226,13 +223,15 @@ mod test
     {
         CurrentFileStates,
         FileState,
+        Blob,
         write_file,
     };
     use crate::ticket::{TicketFactory};
     use crate::system::util::read_file;
 
-    /*  Create a CurrentFileStates, fill it with rule-histories and target-histories, then serialize it to binary, and deserialize
-        to create a new CurrentFileStates. Check that the contents of the new CurrentFileStates are the same as the old one. */
+    /*  Create a CurrentFileStates, populate with a FileState, then serialize it to binary, and deserialize
+        to create a new CurrentFileStates.  Check that the contents of the new CurrentFileStates are the same
+        as the old one. */
     #[test]
     fn round_trip_current_file_states()
     {
@@ -246,12 +245,9 @@ mod test
 
         let encoded : Vec<u8> = bincode::serialize(&mem.inside).unwrap();
         let inside = bincode::deserialize(&encoded).unwrap();
-        let mut decoded_current_file_states = CurrentFileStates::from_inside(system, "current_file_states.file".to_string(), inside);
+        let decoded_current_file_states = CurrentFileStates::from_inside(system, "current_file_states.file".to_string(), inside);
 
         assert_eq!(mem.inside, decoded_current_file_states.inside);
-
-        let decoded_file_state = decoded_current_file_states.take("src/meta.c");
-        assert_eq!(decoded_file_state.ticket, TicketFactory::from_str("main(){}").result());
     }
 
     /*  Create a CurrentFileStates, fill it with rule-histories and target-histories, then write it to a file in a filesystem,
@@ -312,38 +308,35 @@ mod test
             Ok(mut new_current_file_states) =>
             {
                 assert_eq!(new_current_file_states.inside, current_file_states.inside);
-
-                let new_file_state = new_current_file_states.take("src/meta.c");
-                assert_eq!(new_file_state.ticket, TicketFactory::from_str("main(){}").result());
-                assert_eq!(new_file_state.timestamp, 123);
+                assert_eq!(
+                    new_current_file_states.take_blob(vec!["src/meta.c".to_string()]),
+                    Blob::from_paths(vec!["src/meta.c".to_string()], |_path|
+                    {
+                        FileState::new(TicketFactory::from_str("main(){}").result(), 123)
+                    }));
             },
             Err(_) => panic!("CurrentFileStates failed to read from file"),
         }
     }
 
-    /*  Make a CurrentFileStates and insert a target-history.  Then take out the target history, and make sure it matches what was
-        inserted. */
+    /*  Make a CurrentFileStates and insert a FileState.  Then take out the target history,
+        and make sure it matches what was inserted. */
     #[test]
     fn insert_remove_file_state()
     {
         let system = FakeSystem::new(10);
         let mut current_file_states = CurrentFileStates::new(system, "current_file_states.file".to_string());
-
-        let file_state = FileState::new(
-            TicketFactory::from_str("main(){}").result(), 17123);
-
-        current_file_states.insert_file_state("src/meta.c".to_string(), file_state);
-
-        let history = current_file_states.take("src/meta.c");
-
-        assert_eq!(history.ticket, TicketFactory::from_str("main(){}").result());
-        assert_eq!(history.timestamp, 17123);
+        let file_state = FileState::new(TicketFactory::from_str("main(){}").result(), 17123);
+        current_file_states.insert_file_state("src/meta.c".to_string(), file_state.clone());
+        assert_eq!(
+            current_file_states.take_blob(vec!["src/meta.c".to_string()]),
+            Blob::from_paths(vec!["src/meta.c".to_string()], |_path|{file_state.clone()}));
     }
 
-    /*  Make a CurrentFileStates and insert a target-history.  Then take ask to see a history from a different path, and make sure
+    /*  Make a CurrentFileStates and insert a FileState.  Then ask to see a blob from a different path, and make sure
         the history returned is empty. */
     #[test]
-    fn history_of_unknown_file_empty()
+    fn file_state_of_unknown_file_empty()
     {
         let system = FakeSystem::new(10);
         let mut current_file_states = CurrentFileStates::new(system, "current_file_states.file".to_string());
@@ -352,11 +345,9 @@ mod test
             TicketFactory::from_str("main(){}").result(), 17123);
 
         current_file_states.insert_file_state("src/meta.c".to_string(), file_state);
-        let history = current_file_states.take("src/math.cpp");
 
-        let empty_file_state = FileState::empty();
-
-        assert_eq!(history.ticket, empty_file_state.ticket);
-        assert_eq!(history.timestamp, empty_file_state.timestamp);
+        assert_eq!(
+            current_file_states.take_blob(vec!["src/math.cpp".to_string()]),
+            Blob::from_paths(vec!["src/math.cpp".to_string()], |_path|{FileState::empty()}));
     }
 }

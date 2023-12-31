@@ -40,7 +40,7 @@ pub enum FileResolution
     NeedsRebuild,
 }
 
-#[derive(Debug, Clone)]
+#[derive(PartialEq, Clone, Debug)]
 pub struct FileInfo
 {
     pub path : String,
@@ -61,7 +61,7 @@ pub enum BlobError
     TargetSizesDifferWeird,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Blob
 {
     file_infos : Vec<FileInfo>
