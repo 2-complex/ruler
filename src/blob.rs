@@ -82,7 +82,7 @@ impl Blob
     -> Blob
     {
         Blob
-        { 
+        {
             file_infos : vec![]
         }
     }
@@ -115,7 +115,7 @@ impl Blob
     }
 
     /*  Takes a system, and updates the file contents in the blob to reflect the files in the system.
-        Returns a vector of TargetContentInfos FileState object which is current according to the file system. */
+        Returns a vector of TargetContentInfos which is current according to the file system. */
     pub fn update_to_match_system_file_state<SystemType: System>
     (
         self : &mut Self,

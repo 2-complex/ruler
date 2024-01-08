@@ -234,7 +234,7 @@ Result<WorkResult, WorkError>
     )
 }
 
-/*  Takes a vector of FileInfos and attempts to resolve the targets using cache or download-urls.
+/*  Takes a sources-ticket and a Blob representing the target, and attempts to resolve the targets using cache or download-urls.
 
     If there are remembered tickets, then this function appeals to resolve_single_target
     to try to retrieve a backup copy either from the local cache or from the internet (backing up the current copy
@@ -347,7 +347,7 @@ impl<SystemType: System> HandleNodeInfo<SystemType>
 }
 
 /*  This is a central, public function for handling a node in the depednece graph.
-    It is meant to be called by a dedicated thread, and as such, it eats all its arguments.
+    It is meant to be called by a dedicated thread.
 
     The RuleHistory gets modified when appropriate, and gets returned as part of the result.
 
