@@ -234,15 +234,14 @@ Result<WorkResult, WorkError>
     )
 }
 
-/*  Takes a vector of FileInfos and attempts to resolve the targets using cache or download-urls.
+/*  Takes a target blob and attempts to resolve the targets using cache or download-urls.
 
-    If there are remembered tickets, then this function appeals to resolve_single_target
+    If there are target tickets in the rule-history, then this function appeals to resolve_single_target
     to try to retrieve a backup copy either from the local cache or from the internet (backing up the current copy
     of each target as it goes)
 
     If there are no remembered tickets, then this function goes through each target, backs up the current version
-    if it's there, and returns a vector full of NeedsRebuild
-*/
+    if it's there, and returns a vector full of NeedsRebuild */
 fn resolve_with_cache<SystemType : System>
 (
     system : &mut SystemType,
