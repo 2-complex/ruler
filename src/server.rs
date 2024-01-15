@@ -158,7 +158,7 @@ pub async fn serve
                 };
 
                 let target_tickets =
-                match rule_history.get_target_tickets(&source_ticket)
+                match rule_history.get_file_state_vec(&source_ticket)
                 {
                     Some(target_tickets) => target_tickets,
                     None => return

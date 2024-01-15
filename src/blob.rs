@@ -134,14 +134,14 @@ impl Blob
         }
     }
 
-    pub fn get_current_target_tickets<SystemType: System>
+    pub fn get_current_file_state_vec<SystemType: System>
     (
         self : &Self,
         system : &SystemType,
     )
     -> Result<FileStateVec, GetTicketsError>
     {
-        let mut target_tickets = vec![];
+        let mut tickets = vec![];
         for target_info in self.file_infos.iter()
         {
             match get_file_ticket(system, &target_info.path, &target_info.file_state)
@@ -150,7 +150,7 @@ impl Blob
                 {
                     match ticket_opt
                     {
-                        Some(ticket) => target_tickets.push(ticket),
+                        Some(ticket) => tickets.push(ticket),
                         None => return Err(GetTicketsError::FileNotFound(target_info.path.clone())),
                     }
                 },
@@ -159,7 +159,7 @@ impl Blob
         }
 
         return Ok(
-            FileStateVec::from_vec(target_tickets.iter().map(|ticket| ticket.clone()).collect())
+            FileStateVec::from_ticket_vec(tickets.iter().map(|ticket| ticket.clone()).collect())
         );
     }
 
@@ -193,7 +193,7 @@ impl Blob
         }
 
         return Ok(
-            FileStateVec::from_vec(infos.iter().map(|info| info.ticket.clone()).collect())
+            FileStateVec::from_ticket_vec(infos.iter().map(|info| info.ticket.clone()).collect())
         );
     }
 
@@ -318,7 +318,7 @@ pub struct FileStateVec
 
 impl FileStateVec
 {
-    pub fn from_vec(tickets : Vec<Ticket>) -> FileStateVec
+    pub fn from_ticket_vec(tickets : Vec<Ticket>) -> FileStateVec
     {
         let mut infos = vec![];
         for ticket in tickets
@@ -349,7 +349,7 @@ impl FileStateVec
                     FileStateVecParseError::NotProperBase64),
             });
         }
-        Ok(FileStateVec::from_vec(tickets))
+        Ok(FileStateVec::from_ticket_vec(tickets))
     }
 
     /*  Takes a FileStateVec and looks at how the lists differ.
@@ -438,7 +438,7 @@ impl FileStateVec
     If the file does not exist, returns Ok, but with no Ticket inside
     If the file exists but does not open or some other error occurs when generating
     the ticket, returns an error. */
-pub fn get_file_ticket_from_path<SystemType: System>
+fn get_file_ticket_from_path<SystemType: System>
 (
     system : &SystemType,
     path : &str
@@ -956,14 +956,14 @@ mod test
     #[test]
     fn blob_compare_identical()
     {
-        let a = FileStateVec::from_vec(
+        let a = FileStateVec::from_ticket_vec(
             vec![
                 TicketFactory::from_str("Roses are red\nViolets are blue\n").result(),
                 TicketFactory::from_str("Sugar is sweet\nThis is a poem\n").result(),
             ]
         );
 
-        let b = FileStateVec::from_vec(
+        let b = FileStateVec::from_ticket_vec(
             vec![
                 TicketFactory::from_str("Roses are red\nViolets are blue\n").result(),
                 TicketFactory::from_str("Sugar is sweet\nThis is a poem\n").result(),
@@ -980,14 +980,14 @@ mod test
     #[test]
     fn blob_compare_mismatched_sizes()
     {
-        let a = FileStateVec::from_vec(
+        let a = FileStateVec::from_ticket_vec(
             vec![
                 TicketFactory::from_str("Roses are red\nViolets are blue\n").result(),
                 TicketFactory::from_str("Sugar is sweet\nThis is a poem\n").result(),
             ]
         );
 
-        let b = FileStateVec::from_vec(
+        let b = FileStateVec::from_ticket_vec(
             vec![
                 TicketFactory::from_str("Roses are red\nViolets are blue\n").result(),
             ]
@@ -1004,14 +1004,14 @@ mod test
     #[test]
     fn blob_compare_contradiction()
     {
-        let a = FileStateVec::from_vec(
+        let a = FileStateVec::from_ticket_vec(
             vec![
                 TicketFactory::from_str("Roses are red\nViolets are blue\n").result(),
                 TicketFactory::from_str("Sugar is sweet\nThis is a poem\n").result(),
             ]
         );
 
-        let b = FileStateVec::from_vec(
+        let b = FileStateVec::from_ticket_vec(
             vec![
                 TicketFactory::from_str("Roses are red\nViolets are blue\n").result(),
                 TicketFactory::from_str("Sugar is sweet\nChicken soup\n").result(),
@@ -1139,11 +1139,11 @@ mod test
     #[test]
     fn blob_test_download_string_round_trip()
     {
-        let target_tickets = FileStateVec::from_vec(vec![
+        let file_state_vec = FileStateVec::from_ticket_vec(vec![
             TicketFactory::from_str("Alabaster\n").result(),
             TicketFactory::from_str("Banana\n").result()]);
 
-        assert_eq!(target_tickets, FileStateVec::from_download_string(
-            &target_tickets.download_string()).unwrap());
+        assert_eq!(file_state_vec, FileStateVec::from_download_string(
+            &file_state_vec.download_string()).unwrap());
     }
 }
