@@ -42,7 +42,7 @@ pub enum WorkOption
 #[derive(Debug)]
 pub struct WorkResult
 {
-    pub target_tickets : Vec<Ticket>,
+    pub target_tickets : TargetTickets,
     pub blob : Blob,
     pub work_option : WorkOption,
     pub rule_history : Option<RuleHistory>,
@@ -189,17 +189,15 @@ Result<WorkResult, WorkError>
         return Err(WorkError::CommandExecutedButErrored);
     }
 
-    let target_content_infos =
+    let target_tickets =
     match blob.update_to_match_system_file_state(system)
     {
-        Ok(target_content_infos) => target_content_infos,
+        Ok(target_tickets) => target_tickets,
         Err(GetCurrentFileInfoError::TargetFileNotFound(path, _system_error)) => return Err(WorkError::TargetFileNotGenerated(path)),
         Err(error) => return Err(WorkError::GetCurrentFileInfoError(error)),
     };
 
-    let target_tickets = target_content_infos.iter().map(|info| info.ticket.clone()).collect();
-
-    match rule_history.insert(sources_ticket, TargetTickets::from_infos(target_content_infos))
+    match rule_history.insert(sources_ticket, target_tickets.clone())
     {
         Ok(_) => {},
         Err(error) =>

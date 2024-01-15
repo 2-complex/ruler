@@ -524,7 +524,7 @@ pub fn build
                                     {
                                         for (sub_index, sender) in sender_vec
                                         {
-                                            match sender.send(Packet::from_ticket(result.target_tickets[sub_index].clone()))
+                                            match sender.send(Packet::from_ticket(result.target_tickets.get_ticket(sub_index)))
                                             {
                                                 Ok(_) => {},
                                                 Err(error) => return Err(BuildError::SenderError(error)),
@@ -597,7 +597,7 @@ pub fn build
                                     {
                                         for (sub_index, sender) in sender_vec
                                         {
-                                            match sender.send(Packet::from_ticket(result.target_tickets[sub_index].clone()))
+                                            match sender.send(Packet::from_ticket(result.target_tickets.get_ticket(sub_index)))
                                             {
                                                 Ok(_) => {},
                                                 Err(error) => return Err(BuildError::SenderError(error)),

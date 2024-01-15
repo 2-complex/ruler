@@ -139,9 +139,9 @@ impl Blob
         self : &Self,
         system : &SystemType,
     )
-    -> Result<Vec<Ticket>, GetTicketsError>
+    -> Result<TargetTickets, GetTicketsError>
     {
-        let mut target_tickets = Vec::new();
+        let mut target_tickets = vec![];
         for target_info in self.file_infos.iter()
         {
             match get_file_ticket(system, &target_info.path, &target_info.file_state)
@@ -158,7 +158,9 @@ impl Blob
             }
         }
 
-        Ok(target_tickets)
+        return Ok(
+            TargetTickets::from_vec(target_tickets.iter().map(|ticket| ticket.clone()).collect())
+        );
     }
 
     /*  Takes a system, and updates the file contents in the blob to reflect the files in the system.
@@ -168,7 +170,7 @@ impl Blob
         self : &mut Self,
         system : &SystemType
     )
-    -> Result<Vec<FileState>, GetCurrentFileInfoError>
+    -> Result<TargetTickets, GetCurrentFileInfoError>
     {
         let mut infos = vec![];
         for target_info in self.file_infos.iter_mut()
@@ -190,7 +192,9 @@ impl Blob
             }
         }
 
-        return Ok(infos);
+        return Ok(
+            TargetTickets::from_vec(infos.iter().map(|info| info.ticket.clone()).collect())
+        );
     }
 
     pub fn get_file_infos
@@ -332,11 +336,6 @@ impl TargetTickets
         TargetTickets{infos : infos}
     }
 
-    pub fn from_infos(infos : Vec<FileState>) -> TargetTickets
-    {
-        TargetTickets{infos : infos}
-    }
-
     pub fn from_download_string(download_string : &str)
         -> Result<TargetTickets, TargetTicketsParseError>
     {
@@ -404,6 +403,11 @@ impl TargetTickets
     -> FileState
     {
         self.infos[i].clone()
+    }
+
+    pub fn get_ticket(&self, sub_index : usize) -> Ticket
+    {
+        self.infos[sub_index].ticket.clone()
     }
 
     /*  Currently used by a display function, hence the formatting. */
