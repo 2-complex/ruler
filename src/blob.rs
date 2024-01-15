@@ -139,7 +139,7 @@ impl Blob
         self : &Self,
         system : &SystemType,
     )
-    -> Result<TargetTickets, GetTicketsError>
+    -> Result<FileStateVec, GetTicketsError>
     {
         let mut target_tickets = vec![];
         for target_info in self.file_infos.iter()
@@ -159,7 +159,7 @@ impl Blob
         }
 
         return Ok(
-            TargetTickets::from_vec(target_tickets.iter().map(|ticket| ticket.clone()).collect())
+            FileStateVec::from_vec(target_tickets.iter().map(|ticket| ticket.clone()).collect())
         );
     }
 
@@ -170,7 +170,7 @@ impl Blob
         self : &mut Self,
         system : &SystemType
     )
-    -> Result<TargetTickets, GetCurrentFileInfoError>
+    -> Result<FileStateVec, GetCurrentFileInfoError>
     {
         let mut infos = vec![];
         for target_info in self.file_infos.iter_mut()
@@ -193,7 +193,7 @@ impl Blob
         }
 
         return Ok(
-            TargetTickets::from_vec(infos.iter().map(|info| info.ticket.clone()).collect())
+            FileStateVec::from_vec(infos.iter().map(|info| info.ticket.clone()).collect())
         );
     }
 
@@ -232,7 +232,7 @@ impl Blob
         system : &mut SystemType,
         cache : &mut SysCache<SystemType>,
         downloader_cache_opt : &Option<DownloaderCache>,
-        remembered_tickets : &TargetTickets,
+        remembered_tickets : &FileStateVec,
     )
     ->
     Result<Vec<FileResolution>, ResolutionError>
@@ -302,7 +302,7 @@ impl Blob
 }
 
 #[derive(Debug)]
-pub enum TargetTicketsParseError
+pub enum FileStateVecParseError
 {
     NotProperBase64,
 }
@@ -311,14 +311,14 @@ pub enum TargetTicketsParseError
     or a combination of those things.  A RuleHistory contains a map from source-ticket to this struct.
     This struct represents: whatever tickets we need to recover the target files. */
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
-pub struct TargetTickets
+pub struct FileStateVec
 {
     infos : Vec<FileState>,
 }
 
-impl TargetTickets
+impl FileStateVec
 {
-    pub fn from_vec(tickets : Vec<Ticket>) -> TargetTickets
+    pub fn from_vec(tickets : Vec<Ticket>) -> FileStateVec
     {
         let mut infos = vec![];
         for ticket in tickets
@@ -333,11 +333,11 @@ impl TargetTickets
             );
         }
 
-        TargetTickets{infos : infos}
+        FileStateVec{infos : infos}
     }
 
     pub fn from_download_string(download_string : &str)
-        -> Result<TargetTickets, TargetTicketsParseError>
+        -> Result<FileStateVec, FileStateVecParseError>
     {
         let mut tickets = vec![];
         for part in download_string.split("\n")
@@ -346,13 +346,13 @@ impl TargetTickets
             {
                 Ok(ticket) => ticket,
                 Err(_) => return Err(
-                    TargetTicketsParseError::NotProperBase64),
+                    FileStateVecParseError::NotProperBase64),
             });
         }
-        Ok(TargetTickets::from_vec(tickets))
+        Ok(FileStateVec::from_vec(tickets))
     }
 
-    /*  Takes a TargetTickets and looks at how the lists differ.
+    /*  Takes a FileStateVec and looks at how the lists differ.
 
         Returns Ok if they're idendical, otherwise returns an error
         enum that indicates the way in which they differ.
@@ -365,7 +365,7 @@ impl TargetTickets
         BlobError::Contradiction */
     pub fn compare(
         &self,
-        other : TargetTickets)
+        other : FileStateVec)
     ->
     Result<(), BlobError>
     {
@@ -755,7 +755,7 @@ mod test
     use crate::blob::
     {
         FileState,
-        TargetTickets,
+        FileStateVec,
         BlobError,
         get_file_ticket
     };
@@ -956,14 +956,14 @@ mod test
     #[test]
     fn blob_compare_identical()
     {
-        let a = TargetTickets::from_vec(
+        let a = FileStateVec::from_vec(
             vec![
                 TicketFactory::from_str("Roses are red\nViolets are blue\n").result(),
                 TicketFactory::from_str("Sugar is sweet\nThis is a poem\n").result(),
             ]
         );
 
-        let b = TargetTickets::from_vec(
+        let b = FileStateVec::from_vec(
             vec![
                 TicketFactory::from_str("Roses are red\nViolets are blue\n").result(),
                 TicketFactory::from_str("Sugar is sweet\nThis is a poem\n").result(),
@@ -980,14 +980,14 @@ mod test
     #[test]
     fn blob_compare_mismatched_sizes()
     {
-        let a = TargetTickets::from_vec(
+        let a = FileStateVec::from_vec(
             vec![
                 TicketFactory::from_str("Roses are red\nViolets are blue\n").result(),
                 TicketFactory::from_str("Sugar is sweet\nThis is a poem\n").result(),
             ]
         );
 
-        let b = TargetTickets::from_vec(
+        let b = FileStateVec::from_vec(
             vec![
                 TicketFactory::from_str("Roses are red\nViolets are blue\n").result(),
             ]
@@ -1004,14 +1004,14 @@ mod test
     #[test]
     fn blob_compare_contradiction()
     {
-        let a = TargetTickets::from_vec(
+        let a = FileStateVec::from_vec(
             vec![
                 TicketFactory::from_str("Roses are red\nViolets are blue\n").result(),
                 TicketFactory::from_str("Sugar is sweet\nThis is a poem\n").result(),
             ]
         );
 
-        let b = TargetTickets::from_vec(
+        let b = FileStateVec::from_vec(
             vec![
                 TicketFactory::from_str("Roses are red\nViolets are blue\n").result(),
                 TicketFactory::from_str("Sugar is sweet\nChicken soup\n").result(),
@@ -1139,11 +1139,11 @@ mod test
     #[test]
     fn blob_test_download_string_round_trip()
     {
-        let target_tickets = TargetTickets::from_vec(vec![
+        let target_tickets = FileStateVec::from_vec(vec![
             TicketFactory::from_str("Alabaster\n").result(),
             TicketFactory::from_str("Banana\n").result()]);
 
-        assert_eq!(target_tickets, TargetTickets::from_download_string(
+        assert_eq!(target_tickets, FileStateVec::from_download_string(
             &target_tickets.download_string()).unwrap());
     }
 }
