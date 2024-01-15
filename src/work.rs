@@ -502,7 +502,7 @@ mod test
     /*  For testing, it's useful to be able to check the ticket of a list of source files. */
     fn current_sources_ticket
     <
-        SystemType : System + 'static,
+        SystemType : System,
     >
     (
         system : &SystemType,

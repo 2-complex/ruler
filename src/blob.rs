@@ -4,7 +4,6 @@ use crate::system::
     SystemError,
     ReadWriteError,
 };
-
 use crate::cache::
 {
     SysCache,
@@ -12,9 +11,7 @@ use crate::cache::
     RestoreResult,
     DownloadResult,
 };
-
 use crate::system::util::get_timestamp;
-
 use crate::ticket::
 {
     TicketFactory,
@@ -38,6 +35,56 @@ pub enum FileResolution
     Recovered,
     Downloaded,
     NeedsRebuild,
+}
+
+/*  The data in FileState are things which would follow the file if it were renamed/moved.  There's a ticket
+    representing the file's contents, a timestamp (modifed date), and a bool for whether the file is executable.
+    Those things would follow the file in a rename/move operation. */
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
+pub struct FileState
+{
+    pub ticket : Ticket,
+    pub timestamp : u64,
+    pub executable : bool,
+}
+
+impl FileState
+{
+    /*  Create a new empty FileState */
+    pub fn empty() -> FileState
+    {
+        FileState
+        {
+            ticket : TicketFactory::new().result(),
+            timestamp : 0,
+            executable : false,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn new(
+        ticket : Ticket,
+        timestamp : u64) -> FileState
+    {
+        FileState
+        {
+            ticket : ticket,
+            timestamp : timestamp,
+            executable : false,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn new_with_ticket(
+        ticket : Ticket) -> FileState
+    {
+        FileState
+        {
+            ticket : ticket,
+            timestamp : 0,
+            executable : false,
+        }
+    }
 }
 
 #[derive(PartialEq, Clone, Debug)]
@@ -115,13 +162,13 @@ impl Blob
     }
 
     /*  Takes a system, and updates the file contents in the blob to reflect the files in the system.
-        Returns a vector of TargetContentInfos FileState object which is current according to the file system. */
+        Returns a vector of FileStates FileState object which is current according to the file system. */
     pub fn update_to_match_system_file_state<SystemType: System>
     (
         self : &mut Self,
         system : &SystemType
     )
-    -> Result<Vec<TargetContentInfo>, GetCurrentFileInfoError>
+    -> Result<Vec<FileState>, GetCurrentFileInfoError>
     {
         let mut infos = vec![];
         for target_info in self.file_infos.iter_mut()
@@ -132,9 +179,10 @@ impl Blob
                 {
                     target_info.file_state = current_info.clone();
                     infos.push(
-                        TargetContentInfo
+                        FileState
                         {
                             ticket : current_info.ticket,
+                            timestamp : 0,
                             executable : current_info.executable,
                         });
                 },
@@ -249,13 +297,6 @@ impl Blob
 
 }
 
-#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
-pub struct TargetContentInfo
-{
-    pub ticket : Ticket,
-    pub executable : bool,
-}
-
 #[derive(Debug)]
 pub enum TargetTicketsParseError
 {
@@ -268,7 +309,7 @@ pub enum TargetTicketsParseError
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
 pub struct TargetTickets
 {
-    infos : Vec<TargetContentInfo>,
+    infos : Vec<FileState>,
 }
 
 impl TargetTickets
@@ -279,9 +320,10 @@ impl TargetTickets
         for ticket in tickets
         {
             infos.push(
-                TargetContentInfo
+                FileState
                 {
                     ticket : ticket,
+                    timestamp : 0,
                     executable : false,
                 }
             );
@@ -290,7 +332,7 @@ impl TargetTickets
         TargetTickets{infos : infos}
     }
 
-    pub fn from_infos(infos : Vec<TargetContentInfo>) -> TargetTickets
+    pub fn from_infos(infos : Vec<FileState>) -> TargetTickets
     {
         TargetTickets{infos : infos}
     }
@@ -359,7 +401,7 @@ impl TargetTickets
     fn get_info(
         &self,
         i : usize)
-    -> TargetContentInfo
+    -> FileState
     {
         self.infos[i].clone()
     }
@@ -410,59 +452,6 @@ pub fn get_file_ticket_from_path<SystemType: System>
     else
     {
         Ok(None)
-    }
-}
-
-/*  There are two steps to checking if a target file is up-to-date.  First: check the rule-history to see what the target
-    hash should be.  Second: compare the hash it should be to the hash it actually is.
-
-    The data in FileState are things which would follow the file if it were renamed/moved.  There's a ticket
-    representing the file's contents, a timestamp (modifed date), executable permissions.  Those things would
-    follow the file in a rename/move operation. */
-#[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
-pub struct FileState
-{
-    pub ticket : Ticket,
-    pub timestamp : u64,
-    pub executable : bool,
-}
-
-impl FileState
-{
-    /*  Create a new empty FileState */
-    pub fn empty() -> FileState
-    {
-        FileState
-        {
-            ticket : TicketFactory::new().result(),
-            timestamp : 0,
-            executable : false,
-        }
-    }
-
-    #[cfg(test)]
-    pub fn new(
-        ticket : Ticket,
-        timestamp : u64) -> FileState
-    {
-        FileState
-        {
-            ticket : ticket,
-            timestamp : timestamp,
-            executable : false,
-        }
-    }
-
-    #[cfg(test)]
-    pub fn new_with_ticket(
-        ticket : Ticket) -> FileState
-    {
-        FileState
-        {
-            ticket : ticket,
-            timestamp : 0,
-            executable : false,
-        }
     }
 }
 
@@ -638,7 +627,7 @@ fn restore_or_download<SystemType : System>
     system : &mut SystemType,
     cache : &mut SysCache<SystemType>,
     downloader_cache_opt : &Option<DownloaderCache>,
-    remembered_target_content_info : &TargetContentInfo,
+    remembered_target_content_info : &FileState,
     target_info : &FileInfo
 )
 -> Result<FileResolution, ResolutionError>
@@ -699,7 +688,7 @@ pub fn resolve_single_target<SystemType : System>
     system : &mut SystemType,
     cache : &mut SysCache<SystemType>,
     downloader_cache_opt : &Option<DownloaderCache>,
-    remembered_target_content_info : &TargetContentInfo,
+    remembered_target_content_info : &FileState,
     target_info : &FileInfo
 )
 ->

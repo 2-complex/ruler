@@ -201,7 +201,7 @@ impl<SystemType : System> CurrentFileStates<SystemType>
             match self.inside.file_states.remove(path)
             {
                 Some(file_state) => file_state,
-                None => FileState::empty(), // TODO: does this ever happen?
+                None => FileState::empty(),
             }
         });
     }
