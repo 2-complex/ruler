@@ -16,7 +16,7 @@ use crate::history::
 use crate::blob::
 {
     Blob,
-    GetTicketsError,
+    GetFileStateError,
     FileStateVec,
     FileResolution,
     ResolutionError,
@@ -42,7 +42,7 @@ pub enum WorkOption
 #[derive(Debug)]
 pub struct WorkResult
 {
-    pub target_tickets : FileStateVec,
+    pub file_state_vec : FileStateVec,
     pub blob : Blob,
     pub work_option : WorkOption,
     pub rule_history : Option<RuleHistory>,
@@ -123,18 +123,18 @@ pub fn handle_source_only_node<SystemType: System>
 ->
 Result<WorkResult, WorkError>
 {
-    let current_target_tickets =
+    let current_file_state_vec =
     match blob.get_current_file_state_vec(&system)
     {
         Ok(tickets) => tickets,
-        Err(GetTicketsError::FileNotFound(path)) => return Err(WorkError::FileNotFound(path)),
-        Err(GetTicketsError::ReadWriteError(path, error)) => return Err(WorkError::ReadWriteError(path, error)),
+        Err(GetFileStateError::FileNotFound(path)) => return Err(WorkError::FileNotFound(path)),
+        Err(GetFileStateError::ReadWriteError(path, error)) => return Err(WorkError::ReadWriteError(path, error)),
     };
 
     Ok(
         WorkResult
         {
-            target_tickets : current_target_tickets,
+            file_state_vec : current_file_state_vec,
             blob : blob,
             work_option : WorkOption::SourceOnly,
             rule_history : None
@@ -189,15 +189,15 @@ Result<WorkResult, WorkError>
         return Err(WorkError::CommandExecutedButErrored);
     }
 
-    let target_tickets =
+    let file_state_vec =
     match blob.update_to_match_system_file_state(system)
     {
-        Ok(target_tickets) => target_tickets,
+        Ok(file_state_vec) => file_state_vec,
         Err(GetCurrentFileInfoError::TargetFileNotFound(path, _system_error)) => return Err(WorkError::TargetFileNotGenerated(path)),
         Err(error) => return Err(WorkError::GetCurrentFileInfoError(error)),
     };
 
-    match rule_history.insert(sources_ticket, target_tickets.clone())
+    match rule_history.insert(sources_ticket, file_state_vec.clone())
     {
         Ok(_) => {},
         Err(error) =>
@@ -224,7 +224,7 @@ Result<WorkResult, WorkError>
     Ok(
         WorkResult
         {
-            target_tickets : target_tickets,
+            file_state_vec : file_state_vec,
             blob : blob,
             work_option : WorkOption::CommandExecuted(command_result),
             rule_history : Some(rule_history),
@@ -255,10 +255,10 @@ Result<Vec<FileResolution>, WorkError>
 {
     match rule_history.get_file_state_vec(sources_ticket)
     {
-        Some(remembered_target_tickets) =>
+        Some(remembered_file_state_vec) =>
         {
-            return match blob.resolve_remembered_target_tickets(
-                system, cache, downloader_cache_opt, remembered_target_tickets)
+            return match blob.resolve_remembered_file_state_vec(
+                system, cache, downloader_cache_opt, remembered_file_state_vec)
             {
                 Ok(file_resolution) => Ok(file_resolution),
                 Err(resolution_error) => Err(WorkError::ResolutionError(resolution_error)),
@@ -274,10 +274,10 @@ Result<Vec<FileResolution>, WorkError>
         {
             match downloader_rule_history.get_file_state_vec(sources_ticket)
             {
-                Some(target_tickets) =>
+                Some(file_state_vec) =>
                 {
-                    return match blob.resolve_remembered_target_tickets(
-                        system, cache, downloader_cache_opt, &target_tickets)
+                    return match blob.resolve_remembered_file_state_vec(
+                        system, cache, downloader_cache_opt, &file_state_vec)
                     {
                         Ok(file_resolution) => Ok(file_resolution),
                         Err(resolution_error) => Err(WorkError::ResolutionError(resolution_error)),
@@ -384,14 +384,14 @@ Result<WorkResult, WorkError>
                 let file_state_vec = match info.blob.get_current_file_state_vec(&info.system)
                 {
                     Ok(file_state_vec) => file_state_vec,
-                    Err(GetTicketsError::FileNotFound(path)) => return Err(WorkError::FileNotFound(path)),
-                    Err(GetTicketsError::ReadWriteError(path, error)) => return Err(WorkError::ReadWriteError(path, error)),
+                    Err(GetFileStateError::FileNotFound(path)) => return Err(WorkError::FileNotFound(path)),
+                    Err(GetFileStateError::ReadWriteError(path, error)) => return Err(WorkError::ReadWriteError(path, error)),
                 };
 
                 Ok(
                     WorkResult
                     {
-                        target_tickets : file_state_vec,
+                        file_state_vec : file_state_vec,
                         blob : info.blob,
                         work_option : WorkOption::Resolutions(resolutions),
                         rule_history : Some(rule_ext.rule_history),
@@ -571,16 +571,16 @@ mod test
                         let source_ticket = source_factory.result();
 
                         // Remember what the target tickets were when built with that source before:
-                        let target_tickets =
+                        let file_state_vec =
                         match rule_history.get_file_state_vec(&source_ticket)
                         {
-                            Some(target_tickets) => target_tickets,
+                            Some(file_state_vec) => file_state_vec,
                             None => panic!("Tickets not in history as expected"),
                         };
 
                         // Check that the target tickets in the history match the ones for the target
                         assert_eq!(
-                            *target_tickets,
+                            *file_state_vec,
                             FileStateVec::from_ticket_vec(vec![
                                 TicketFactory::from_str(target_content).result()
                             ])
@@ -918,9 +918,9 @@ mod test
                 {
                     Some(rule_history) => 
                     {
-                        let target_tickets = rule_history.get_file_state_vec(&source_ticket).unwrap();
+                        let file_state_vec = rule_history.get_file_state_vec(&source_ticket).unwrap();
                         assert_eq!(
-                            *target_tickets,
+                            *file_state_vec,
                             FileStateVec::from_ticket_vec(vec![
                                 TicketFactory::from_str("Roses are red\nViolets are violet\n").result()
                             ])

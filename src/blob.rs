@@ -95,7 +95,7 @@ pub struct FileInfo
 }
 
 #[derive(Debug)]
-pub enum GetTicketsError
+pub enum GetFileStateError
 {
     FileNotFound(String),
     ReadWriteError(String, ReadWriteError),
@@ -139,7 +139,7 @@ impl Blob
         self : &Self,
         system : &SystemType,
     )
-    -> Result<FileStateVec, GetTicketsError>
+    -> Result<FileStateVec, GetFileStateError>
     {
         let mut tickets = vec![];
         for target_info in self.file_infos.iter()
@@ -151,10 +151,10 @@ impl Blob
                     match ticket_opt
                     {
                         Some(ticket) => tickets.push(ticket),
-                        None => return Err(GetTicketsError::FileNotFound(target_info.path.clone())),
+                        None => return Err(GetFileStateError::FileNotFound(target_info.path.clone())),
                     }
                 },
-                Err(error) => return Err(GetTicketsError::ReadWriteError(target_info.path.clone(), error)),
+                Err(error) => return Err(GetFileStateError::ReadWriteError(target_info.path.clone(), error)),
             }
         }
 
@@ -226,7 +226,7 @@ impl Blob
         ).collect()}
     }
 
-    pub fn resolve_remembered_target_tickets<SystemType : System>
+    pub fn resolve_remembered_file_state_vec<SystemType : System>
     (
         self : &Self,
         system : &mut SystemType,
@@ -527,7 +527,7 @@ impl fmt::Display for GetCurrentFileInfoError
 /*  Takes a system, a path and an assumed FileState.
     Returns a FileState object which is current according to the file system.
 
-    Why does the function take the assumed FileState at all?  Why doens't it just take system
+    Why does the function take the assumed FileState at all?  Why doesn't it just take system
     and path?  Because it does the following optimization:
 
     If the modified date of the file matches the one in FileState exactly, it
