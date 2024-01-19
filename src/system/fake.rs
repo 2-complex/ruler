@@ -114,6 +114,7 @@ enum Node
     Dir(HashMap<String, Node>)
 }
 
+#[derive(Debug)]
 enum NodeError
 {
     FileInPlaceOfDirectory(String),
@@ -121,7 +122,7 @@ enum NodeError
     DirectoryNotFound(String),
     PathEmpty,
     RemoveFileFoundDir,
-    RemoveDirFoundFile,
+    ExpectedDirFoundFile,
     RemoveNonExistentFile,
     RemoveNonExistentDir,
     RenameFromNonExistent,
@@ -153,7 +154,7 @@ impl fmt::Display for NodeError
             NodeError::RemoveFileFoundDir
                 => write!(formatter, "Attempt to remove file, found directory"),
 
-            NodeError::RemoveDirFoundFile
+            NodeError::ExpectedDirFoundFile
                 => write!(formatter, "Attempt to remove directory, found file"),
 
             NodeError::RemoveNonExistentFile
@@ -294,9 +295,18 @@ impl Node
         return Ok(node)
     }
 
-    pub fn get_dir_map_mut(&mut self, dir_components : &Vec<&str>) -> Result<&mut HashMap<String, Node>, NodeError>
+    fn get_dir_map_mut(&mut self, dir_components : &Vec<&str>) -> Result<&mut HashMap<String, Node>, NodeError>
     {
         match self.get_node_mut(dir_components)?
+        {
+            Node::File(_) => Err(NodeError::Weird),
+            Node::Dir(name_to_node) => Ok(name_to_node),
+        }
+    }
+
+    fn get_dir_map(&self, dir_components : &Vec<&str>) -> Result<&HashMap<String, Node>, NodeError>
+    {
+        match self.get_node(dir_components)?
         {
             Node::File(_) => Err(NodeError::Weird),
             Node::Dir(name_to_node) => Ok(name_to_node),
@@ -366,12 +376,20 @@ impl Node
                 Node::File(_) => 
                 {
                     name_to_node.insert(name.to_string(), node);
-                    Err(NodeError::RemoveDirFoundFile)
+                    Err(NodeError::ExpectedDirFoundFile)
                 }
                 Node::Dir(_) => Ok(()),
             },
             None => Err(NodeError::RemoveNonExistentDir)
         }
+    }
+
+    pub fn list_dir(self, path: &str) -> Result<Vec<String>, NodeError>
+    {
+        let mut result : Vec<String> =
+            self.get_dir_map(&get_components(path))?.clone().into_keys().collect();
+        result.sort();
+        Ok(result)
     }
 
     pub fn rename(&mut self, from: &str, to: &str) -> Result<(), NodeError>
@@ -582,8 +600,8 @@ fn convert_node_error_to_system_error(error : NodeError) -> SystemError
         NodeError::RemoveFileFoundDir
             => SystemError::RemoveFileFoundDir,
 
-        NodeError::RemoveDirFoundFile
-            => SystemError::RemoveDirFoundFile,
+        NodeError::ExpectedDirFoundFile
+            => SystemError::ExpectedDirFoundFile,
 
         NodeError::RemoveNonExistentFile
             => SystemError::RemoveNonExistentFile,
@@ -1056,6 +1074,62 @@ mod test
         }
         assert!(!node.is_file("images"));
         assert!(!node.is_dir("images"));
+    }
+
+    #[test]
+    fn add_and_list_dir_empty()
+    {
+        let mut node = Node::empty_dir();
+        node.create_dir("images").unwrap();
+        let list = node.list_dir("images").unwrap();
+        assert!(list.len() == 0);
+    }
+
+    #[test]
+    fn add_and_list_dir_dir()
+    {
+        let mut node = Node::empty_dir();
+        node.create_dir("images").unwrap();
+        node.create_dir("images/more_images").unwrap();
+        let list = node.list_dir("images").unwrap();
+        assert_eq!(list, vec!["more_images".to_string()]);
+    }
+
+    #[test]
+    fn add_and_list_dir_file()
+    {
+        let mut node = Node::empty_dir();
+        node.create_dir("images").unwrap();
+        node.create_file("images/mydog.jpg", Content::new(b"jpeginternals".to_vec()), 0).unwrap();
+        let list = node.list_dir("images").unwrap();
+        assert_eq!(list, vec!["mydog.jpg".to_string()]);
+    }
+
+    /*  This test is supposed to check whether the retured list of paths is sorted.  It does this by
+        creating the files in an arbitrary, non-sorted order.  Of course there is a small probability
+        that the implementation sorts them by chance, but with enough files in the list, that probability
+        is very low */
+    #[test]
+    fn list_dir_sorted()
+    {
+        let mut node = Node::empty_dir();
+        node.create_dir("images").unwrap();
+        node.create_file("images/B.txt", Content::new(b"B".to_vec()), 0).unwrap();
+        node.create_file("images/G.txt", Content::new(b"G".to_vec()), 0).unwrap();
+        node.create_file("images/D.txt", Content::new(b"D".to_vec()), 0).unwrap();
+        node.create_file("images/C.txt", Content::new(b"C".to_vec()), 0).unwrap();
+        node.create_file("images/E.txt", Content::new(b"E".to_vec()), 0).unwrap();
+        node.create_file("images/F.txt", Content::new(b"F".to_vec()), 0).unwrap();
+        node.create_file("images/A.txt", Content::new(b"A".to_vec()), 0).unwrap();
+        let list = node.list_dir("images").unwrap();
+        assert_eq!(list, vec![
+            "A.txt".to_string(),
+            "B.txt".to_string(),
+            "C.txt".to_string(),
+            "D.txt".to_string(),
+            "E.txt".to_string(),
+            "F.txt".to_string(),
+            "G.txt".to_string()]);
     }
 
     #[test]

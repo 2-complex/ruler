@@ -101,7 +101,7 @@ pub enum SystemError
     DirectoryInPlaceOfFile(String),
     PathEmpty,
     RemoveFileFoundDir,
-    RemoveDirFoundFile,
+    ExpectedDirFoundFile,
     RemoveNonExistentFile,
     RemoveNonExistentDir,
     RenameFromNonExistent,
@@ -134,7 +134,7 @@ impl fmt::Display for SystemError
             SystemError::RemoveFileFoundDir
                 => write!(formatter, "Attempt to remove file, found directory"),
 
-            SystemError::RemoveDirFoundFile
+            SystemError::ExpectedDirFoundFile
                 => write!(formatter, "Attempt to remove directory, found file"),
 
             SystemError::RemoveNonExistentFile
