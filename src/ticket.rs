@@ -250,6 +250,7 @@ mod test
     {
         FakeSystem
     };
+    use crate::system::System;
     use lipsum::{LOREM_IPSUM};
 
     /*  Uses a TicketFactory to construct a Ticket based on a single string with one character,
@@ -294,14 +295,14 @@ mod test
     #[test]
     fn ticket_factory_file()
     {
-        let mut file_system = FakeSystem::new(10);
-        match write_str_to_file(&mut file_system, "time0.txt", "Time wounds all heels.\n")
+        let mut system = FakeSystem::new(10);
+        match write_str_to_file(&mut system, "time0.txt", "Time wounds all heels.\n")
         {
             Ok(_) => {},
             Err(why) => panic!("Failed to create temp file: {}", why),
         }
 
-        match TicketFactory::from_file(&file_system, "time0.txt")
+        match TicketFactory::from_file(&system, "time0.txt")
         {
             Ok(mut factory) =>
             {
@@ -310,6 +311,20 @@ mod test
             },
             Err(why) => panic!("Failed to open test file time.txt: {}", why),
         }
+    }
+
+    /*  Using a fake file-system, create a file, populate with some known text, use TicketFactory::from_file
+        to get a hash and compare with an exemplar.  */
+    #[test]
+    fn ticket_factory_directory()
+    {
+        let mut system = FakeSystem::new(10);
+        system.create_dir("time-files").unwrap();
+        write_str_to_file(&mut system, "time-files/time0.txt", "Time wounds all heels.\n").unwrap();
+
+        let ticket = TicketFactory::from_file(&system, "time-files").unwrap().result();
+        assert_eq!(ticket.base64(),
+            "QgK1Pzhosm-r264m3GkGT-dRWMz8Ls8ZobarSV0MwvU=");
     }
 
     /*  Using a fake file-system, create a file, populate it with with known text, then use TicketFactory::from_str
