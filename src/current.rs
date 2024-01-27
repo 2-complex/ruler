@@ -95,37 +95,37 @@ impl fmt::Display for CurrentFileStatesError
     }
 }
 
-/*  Opens file at a path and deserializaes contents to create a CurrentFileStates object. */
-fn read_all_current_file_states_from_file<SystemType : System>
-(
-    system : SystemType,
-    current_file_statesfile_path : String
-)
--> Result<CurrentFileStates<SystemType>, CurrentFileStatesError>
-{
-    let mut file =
-    match system.open(&current_file_statesfile_path)
-    {
-        Ok(file) => file,
-        Err(_) => return Err(CurrentFileStatesError::CannotReadCurrentFileStatesFile(current_file_statesfile_path)),
-    };
-
-    let mut content = Vec::new();
-    match file.read_to_end(&mut content)
-    {
-        Ok(_size) => {},
-        Err(_) => return Err(CurrentFileStatesError::CannotReadCurrentFileStatesFile(current_file_statesfile_path)),
-    };
-
-    match bincode::deserialize(&content)
-    {
-        Ok(inside) => Ok(CurrentFileStates::from_inside(system, current_file_statesfile_path, inside)),
-        Err(_) => Err(CurrentFileStatesError::CannotInterpretFile(current_file_statesfile_path)),
-    }
-}
-
 impl<SystemType : System> CurrentFileStates<SystemType>
 {
+    /*  Opens file at a path and deserializaes contents to create a CurrentFileStates object. */
+    fn read_all_current_file_states_from_file
+    (
+        system : SystemType,
+        current_file_statesfile_path : String
+    )
+    -> Result<CurrentFileStates<SystemType>, CurrentFileStatesError>
+    {
+        let mut file =
+        match system.open(&current_file_statesfile_path)
+        {
+            Ok(file) => file,
+            Err(_) => return Err(CurrentFileStatesError::CannotReadCurrentFileStatesFile(current_file_statesfile_path)),
+        };
+
+        let mut content = Vec::new();
+        match file.read_to_end(&mut content)
+        {
+            Ok(_size) => {},
+            Err(_) => return Err(CurrentFileStatesError::CannotReadCurrentFileStatesFile(current_file_statesfile_path)),
+        };
+
+        match bincode::deserialize(&content)
+        {
+            Ok(inside) => Ok(CurrentFileStates::from_inside(system, current_file_statesfile_path, inside)),
+            Err(_) => Err(CurrentFileStatesError::CannotInterpretFile(current_file_statesfile_path)),
+        }
+    }
+
     /*  Create a new CurrentFileStates object from a file in a filesystem, create it if it doesn't exist, and If file fails to
         open or is corrupt, generate an appropriate CurrentFileStatesError. */
     pub fn from_file(
@@ -135,7 +135,7 @@ impl<SystemType : System> CurrentFileStates<SystemType>
     {
         if system.is_file(&path)
         {
-            read_all_current_file_states_from_file(system, path)
+            Self::read_all_current_file_states_from_file(system, path)
         }
         else
         {
@@ -201,7 +201,7 @@ impl<SystemType : System> CurrentFileStates<SystemType>
             match self.inside.file_states.remove(path)
             {
                 Some(file_state) => file_state,
-                None => FileState::empty(), // TODO: does this ever happen?
+                None => FileState::empty(),
             }
         });
     }
@@ -236,18 +236,18 @@ mod test
     fn round_trip_current_file_states()
     {
         let system = FakeSystem::new(10);
-        let mut mem = CurrentFileStates::new(system.clone(), "current_file_states.file".to_string());
+        let mut current_file_states = CurrentFileStates::new(system.clone(), "current_file_states.file".to_string());
 
         let file_state = FileState::new(
             TicketFactory::from_str("main(){}").result(), 123);
 
-        mem.insert_file_state("src/meta.c".to_string(), file_state);
+        current_file_states.insert_file_state("src/meta.c".to_string(), file_state);
 
-        let encoded : Vec<u8> = bincode::serialize(&mem.inside).unwrap();
+        let encoded : Vec<u8> = bincode::serialize(&current_file_states.inside).unwrap();
         let inside = bincode::deserialize(&encoded).unwrap();
         let decoded_current_file_states = CurrentFileStates::from_inside(system, "current_file_states.file".to_string(), inside);
 
-        assert_eq!(mem.inside, decoded_current_file_states.inside);
+        assert_eq!(current_file_states.inside, decoded_current_file_states.inside);
     }
 
     /*  Create a CurrentFileStates, fill it with rule-histories and target-histories, then write it to a file in a filesystem,
@@ -258,14 +258,14 @@ mod test
     {
         let mut system = FakeSystem::new(10);
 
-        let mut mem = CurrentFileStates::new(system.clone(), "current_file_states.file".to_string());
+        let mut current_file_states = CurrentFileStates::new(system.clone(), "current_file_states.file".to_string());
         
         let file_state = FileState::new(
             TicketFactory::from_str("main(){}").result(), 123);
 
-        mem.insert_file_state("src/meta.c".to_string(), file_state);
+        current_file_states.insert_file_state("src/meta.c".to_string(), file_state);
 
-        let encoded : Vec<u8> = bincode::serialize(&mem.inside).unwrap();
+        let encoded : Vec<u8> = bincode::serialize(&current_file_states.inside).unwrap();
         match write_file(&mut system, "current_file_states.file", &encoded)
         {
             Ok(()) =>
@@ -274,7 +274,7 @@ mod test
                 {
                     Ok(content) =>
                     {
-                        assert_eq!(mem.inside, bincode::deserialize(&content).unwrap());
+                        assert_eq!(current_file_states.inside, bincode::deserialize(&content).unwrap());
                     },
                     Err(_) => panic!("CurrentFileStates file read failed"),
                 }
