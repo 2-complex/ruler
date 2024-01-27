@@ -764,7 +764,10 @@ mod test
         FileState,
         TargetTickets,
         BlobError,
-        get_file_ticket
+        get_file_ticket,
+        get_file_ticket_from_path,
+        get_actual_file_state,
+        GetCurrentFileInfoError,
     };
     use crate::system::
     {
@@ -774,12 +777,6 @@ mod test
     use crate::system::util::
     {
         write_str_to_file,
-    };
-    use crate::blob::
-    {
-        get_file_ticket_from_path,
-        get_actual_file_state,
-        GetCurrentFileInfoError,
     };
 
     /*  Create a file, and make FileInfo that matches the reality of that file.
@@ -1140,6 +1137,35 @@ mod test
                 }
             },
             Err(_) => panic!("Unexpected error getting file ticket"),
+        }
+    }
+
+    /*  Create a directory, and then call get_file_ticketm, check result. */
+    #[test]
+    fn blob_test_get_file_ticket_directory()
+    {
+        // Set the clock to 11
+        let mut system = FakeSystem::new(11);
+        system.create_dir("things").unwrap();
+        let some_ticket = TicketFactory::from_str("some content").result();
+        let another_ticket = TicketFactory::from_str("some content").result();
+
+        // Then get the ticket for the current target file, passing the FileInfo
+        // with timestamp 11.  Check that it gives the ticket for the C++ code.
+        match get_file_ticket(
+            &system,
+            "things",
+            &FileState::new(some_ticket, 11))
+        {
+            Ok(ticket_opt) =>
+            {
+                match ticket_opt
+                {
+                    Some(ticket) => assert_eq!(ticket, another_ticket),
+                    None => panic!("Failed to generate ticket"),
+                }
+            },
+            Err(error) => panic!("Unexpected error getting file ticket {}", error),
         }
     }
 
