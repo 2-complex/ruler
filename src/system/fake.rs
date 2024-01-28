@@ -374,6 +374,11 @@ impl Node
         }
     }
 
+    pub fn list_dir(&self, path : &str) -> Result<Vec<String>, NodeError>
+    {
+        Ok(vec![])
+    }
+
     pub fn rename(&mut self, from: &str, to: &str) -> Result<(), NodeError>
     {
         let (from_dir_components, from_name) = get_dir_path_and_name(from)?;
@@ -707,6 +712,15 @@ impl System for FakeSystem
         match self.get_root_node_mut().remove_dir(path)
         {
             Ok(_) => Ok(()),
+            Err(error) => Err(convert_node_error_to_system_error(error)),
+        }
+    }
+
+    fn list_dir(&self, path: &str) -> Result<Vec<String>, SystemError>
+    {
+        match self.get_root_node_mut().list_dir(path)
+        {
+            Ok(result) => Ok(result),
             Err(error) => Err(convert_node_error_to_system_error(error)),
         }
     }

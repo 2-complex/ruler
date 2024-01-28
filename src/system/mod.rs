@@ -100,6 +100,7 @@ pub enum SystemError
     FileInPlaceOfDirectory(String),
     DirectoryInPlaceOfFile(String),
     PathEmpty,
+    PathNotUnicode,
     RemoveFileFoundDir,
     RemoveDirFoundFile,
     RemoveNonExistentFile,
@@ -130,6 +131,9 @@ impl fmt::Display for SystemError
 
             SystemError::PathEmpty
                 => write!(formatter, "Invalid arguments: found empty path"),
+
+            SystemError::PathNotUnicode
+                => write!(formatter, "Path encountered which does not convert to unicode string"),
 
             SystemError::RemoveFileFoundDir
                 => write!(formatter, "Attempt to remove file, found directory"),
@@ -180,6 +184,7 @@ pub trait System: Clone + Send + Sync
     fn is_file(&self, path: &str) -> bool;
     fn remove_file(&mut self, path: &str) -> Result<(), SystemError>;
     fn remove_dir(&mut self, path: &str) -> Result<(), SystemError>;
+    fn list_dir(&self, path: &str) -> Result<Vec<String>, SystemError>;
     fn rename(&mut self, from: &str, to: &str) -> Result<(), SystemError>;
 
     fn get_modified(&self, path: &str) -> Result<SystemTime, SystemError>;

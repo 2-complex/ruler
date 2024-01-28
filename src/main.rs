@@ -55,6 +55,13 @@ struct ServeConfig
 {
 }
 
+#[derive(Parser)]
+struct ListConfig
+{
+    #[arg(index=1, value_name = "PATH", help = "A path, again this is just a standin command for practical testing")]
+    path : String,
+}
+
 #[derive(Subcommand)]
 enum RulerSubcommand
 {
@@ -83,6 +90,10 @@ If a target is specified, cleans only the ancestors of that target.")]
     #[command(about="Run a server", long_about =
 "Starts a server which provides cached files to other computers on the network")]
     Serve(ServeConfig),
+
+    #[command(about="List directory", long_about =
+"Kinda like ls or dir, this is a temporary feature for use in testing the interanl library's feature")]
+    List(ListConfig),
 }
 
 
@@ -104,6 +115,9 @@ struct CommandLineParser
 about the current filesystem state.")]
     directory : String,
 }
+
+use crate::system::System;
+
 
 fn main()
 {
@@ -164,5 +178,13 @@ fn main()
                 Err(error) => eprintln!("{}", error),
             }
         },
+        RulerSubcommand::List(list_config) =>
+        {
+            let system = RealSystem::new();
+            for l in system.list_dir(&list_config.path).unwrap()
+            {
+                println!("{}", l);
+            }
+        }
     }
 }
