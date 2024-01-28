@@ -141,25 +141,25 @@ impl fmt::Display for From64Error
                 write!(formatter, "Failed to decode base-64: invalid length"),
 
             From64Error::ShaInvalidLength =>
-                write!(formatter, "Successful base64 conversion to data of wrong size"),
+                write!(formatter, "Successful base-64 conversion to data of wrong size"),
         }
     }
 }
 
 impl Ticket
 {
-    /*  Returns a string URL-safe base64-encoded hash */
-    pub fn base64(&self) -> String
+    /*  Returns a string URL-safe human-readable hash string */
+    pub fn human_readable(&self) -> String
     {
         format!("{}", general_purpose::URL_SAFE.encode(&self.sha))
     }
 
-    /*  Takes a url-safe base64 encoded hash and returns a ticket objcet
-        or an error about why the base64 was invalid. */
-    pub fn from_base64(base64_str: &str) ->
+    /*  Takes a url-safe human-readable hash string and returns a ticket objcet
+        or an error about why the hash string was invalid. */
+    pub fn from_human_readable(human_readable_str: &str) ->
         Result<Ticket, From64Error>
     {
-        match general_purpose::URL_SAFE.decode(base64_str)
+        match general_purpose::URL_SAFE.decode(human_readable_str)
         {
             Ok(sha) => 
             {
@@ -219,7 +219,7 @@ impl fmt::Display for Ticket
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result
     {
-        write!(f, "{}", self.base64())
+        write!(f, "{}", self.human_readable())
     }
 }
 
@@ -259,7 +259,7 @@ mod test
     {
         let ticket = TicketFactory::from_str("b").result();
         assert_eq!(ticket.sha.len(), 32);
-        assert_eq!(ticket.base64(),
+        assert_eq!(ticket.human_readable(),
             "PiPoFgA5WUoziU9lZOGxNIu9egCI1CxKy3PurtWcAJ0=");
     }
 
@@ -269,7 +269,7 @@ mod test
     fn ticket_from_string_more()
     {
         let ticket = TicketFactory::from_str("Time wounds all heels.\n").result();
-        assert_eq!(ticket.base64(),
+        assert_eq!(ticket.human_readable(),
             "QgK1Pzhosm-r264m3GkGT-dRWMz8Ls8ZobarSV0MwvU=");
     }
 
@@ -286,7 +286,7 @@ mod test
         let ticket_a = factory.result();
         let ticket_b = TicketFactory::from_str("Time wounds all heels.\n").result();
 
-        assert_eq!(ticket_a.base64(), ticket_b.base64());
+        assert_eq!(ticket_a.human_readable(), ticket_b.human_readable());
     }
 
     /*  Using a fake file-system, create a file, populate with some known text, use TicketFactory::from_file
@@ -305,7 +305,7 @@ mod test
         {
             Ok(mut factory) =>
             {
-                assert_eq!(factory.result().base64(),
+                assert_eq!(factory.result().human_readable(),
                     "QgK1Pzhosm-r264m3GkGT-dRWMz8Ls8ZobarSV0MwvU=");
             },
             Err(why) => panic!("Failed to open test file time.txt: {}", why),
@@ -330,7 +330,7 @@ mod test
             {
                 let mut new_factory = TicketFactory::from_str("time1.txt\n:\n:\n:\n");
                 new_factory.input_ticket(factory.result());
-                assert_eq!(new_factory.result().base64(),
+                assert_eq!(new_factory.result().human_readable(),
                     "k4eqylqAAMXeFu_O8Gigms5bM9n9iFwFznBDRojDO8o=");
             },
             Err(why) => panic!("Failed to open test file time1.txt: {}", why),
@@ -356,7 +356,7 @@ mod test
         {
             Ok(mut factory) =>
             {
-                assert_eq!(factory.result().base64(),
+                assert_eq!(factory.result().human_readable(),
                     "1-TbmtqWEoNv0OQQLb3OkYE2-f1LUOIH0SU71FP7Qo0=");
             },
             Err(why) => panic!("Failed to open test file good_and_evil.txt: {}", why),
@@ -372,22 +372,22 @@ mod test
         let encoded: Vec<u8> = bincode::serialize(&ticket).unwrap();
         let decoded: Ticket = bincode::deserialize(&encoded[..]).unwrap();
         assert_eq!(ticket, decoded);
-        assert_eq!(ticket.base64(), decoded.base64());
+        assert_eq!(ticket.human_readable(), decoded.human_readable());
     }
 
-    /*  Decode a valid ticket as base64, and do a round-trip check.*/
+    /*  Decode a valid ticket as human_readable, and do a round-trip check.*/
     #[test]
-    fn ticket_from_base64()
+    fn ticket_from_human_readable()
     {
-        match Ticket::from_base64("1-TbmtqWEoNv0OQQLb3OkYE2-f1LUOIH0SU71FP7Qo0=")
+        match Ticket::from_human_readable("1-TbmtqWEoNv0OQQLb3OkYE2-f1LUOIH0SU71FP7Qo0=")
         {
             Ok(ticket) => 
             {
-                assert_eq!(ticket.base64(), "1-TbmtqWEoNv0OQQLb3OkYE2-f1LUOIH0SU71FP7Qo0=");
+                assert_eq!(ticket.human_readable(), "1-TbmtqWEoNv0OQQLb3OkYE2-f1LUOIH0SU71FP7Qo0=");
             },
             Err(error) =>
             {
-                panic!("Unexpected error getting ticket from base64: {}", error)
+                panic!("Unexpected error getting ticket from human_readable: {}", error)
             }
         }
     }
@@ -395,20 +395,20 @@ mod test
     /*  Attempt to decode the empty string as base-64,
         check that it fails with ShaInvalidLength. */
     #[test]
-    fn ticket_from_base64_empty()
+    fn ticket_from_human_readable_empty()
     {
-        match Ticket::from_base64("")
+        match Ticket::from_human_readable("")
         {
             Ok(_ticket) =>
             {
-                panic!("Unexpected success getting ticket from empty string as base64")
+                panic!("Unexpected success getting ticket from empty string as human-readable")
             },
             Err(From64Error::ShaInvalidLength) =>
             {
             },
             Err(error) =>
             {
-                panic!("Unexpected error getting ticket from empty string as base64: {}", error)
+                panic!("Unexpected error getting ticket from empty string as human-readable: {}", error)
             }
         }
     }
@@ -416,20 +416,20 @@ mod test
     /*  Attempt to decode a string as base-64 that is too short to represent a ticket,
         check that it fails with ShaInvalidLength. */
     #[test]
-    fn ticket_from_base64_short()
+    fn ticket_from_human_readable_short()
     {
-        match Ticket::from_base64("abcdefg=")
+        match Ticket::from_human_readable("abcdefg=")
         {
             Ok(_ticket) =>
             {
-                panic!("Unexpected success getting ticket from short string as base64")
+                panic!("Unexpected success getting ticket from short string as human-readable")
             },
             Err(From64Error::ShaInvalidLength) =>
             {
             },
             Err(error) =>
             {
-                panic!("Unexpected error getting ticket from short string as base64: {}", error)
+                panic!("Unexpected error getting ticket from short string as human-readable: {}", error)
             }
         }
     }
@@ -437,13 +437,13 @@ mod test
     /*  Attempt to decode a string as base-64 that has an ampersand in it,
         check that it fails with DecodeInvalidByte. */
     #[test]
-    fn ticket_from_base64_invalid_byte()
+    fn ticket_from_human_readable_invalid_byte()
     {
-        match Ticket::from_base64("abcde&ghijk=")
+        match Ticket::from_human_readable("abcde&ghijk=")
         {
             Ok(_ticket) =>
             {
-                panic!("Unexpected success getting ticket from string with invalid character as base64")
+                panic!("Unexpected success getting ticket from string with invalid character as human_readable")
             },
             Err(From64Error::DecodeInvalidByte(location, byte)) =>
             {
@@ -452,7 +452,7 @@ mod test
             },
             Err(error) =>
             {
-                panic!("Unexpected error getting ticket from string with invalid character as base64: {}", error)
+                panic!("Unexpected error getting ticket from string with invalid character as human-readable: {}", error)
             }
         }
     }
@@ -460,20 +460,20 @@ mod test
     /*  Attempt to decode a string as base-64 that has an ampersand in it,
         check that it fails with DecodeInvalidByte. */
     #[test]
-    fn ticket_from_base64_invalid_length()
+    fn ticket_from_human_readable_invalid_length()
     {
-        match Ticket::from_base64("0abcdef==")
+        match Ticket::from_human_readable("0abcdef==")
         {
             Ok(_ticket) =>
             {
-                panic!("Unexpected success getting ticket from string as base64")
+                panic!("Unexpected success getting ticket from string as human-readable")
             },
             Err(From64Error::DecodeInvalidLength) =>
             {
             },
             Err(error) =>
             {
-                panic!("Unexpected error getting ticket from empty string as base64: {}", error)
+                panic!("Unexpected error getting ticket from empty string as human-readable: {}", error)
             }
         }
     }

@@ -65,7 +65,7 @@ pub async fn serve
         .and(warp::path!("files" / String))
         .map(move |hash_str : String|
             {
-                match Ticket::from_base64(&hash_str)
+                match Ticket::from_human_readable(&hash_str)
                 {
                     Ok(ticket) =>
                     {
@@ -124,7 +124,7 @@ pub async fn serve
             move |rule_hash_str : String, source_hash_str : String|
             {
                 let rule_ticket =
-                match Ticket::from_base64(&rule_hash_str)
+                match Ticket::from_human_readable(&rule_hash_str)
                 {
                     Ok(ticket) => ticket,
                     Err(error) =>
@@ -136,7 +136,7 @@ pub async fn serve
                 };
 
                 let source_ticket =
-                match Ticket::from_base64(&source_hash_str)
+                match Ticket::from_human_readable(&source_hash_str)
                 {
                     Ok(ticket) => ticket,
                     Err(error) =>

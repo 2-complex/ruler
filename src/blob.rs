@@ -304,7 +304,7 @@ impl Blob
 #[derive(Debug)]
 pub enum FileStateVecParseError
 {
-    NotProperBase64,
+    NotFormattedRight,
 }
 
 /*  The target of a rule can be more than one file, and maybe one day, it can be a directory
@@ -342,11 +342,11 @@ impl FileStateVec
         let mut tickets = vec![];
         for part in download_string.split("\n")
         {
-            tickets.push(match Ticket::from_base64(part)
+            tickets.push(match Ticket::from_human_readable(part)
             {
                 Ok(ticket) => ticket,
                 Err(_) => return Err(
-                    FileStateVecParseError::NotProperBase64),
+                    FileStateVecParseError::NotFormattedRight),
             });
         }
         Ok(FileStateVec::from_ticket_vec(tickets))
@@ -411,14 +411,14 @@ impl FileStateVec
     }
 
     /*  Currently used by a display function, hence the formatting. */
-    pub fn base64(&self)
+    pub fn human_readable(&self)
     -> String
     {
         let mut out = String::new();
         for info in self.infos.iter()
         {
             out.push_str("    ");
-            out.push_str(&info.ticket.base64());
+            out.push_str(&info.ticket.human_readable());
             out.push_str("\n");
         }
         out
@@ -428,7 +428,7 @@ impl FileStateVec
     pub fn download_string(&self)
     -> String
     {
-        self.infos.iter().map(|info|{info.ticket.base64()}).collect::<Vec<String>>().join("\n")
+        self.infos.iter().map(|info|{info.ticket.human_readable()}).collect::<Vec<String>>().join("\n")
     }
 }
 

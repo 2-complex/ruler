@@ -35,7 +35,7 @@ impl DownloaderRuleHistory
         for base_url in &self.base_urls
         {
             match download_string(&format!("{}/{}/{}",
-                base_url, self.rule_ticket.base64(), source_ticket.base64()))
+                base_url, self.rule_ticket.human_readable(), source_ticket.human_readable()))
             {
                 Ok(download_string) =>
                 {
@@ -152,10 +152,10 @@ impl fmt::Display for RuleHistory
         for (source_ticket, file_state_vec) in self.source_to_targets.iter()
         {
             out.push_str("  ");
-            out.push_str(&source_ticket.base64());
+            out.push_str(&source_ticket.human_readable());
             out.push_str("\n");
 
-            out.push_str(&file_state_vec.base64())
+            out.push_str(&file_state_vec.human_readable())
         }
 
         write!(formatter, "{}", out)
@@ -533,7 +533,7 @@ mod test
         }
 
         let rule_ticket = TicketFactory::from_str("rule").result();
-        let path = format!("history/{}", rule_ticket.base64());
+        let path = format!("history/{}", rule_ticket.human_readable());
         let mut file =
         match system.create_file(&path)
         {

@@ -374,7 +374,7 @@ impl Node
         }
     }
 
-    pub fn list_dir(&self, path : &str) -> Result<Vec<String>, NodeError>
+    pub fn list_dir(&self, _path : &str) -> Result<Vec<String>, NodeError>
     {
         Ok(vec![])
     }
