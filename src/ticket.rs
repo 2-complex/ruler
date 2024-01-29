@@ -8,6 +8,11 @@ use base64::
     engine::general_purpose,
     DecodeError,
 };
+use base62::
+{
+    encode,
+    decode
+};
 use crypto::digest::Digest;
 use std::hash::{Hash, Hasher};
 use serde::{Serialize, Deserialize};
@@ -152,6 +157,12 @@ impl Ticket
     pub fn human_readable(&self) -> String
     {
         format!("{}", general_purpose::URL_SAFE.encode(&self.sha))
+    }
+
+    /*  Returns a string URL-safe human-readable hash string */
+    pub fn human_readable2(&self) -> String
+    {
+        format!("{}", encode(&self.sha))
     }
 
     /*  Takes a url-safe human-readable hash string and returns a ticket objcet

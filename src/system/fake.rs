@@ -1549,7 +1549,6 @@ mod test
         }
     }
 
-
     #[test]
     fn use_commandline_to_remove()
     {

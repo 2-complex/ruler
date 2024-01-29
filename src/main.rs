@@ -62,6 +62,13 @@ struct ListConfig
     path : String,
 }
 
+#[derive(Parser)]
+struct HashConfig
+{
+    #[arg(index=1, value_name = "PATH", help = "The path from which to get a file to hash")]
+    path : String,
+}
+
 #[derive(Subcommand)]
 enum RulerSubcommand
 {
@@ -94,6 +101,10 @@ If a target is specified, cleans only the ancestors of that target.")]
     #[command(about="List directory", long_about =
 "Kinda like ls or dir, this is a temporary feature for use in testing the interanl library's feature")]
     List(ListConfig),
+
+    #[command(about="Hash a file", long_about =
+"Takes a path, opens the file at that path, reports the hash of the contents")]
+    Hash(HashConfig),
 }
 
 
@@ -117,7 +128,7 @@ about the current filesystem state.")]
 }
 
 use crate::system::System;
-
+use crate::ticket::TicketFactory;
 
 fn main()
 {
@@ -180,10 +191,21 @@ fn main()
         },
         RulerSubcommand::List(list_config) =>
         {
-            let system = RealSystem::new();
-            for l in system.list_dir(&list_config.path).unwrap()
+            for l in RealSystem::new().list_dir(&list_config.path).unwrap()
             {
                 println!("{}", l);
+            }
+        },
+        RulerSubcommand::Hash(config) =>
+        {
+            let system = RealSystem::new();
+            match TicketFactory::from_file(&system, &config.path)
+            {
+                Ok(mut factory) =>
+                {
+                    println!("{}", factory.result().human_readable2());
+                },
+                Err(error) => println!("Error hashing file {} : {}", config.path, error),
             }
         }
     }
