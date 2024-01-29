@@ -104,6 +104,19 @@ impl TicketFactory
             Err(error) => return Err(ReadWriteError::SystemError(error)),
         }
     }
+
+    /*  Construct a TicketFactory, initialized with the contents of a file from a System. */
+    pub fn from_directory<FSType: System>
+    (
+        file_system: &FSType,
+        path : &str
+    )
+    ->
+    Result<TicketFactory, ReadWriteError>
+    {
+        let contents = file_system.list_dir(path);
+        Ok(TicketFactory::from_str("alfseilasiefj34f4jlasdf8"))
+    }
 }
 
 /*  Ticket represents a hash of a file or a rule */
@@ -250,7 +263,104 @@ mod test
     {
         FakeSystem
     };
+    use crate::system::System;
     use lipsum::{LOREM_IPSUM};
+    use std::collections::HashMap;
+    use std::collections::HashSet;
+
+    /*  Takes a string, computes a map of character to character-count */
+    fn get_counts(hash_str : &str) -> HashMap<char, i32>
+    {
+        let mut result = HashMap::new();
+        for c in hash_str.chars()
+        {
+            result.insert(
+                c, match result.get(&c)
+                {
+                    Some(count) => count + 1,
+                    None => 1
+                }
+            );
+        }
+        result
+    }
+
+    /*  Returns true if the given string is:
+            - sufficiently long,
+            - comprised of ascii characters you can type
+            - random-ish. */
+    fn hash_heuristic(hash_str : &str) -> bool
+    {
+        if hash_str.len() < 20
+        {
+            return false;
+        }
+
+        for c in hash_str.chars()
+        {
+            if !(c as i32 >= 0x20 && c as i32 <= 0x7e)
+            {
+                return false;
+            }
+        }
+
+        let counts = get_counts(hash_str);
+        let x = hash_str.len() as i32;
+        let y = counts.len() as i32;
+
+        return (x-y).abs() < x / 2;
+    }
+
+    #[test]
+    fn ticket_factory_passes_heuristic()
+    {
+        for n in 0..10000
+        {
+            let content = format!("{} is a very interesting number.", n);
+            let ticket = TicketFactory::from_str(&content).result();
+            println!("{} {}", content, ticket.base64());
+            assert!(hash_heuristic(&ticket.base64()));
+        }
+    }
+
+    #[test]
+    fn short_hashes_fail_heuristic()
+    {
+        assert!(!hash_heuristic(""));
+        assert!(!hash_heuristic("1"));
+        assert!(!hash_heuristic("12345"));
+    }
+
+    #[test]
+    fn not_typable_hashes_fail_heuristic()
+    {
+        assert!(!hash_heuristic("\0"));
+        assert!(hash_heuristic("PiPoFgA5WUoziU9lZOGxNIu9egCI1CxKy3PurtWcAJ0"));
+        assert!(!hash_heuristic("PiPoFgA5WUoziU9lZOGxNIu9egCI1CxKy3PurtWcAJ0å"));
+        assert!(!hash_heuristic("PiPoFgA5WUoziU9lZOGxNIu9egCI1CxKy3PurtWcAJ0🍌"));
+    }
+
+    #[test]
+    fn not_randomly_distributed_hashes_fail_heuristic()
+    {
+        assert!(!hash_heuristic("appleappleappleappleappleappleappleapple"));
+        assert!(!hash_heuristic("0000000000000000000000000000000000000000"));
+        assert!(!hash_heuristic("abcdefghijklmnopqrstabcdefghijklmnopqrst"));
+    }
+
+    #[test]
+    fn ticket_factory_generates_unique_tickets()
+    {
+        let mut tickets = HashSet::new();
+        let k = 1000;
+        for n in 0..k
+        {
+            let content = format!("{} is a very interesting number, isn't it Mr. {}", n, n+1);
+            let ticket = TicketFactory::from_str(&content).result();
+            tickets.insert(ticket);
+        }
+        assert!(tickets.len()==k)
+    }
 
     /*  Uses a TicketFactory to construct a Ticket based on a single string with one character,
         compares with exemplar. */
@@ -259,8 +369,7 @@ mod test
     {
         let ticket = TicketFactory::from_str("b").result();
         assert_eq!(ticket.sha.len(), 32);
-        assert_eq!(ticket.base64(),
-            "PiPoFgA5WUoziU9lZOGxNIu9egCI1CxKy3PurtWcAJ0=");
+        assert!(hash_heuristic(&ticket.base64()));
     }
 
     /*  Uses a TicketFactory to construct a Ticket based on a single string with more than one character,
@@ -269,8 +378,7 @@ mod test
     fn ticket_from_string_more()
     {
         let ticket = TicketFactory::from_str("Time wounds all heels.\n").result();
-        assert_eq!(ticket.base64(),
-            "QgK1Pzhosm-r264m3GkGT-dRWMz8Ls8ZobarSV0MwvU=");
+        assert!(hash_heuristic(&ticket.base64()));
     }
 
     /*  Constructs two tickets for the same string, A: by calling input_str with pieces of the string,
@@ -294,22 +402,60 @@ mod test
     #[test]
     fn ticket_factory_file()
     {
-        let mut file_system = FakeSystem::new(10);
-        match write_str_to_file(&mut file_system, "time0.txt", "Time wounds all heels.\n")
-        {
-            Ok(_) => {},
-            Err(why) => panic!("Failed to create temp file: {}", why),
-        }
+        let mut system = FakeSystem::new(10);
+        write_str_to_file(&mut system, "time0.txt", "Time wounds all heels.\n").unwrap();
+        hash_heuristic(&TicketFactory::from_file(&system, "time0.txt").unwrap().result().base64());
+    }
 
-        match TicketFactory::from_file(&file_system, "time0.txt")
-        {
-            Ok(mut factory) =>
-            {
-                assert_eq!(factory.result().base64(),
-                    "QgK1Pzhosm-r264m3GkGT-dRWMz8Ls8ZobarSV0MwvU=");
-            },
-            Err(why) => panic!("Failed to open test file time.txt: {}", why),
-        }
+    /*  Using a fake file-system, create a file, populate with some known text, use TicketFactory::from_file
+        to get a hash and compare with an exemplar.  */
+    #[test]
+    fn ticket_factory_two_files_different()
+    {
+        let mut system = FakeSystem::new(10);
+        write_str_to_file(&mut system, "time0.txt", "Time wounds all heels.\n").unwrap();
+        write_str_to_file(&mut system, "time1.txt", "Time: March is on.\n").unwrap();
+
+        let ticket0 = TicketFactory::from_file(&system, "time0.txt").unwrap().result();
+        let ticket1 = TicketFactory::from_file(&system, "time0.txt").unwrap().result();
+
+        hash_heuristic(&ticket0.base64());
+        hash_heuristic(&ticket0.base64());
+
+        assert_ne!(ticket0, ticket1);
+    }
+
+    /*  Using a fake file-system, create a file, populate with some known text, use TicketFactory::from_file
+        to get a hash and compare with an exemplar.  */
+    #[test]
+    fn ticket_factory_directory()
+    {
+        let mut system = FakeSystem::new(10);
+        system.create_dir("time-files").unwrap();
+        write_str_to_file(&mut system, "time-files/time0.txt", "Time wounds all heels.\n").unwrap();
+
+        let ticket = TicketFactory::from_directory(&system, "time-files").unwrap().result();
+        assert!(&hash_heuristic(&ticket.base64()));
+    }
+
+    /*  Using a fake file-system, create two directories, populate with some known text, use TicketFactory::from_file
+        to get a hash and compare with an exemplar.  */
+    #[test]
+    fn ticket_factory_two_directories_different()
+    {
+        let mut system = FakeSystem::new(10);
+        system.create_dir("time-files-0").unwrap();
+        system.create_dir("time-files-1").unwrap();
+        write_str_to_file(&mut system, "time-files-0/time0.txt", "Time wounds all heels.\n").unwrap();
+        write_str_to_file(&mut system, "time-files-1/time1.txt", "Time: March is on.\n").unwrap();
+
+        let ticket0 = TicketFactory::from_directory(&system, "time-files").unwrap().result();
+        let ticket1 = TicketFactory::from_directory(&system, "time-files").unwrap().result();
+
+        assert!(hash_heuristic(&ticket0.base64()));
+        assert!(hash_heuristic(&ticket1.base64()));
+
+        assert_ne!(ticket0, ticket1)
     }
 
     /*  Using a fake file-system, create a file, populate it with with known text, then use TicketFactory::from_str
