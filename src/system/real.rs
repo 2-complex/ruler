@@ -129,6 +129,11 @@ impl System for RealSystem
         }
     }
 
+    fn list_dir(&mut self, path: &str) -> Result<Vec<String>, SystemError>
+    {
+        vec![]
+    }
+
     fn rename(&mut self, from: &str, to: &str) -> Result<(), SystemError>
     {
         match fs::rename(from, to)
