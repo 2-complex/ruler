@@ -37,7 +37,6 @@ impl TicketFactory
 
     /*  Construct a TicketFactory immediately reading in
         the bytes of the given string as input. */
-    #[cfg(test)]
     pub fn from_str(first_input: &str) -> TicketFactory
     {
         let mut d = Sha256::new();
