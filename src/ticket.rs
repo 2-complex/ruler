@@ -15,6 +15,7 @@ use crate::system::
 {
     System,
     ReadWriteError,
+    SystemError,
 };
 use std::fmt;
 use std::io::Read;
@@ -107,14 +108,50 @@ impl TicketFactory
     /*  Construct a TicketFactory, initialized with the contents of a file from a System. */
     pub fn from_directory<FSType: System>
     (
-        file_system: &FSType,
+        system: &FSType,
         path : &str
     )
     ->
     Result<TicketFactory, ReadWriteError>
     {
-        let contents = file_system.list_dir(path);
-        Ok(TicketFactory::from_str("alfseilasiefj34f4jlasdf8"))
+        let mut factory = TicketFactory::new();
+
+        let path_list =
+        match system.list_dir(path)
+        {
+            Ok(path_list) => path_list,
+            Err(_error) => return Err(ReadWriteError::SystemError(SystemError::NotFound)),
+        };
+
+        for path in path_list
+        {
+            if system.is_dir(&path)
+            {
+                let mut sub_factory =
+                match TicketFactory::from_directory(system, &path)
+                {
+                    Ok(fact) => fact,
+                    Err(error) => return Err(error),
+                };
+                factory.input_ticket(sub_factory.result());
+            }
+            else if system.is_file(&path)
+            {
+                let mut sub_factory =
+                match TicketFactory::from_directory(system, &path)
+                {
+                    Ok(fact) => fact,
+                    Err(error) => return Err(error),
+                };
+                factory.input_ticket(sub_factory.result());
+            }
+            else
+            {
+                return Err(ReadWriteError::SystemError(SystemError::NotFound));
+            }
+        }
+
+        Ok(factory)
     }
 }
 
@@ -317,8 +354,7 @@ mod test
         {
             let content = format!("{} is a very interesting number.", n);
             let ticket = TicketFactory::from_str(&content).result();
-            println!("{} {}", content, ticket.base64());
-            assert!(hash_heuristic(&ticket.base64()));
+            assert!(hash_heuristic(&ticket.human_readable()));
         }
     }
 
@@ -368,7 +404,7 @@ mod test
     {
         let ticket = TicketFactory::from_str("b").result();
         assert_eq!(ticket.sha.len(), 32);
-        assert!(hash_heuristic(&ticket.base64()));
+        assert!(hash_heuristic(&ticket.human_readable()));
     }
 
     /*  Uses a TicketFactory to construct a Ticket based on a single string with more than one character,
@@ -377,7 +413,7 @@ mod test
     fn ticket_from_string_more()
     {
         let ticket = TicketFactory::from_str("Time wounds all heels.\n").result();
-        assert!(hash_heuristic(&ticket.base64()));
+        assert!(hash_heuristic(&ticket.human_readable()));
     }
 
     /*  Constructs two tickets for the same string, A: by calling input_str with pieces of the string,
@@ -403,7 +439,7 @@ mod test
     {
         let mut system = FakeSystem::new(10);
         write_str_to_file(&mut system, "time0.txt", "Time wounds all heels.\n").unwrap();
-        hash_heuristic(&TicketFactory::from_file(&system, "time0.txt").unwrap().result().base64());
+        hash_heuristic(&TicketFactory::from_file(&system, "time0.txt").unwrap().result().human_readable());
     }
 
     /*  Using a fake file-system, create a file, populate with some known text, use TicketFactory::from_file
@@ -418,8 +454,8 @@ mod test
         let ticket0 = TicketFactory::from_file(&system, "time0.txt").unwrap().result();
         let ticket1 = TicketFactory::from_file(&system, "time0.txt").unwrap().result();
 
-        hash_heuristic(&ticket0.base64());
-        hash_heuristic(&ticket0.base64());
+        hash_heuristic(&ticket0.human_readable());
+        hash_heuristic(&ticket1.human_readable());
 
         assert_ne!(ticket0, ticket1);
     }
@@ -434,7 +470,7 @@ mod test
         write_str_to_file(&mut system, "time-files/time0.txt", "Time wounds all heels.\n").unwrap();
 
         let ticket = TicketFactory::from_directory(&system, "time-files").unwrap().result();
-        assert!(&hash_heuristic(&ticket.base64()));
+        assert!(&hash_heuristic(&ticket.human_readable()));
     }
 
     /*  Using a fake file-system, create two directories, populate with some known text, use TicketFactory::from_file
@@ -451,8 +487,8 @@ mod test
         let ticket0 = TicketFactory::from_directory(&system, "time-files").unwrap().result();
         let ticket1 = TicketFactory::from_directory(&system, "time-files").unwrap().result();
 
-        assert!(hash_heuristic(&ticket0.base64()));
-        assert!(hash_heuristic(&ticket1.base64()));
+        assert!(hash_heuristic(&ticket0.human_readable()));
+        assert!(hash_heuristic(&ticket1.human_readable()));
 
         assert_ne!(ticket0, ticket1)
     }
