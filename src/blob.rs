@@ -445,9 +445,17 @@ fn get_file_ticket_from_path<SystemType: System>
 )
 -> Result<Option<Ticket>, ReadWriteError>
 {
-    if system.is_file(&path) || system.is_dir(&path)
+    if system.is_file(&path)
     {
         match TicketFactory::from_file(system, &path)
+        {
+            Ok(mut factory) => Ok(Some(factory.result())),
+            Err(error) => Err(error),
+        }
+    }
+    else if system.is_dir(&path)
+    {
+        match TicketFactory::from_directory(system, &path)
         {
             Ok(mut factory) => Ok(Some(factory.result())),
             Err(error) => Err(error),
@@ -751,6 +759,7 @@ mod test
     use crate::ticket::
     {
         TicketFactory,
+        hash_heuristic,
     };
     use crate::blob::
     {
@@ -1141,20 +1150,23 @@ mod test
         let mut system = FakeSystem::new(11);
         system.create_dir("things").unwrap();
         let some_ticket = TicketFactory::from_str("some content").result();
-        let another_ticket = TicketFactory::from_str("some content").result();
 
         // Then get the ticket for the current target file, passing the FileInfo
         // with timestamp 11.  Check that it gives the ticket for the C++ code.
         match get_file_ticket(
             &system,
             "things",
-            &FileState::new(some_ticket, 11))
+            &FileState::new(some_ticket.clone(), 11))
         {
             Ok(ticket_opt) =>
             {
                 match ticket_opt
                 {
-                    Some(ticket) => assert_eq!(ticket, another_ticket),
+                    Some(ticket) =>
+                    {
+                        assert_ne!(ticket, some_ticket);
+                        assert!(hash_heuristic(&ticket.human_readable()));
+                    },
                     None => panic!("Failed to generate ticket"),
                 }
             },

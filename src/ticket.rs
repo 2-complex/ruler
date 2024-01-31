@@ -272,7 +272,7 @@ impl fmt::Display for Ticket
     }
 }
 
-impl Eq for Ticket {}
+impl Eq for Ticket {} // Huh?
 
 impl Hash for Ticket
 {
@@ -282,6 +282,52 @@ impl Hash for Ticket
     }
 }
 
+use std::collections::HashMap;
+use std::collections::HashSet;
+
+/*  Takes a string, computes a map of character to character-count */
+fn get_counts(hash_str : &str) -> HashMap<char, i32>
+{
+    let mut result = HashMap::new();
+    for c in hash_str.chars()
+    {
+        result.insert(
+            c, match result.get(&c)
+            {
+                Some(count) => count + 1,
+                None => 1
+            }
+        );
+    }
+    result
+}
+
+/*  Returns true if the given string is:
+        - sufficiently long,
+        - comprised of ascii characters you can type
+        - random-ish. */
+pub fn hash_heuristic(hash_str : &str) -> bool
+{
+    if hash_str.len() < 20
+    {
+        return false;
+    }
+
+    for c in hash_str.chars()
+    {
+        if !(c as i32 >= 0x20 && c as i32 <= 0x7e)
+        {
+            return false;
+        }
+    }
+
+    let counts = get_counts(hash_str);
+    let x = hash_str.len() as i32;
+    let y = counts.len() as i32;
+
+    return (x-y).abs() < x / 2;
+}
+
 #[cfg(test)]
 mod test
 {
@@ -289,7 +335,8 @@ mod test
     {
         Ticket,
         TicketFactory,
-        From64Error
+        From64Error,
+        hash_heuristic,
     };
     use crate::system::util::
     {
@@ -303,49 +350,6 @@ mod test
     use lipsum::{LOREM_IPSUM};
     use std::collections::HashMap;
     use std::collections::HashSet;
-
-    /*  Takes a string, computes a map of character to character-count */
-    fn get_counts(hash_str : &str) -> HashMap<char, i32>
-    {
-        let mut result = HashMap::new();
-        for c in hash_str.chars()
-        {
-            result.insert(
-                c, match result.get(&c)
-                {
-                    Some(count) => count + 1,
-                    None => 1
-                }
-            );
-        }
-        result
-    }
-
-    /*  Returns true if the given string is:
-            - sufficiently long,
-            - comprised of ascii characters you can type
-            - random-ish. */
-    fn hash_heuristic(hash_str : &str) -> bool
-    {
-        if hash_str.len() < 20
-        {
-            return false;
-        }
-
-        for c in hash_str.chars()
-        {
-            if !(c as i32 >= 0x20 && c as i32 <= 0x7e)
-            {
-                return false;
-            }
-        }
-
-        let counts = get_counts(hash_str);
-        let x = hash_str.len() as i32;
-        let y = counts.len() as i32;
-
-        return (x-y).abs() < x / 2;
-    }
 
     #[test]
     fn ticket_factory_passes_heuristic()
