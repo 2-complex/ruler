@@ -138,7 +138,7 @@ impl TicketFactory
             else if system.is_file(&path)
             {
                 let mut sub_factory =
-                match TicketFactory::from_directory(system, &path)
+                match TicketFactory::from_file(system, &path)
                 {
                     Ok(fact) => fact,
                     Err(error) => return Err(error),
@@ -283,7 +283,6 @@ impl Hash for Ticket
 }
 
 use std::collections::HashMap;
-use std::collections::HashSet;
 
 /*  Takes a string, computes a map of character to character-count */
 fn get_counts(hash_str : &str) -> HashMap<char, i32>
@@ -348,7 +347,6 @@ mod test
     };
     use crate::system::System;
     use lipsum::{LOREM_IPSUM};
-    use std::collections::HashMap;
     use std::collections::HashSet;
 
     #[test]
@@ -446,8 +444,8 @@ mod test
         hash_heuristic(&TicketFactory::from_file(&system, "time0.txt").unwrap().result().human_readable());
     }
 
-    /*  Using a fake file-system, create a file, populate with some known text, use TicketFactory::from_file
-        to get a hash and compare with an exemplar.  */
+    /*  Using a fake file-system, create two files with different content, use TicketFactory::from_file
+        to get a hash from each, and compare to each other.  */
     #[test]
     fn ticket_factory_two_files_different()
     {
@@ -456,7 +454,7 @@ mod test
         write_str_to_file(&mut system, "time1.txt", "Time: March is on.\n").unwrap();
 
         let ticket0 = TicketFactory::from_file(&system, "time0.txt").unwrap().result();
-        let ticket1 = TicketFactory::from_file(&system, "time0.txt").unwrap().result();
+        let ticket1 = TicketFactory::from_file(&system, "time1.txt").unwrap().result();
 
         hash_heuristic(&ticket0.human_readable());
         hash_heuristic(&ticket1.human_readable());
@@ -488,8 +486,8 @@ mod test
         write_str_to_file(&mut system, "time-files-0/time0.txt", "Time wounds all heels.\n").unwrap();
         write_str_to_file(&mut system, "time-files-1/time1.txt", "Time: March is on.\n").unwrap();
 
-        let ticket0 = TicketFactory::from_directory(&system, "time-files").unwrap().result();
-        let ticket1 = TicketFactory::from_directory(&system, "time-files").unwrap().result();
+        let ticket0 = TicketFactory::from_directory(&system, "time-files-0").unwrap().result();
+        let ticket1 = TicketFactory::from_directory(&system, "time-files-1").unwrap().result();
 
         assert!(hash_heuristic(&ticket0.human_readable()));
         assert!(hash_heuristic(&ticket1.human_readable()));

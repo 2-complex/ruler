@@ -387,7 +387,8 @@ impl Node
     pub fn list_dir(&self, path: &str) -> Result<Vec<String>, NodeError>
     {
         let mut result : Vec<String> =
-            self.get_dir_map(&get_components(path))?.clone().into_keys().collect();
+            self.get_dir_map(&get_components(path))?.clone().into_keys().map(
+                |p|{format!("{}/{}", path, p)}).collect();
         result.sort();
         Ok(result)
     }
@@ -1101,7 +1102,7 @@ mod test
         node.create_dir("images").unwrap();
         node.create_dir("images/more_images").unwrap();
         let list = node.list_dir("images").unwrap();
-        assert_eq!(list, vec!["more_images".to_string()]);
+        assert_eq!(list, vec!["images/more_images".to_string()]);
     }
 
     #[test]
@@ -1111,7 +1112,7 @@ mod test
         node.create_dir("images").unwrap();
         node.create_file("images/mydog.jpg", Content::new(b"jpeginternals".to_vec()), 0).unwrap();
         let list = node.list_dir("images").unwrap();
-        assert_eq!(list, vec!["mydog.jpg".to_string()]);
+        assert_eq!(list, vec!["images/mydog.jpg".to_string()]);
     }
 
     /*  This test is supposed to check whether the retured list of paths is sorted.  It does this by
@@ -1132,13 +1133,13 @@ mod test
         node.create_file("images/A.txt", Content::new(b"A".to_vec()), 0).unwrap();
         let list = node.list_dir("images").unwrap();
         assert_eq!(list, vec![
-            "A.txt".to_string(),
-            "B.txt".to_string(),
-            "C.txt".to_string(),
-            "D.txt".to_string(),
-            "E.txt".to_string(),
-            "F.txt".to_string(),
-            "G.txt".to_string()]);
+            "images/A.txt".to_string(),
+            "images/B.txt".to_string(),
+            "images/C.txt".to_string(),
+            "images/D.txt".to_string(),
+            "images/E.txt".to_string(),
+            "images/F.txt".to_string(),
+            "images/G.txt".to_string()]);
     }
 
     #[test]
