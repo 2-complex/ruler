@@ -6,7 +6,11 @@ use crypto::
     sha2::Sha256,
     digest::Digest,
 };
-use std::hash::{Hash, Hasher};
+use std::hash::
+{
+    Hash,
+    Hasher
+};
 use serde::{Serialize, Deserialize};
 use crate::system::
 {
@@ -256,10 +260,21 @@ impl TicketFactory
 }
 
 /*  Ticket represents a hash of a file or a rule */
-#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone, Eq)]
 pub struct Ticket
 {
     sha: [u8; 32],
+}
+
+impl Hash for Ticket
+{
+    fn hash<H: Hasher>(&self, state: &mut H)
+    {
+        /*  If we're hashing the ticket... for the puproses of putting it in a hash map
+            or a HashSet, there isn't much point in digesting the entire 32 bytes of already
+            hashed data.  8 will do. */
+        self.sha[..8].hash(state);
+    }
 }
 
 impl Ticket
@@ -319,16 +334,6 @@ impl fmt::Display for Ticket
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result
     {
         write!(f, "{}", self.human_readable())
-    }
-}
-
-impl Eq for Ticket {} // Huh?
-
-impl Hash for Ticket
-{
-    fn hash<H: Hasher>(&self, state: &mut H)
-    {
-        self.sha[..8].hash(state);
     }
 }
 
@@ -642,22 +647,11 @@ mod test
     fn ticket_factory_hashes()
     {
         let mut file_system = FakeSystem::new(10);
-        match write_str_to_file(&mut file_system, "time1.txt", "Time wounds all heels.\n")
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File write operation failed"),
-        }
-
-        match TicketFactory::from_file(&file_system, "time1.txt")
-        {
-            Ok(mut factory) =>
-            {
-                let mut new_factory = TicketFactory::from_str("time1.txt\n:\n:\n:\n");
-                new_factory.input_ticket(factory.result());
-                assert!(hash_heuristic(&new_factory.result().human_readable()));
-            },
-            Err(why) => panic!("Failed to open test file time1.txt: {}", why),
-        }
+        write_str_to_file(&mut file_system, "time1.txt", "Time wounds all heels.\n").unwrap();
+        let mut factory_from_file = TicketFactory::from_file(&file_system, "time1.txt").unwrap();
+        let mut new_factory = TicketFactory::from_str("time1.txt\n:\n:\n:\n");
+        new_factory.input_ticket(factory_from_file.result());
+        assert!(hash_heuristic(&new_factory.result().human_readable()));
     }
 
     /*  Obtain lorem ipsum, and write it to a file in a fake filesystem.  Then use TicketFactory::from_file
@@ -665,18 +659,10 @@ mod test
     #[test]
     fn ticket_factory_hashes_bigger_file()
     {
-        let mut file_system = FakeSystem::new(10);
-
-        write_str_to_file(&mut file_system, "good_and_evil.txt", LOREM_IPSUM).unwrap();
-
-        match TicketFactory::from_file(&file_system, "good_and_evil.txt")
-        {
-            Ok(mut factory) =>
-            {
-                assert!(hash_heuristic(&factory.result().human_readable()));
-            },
-            Err(why) => panic!("Failed to open test file good_and_evil.txt: {}", why),
-        }
+        let mut system = FakeSystem::new(10);
+        write_str_to_file(&mut system, "good_and_evil.txt", LOREM_IPSUM).unwrap();
+        assert!(hash_heuristic(&TicketFactory::from_file(
+            &system, "good_and_evil.txt").unwrap().result().human_readable()));
     }
 
     /*  Make a ticket, serialize to a vector of bytes, then deserialize, and check that
@@ -695,18 +681,10 @@ mod test
     #[test]
     fn ticket_from_human_readable_round_trip()
     {
-        let human_readable = "0123456789abcdefghij0123456789ABCDEFGHIJ012";
-        match Ticket::from_human_readable(human_readable)
-        {
-            Ok(ticket) => 
-            {
-                assert_eq!(ticket.human_readable(), human_readable);
-            },
-            Err(error) =>
-            {
-                panic!("Unexpected error getting ticket from human_readable: {}", error)
-            }
-        }
+        let hash_str = "0123456789abcdefghij0123456789ABCDEFGHIJ012";
+        assert_eq!(
+            Ticket::from_human_readable(hash_str).unwrap().human_readable(),
+            hash_str.to_string());
     }
 
     /*  Attempt to decode the empty string as base-64,
@@ -714,20 +692,9 @@ mod test
     #[test]
     fn ticket_from_human_readable_empty()
     {
-        match Ticket::from_human_readable("")
-        {
-            Ok(_ticket) =>
-            {
-                panic!("Unexpected success getting ticket from empty string as human-readable")
-            },
-            Err(FromHumanReadableError::InvalidLength) =>
-            {
-            },
-            Err(error) =>
-            {
-                panic!("Unexpected error getting ticket from empty string as human-readable: {}", error)
-            }
-        }
+        assert_eq!(
+            Ticket::from_human_readable(""),
+            Err(FromHumanReadableError::InvalidLength));
     }
 
     /*  Attempt to decode a string as base-64 that is too short to represent a ticket,
@@ -735,20 +702,9 @@ mod test
     #[test]
     fn ticket_from_human_readable_short()
     {
-        match Ticket::from_human_readable("abcdefg=")
-        {
-            Ok(_ticket) =>
-            {
-                panic!("Unexpected success getting ticket from short string as human-readable")
-            },
-            Err(FromHumanReadableError::InvalidLength) =>
-            {
-            },
-            Err(error) =>
-            {
-                panic!("Unexpected error getting ticket from short string as human-readable: {}", error)
-            }
-        }
+        assert_eq!(
+            Ticket::from_human_readable("abcdefg="),
+            Err(FromHumanReadableError::InvalidLength));
     }
 
     /*  Attempt to decode a string as base-64 that has an ampersand in it,
@@ -756,21 +712,10 @@ mod test
     #[test]
     fn ticket_from_human_readable_invalid_character()
     {
-        match Ticket::from_human_readable("0123456789012345678&01234567890123456789012")
-        {
-            Ok(_ticket) =>
-            {
-                panic!("Unexpected success getting ticket from string with invalid character as human_readable")
-            },
-            Err(FromHumanReadableError::InvalidCharacter(c)) =>
-            {
-                assert_eq!(c, '&');
-            },
-            Err(error) =>
-            {
-                panic!("Unexpected error getting ticket from string with invalid character as human-readable: {}", error)
-            }
-        }
+        assert_eq!(
+            Ticket::from_human_readable("0123456789012345678&01234567890123456789012"),
+            Err(FromHumanReadableError::InvalidCharacter('&'))
+        );
     }
 
     /*  Attempt to decode a string as base-64 that has an ampersand in it,
@@ -778,19 +723,9 @@ mod test
     #[test]
     fn ticket_from_human_readable_invalid_length()
     {
-        match Ticket::from_human_readable("0abcdef")
-        {
-            Ok(_ticket) =>
-            {
-                panic!("Unexpected success getting ticket from string as human-readable")
-            },
-            Err(FromHumanReadableError::InvalidLength) =>
-            {
-            },
-            Err(error) =>
-            {
-                panic!("Unexpected error getting ticket from empty string as human-readable: {}", error)
-            }
-        }
+        assert_eq!(
+            Ticket::from_human_readable("0abcdef"),
+            Err(FromHumanReadableError::InvalidLength)
+        );
     }
 }
