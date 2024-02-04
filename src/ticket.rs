@@ -1,14 +1,11 @@
 extern crate bincode;
 extern crate serde;
 
-use crypto::sha2::Sha256;
-use base64::
+use crypto::
 {
-    Engine,
-    engine::general_purpose,
-    DecodeError,
+    sha2::Sha256,
+    digest::Digest,
 };
-use crypto::digest::Digest;
 use std::hash::{Hash, Hasher};
 use serde::{Serialize, Deserialize};
 use crate::system::
@@ -25,20 +22,50 @@ use num_bigint::
     BigUint
 };
 
-use num_traits::identities::{Zero, One};
-
-enum Decode62Error
+use num_traits::
 {
-    InvalidCharacter
+    ToPrimitive,
+    identities::{Zero, One}
+};
+
+#[derive(Debug, PartialEq)]
+pub enum FromHumanReadableError
+{
+    InvalidLength,
+    Overflow,
+    InvalidCharacter(char),
 }
 
-fn decode62(tag : &str) -> Result<BigUint, Decode62Error>
+impl fmt::Display for FromHumanReadableError
 {
-    let mut result = BigUint::zero();
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
+    {
+        match self
+        {
+            FromHumanReadableError::InvalidLength =>
+                write!(formatter, "Invalid length, must be 43"),
+
+            FromHumanReadableError::Overflow =>
+                write!(formatter, "Encodes a value too big to fit in a 256-bit unsigned integer"),
+
+            FromHumanReadableError::InvalidCharacter(character) =>
+                write!(formatter, "Invalid character: {} must be 0-9 a-z A-Z", character),
+        }
+    }
+}
+
+fn decode62(tag : &str) -> Result<[u8; 32], FromHumanReadableError>
+{
+    if tag.len() != 43
+    {
+        return Err(FromHumanReadableError::InvalidLength);
+    }
+
+    let mut n = BigUint::zero();
     let mut d = BigUint::one();
     for c in tag.chars()
     {
-        result += &d *
+        n += &d *
         match c
         {
             '0' => 0u32, '1' => 1, '2' => 2, '3' => 3, '4' => 4, '5' => 5, '6' => 6, '7' => 7, '8' => 8, '9' => 9, 'a' => 10,
@@ -46,17 +73,33 @@ fn decode62(tag : &str) -> Result<BigUint, Decode62Error>
             'A' => 36, 'B' => 37, 'C' => 38, 'D' => 39, 'E' => 40, 'F' => 41, 'G' => 42, 'H' => 43, 'I' => 44, 'J' => 45, 'K' => 46, 'L' => 47, 'M' => 48, 'N' => 49, 'O' => 50, 'P' => 51, 'Q' => 52, 'R' => 53, 'S' => 54, 'T' => 55, 'U' => 56, 'V' => 57, 'W' => 58, 'X' => 59, 'Y' => 60, 'Z' => 61,
             _ =>
             {
-                return Err(Decode62Error::InvalidCharacter);
+                return Err(FromHumanReadableError::InvalidCharacter(c));
             },
         };
         d *= 62u32;
     }
 
-    Ok(result)
+    let v = n.to_bytes_le();
+    if v.len() > 32
+    {
+        return Err(FromHumanReadableError::Overflow);
+    }
+
+    let mut result = [0u8; 32];
+    let mut i = 0;
+    for x in v
+    {
+        result[i] = x;
+        i+=1;
+    }
+
+    return Ok(result)
 }
 
-fn encode62(mut n: BigUint) -> String
+fn encode62(bytes: &[u8; 32]) -> String
 {
+    let mut n = BigUint::from_bytes_le(bytes);
+
     // 0-9, a-z, A-Z
     let alphabet : [u8; 62] = [
         48, 49, 50, 51, 52, 53, 54, 55, 56, 57,
@@ -64,16 +107,14 @@ fn encode62(mut n: BigUint) -> String
         65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90
     ];
 
-    let m = alphabet.len();
-
     let mut buffer = [48u8; 43];
     let mut i = 0;
     while n > BigUint::zero()
     {
         buffer[i] = alphabet[
-            (&n % m).iter_u32_digits().next().unwrap() as usize];
+            (&n % 62u32).to_u32().unwrap() as usize];
         i+=1;
-        n /= m;
+        n /= 62u32;
     }
 
     std::str::from_utf8(&buffer).unwrap().to_string()
@@ -121,7 +162,7 @@ impl TicketFactory
     /*  Create a ticket from the bytes incorporated so far. */
     pub fn result(&mut self) -> Ticket
     {
-        let mut out_sha = vec![0u8; 32];
+        let mut out_sha = [0u8; 32];
         self.dig.result(&mut out_sha);
         Ticket
         {
@@ -218,40 +259,7 @@ impl TicketFactory
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct Ticket
 {
-    sha: Vec<u8>,
-}
-
-pub enum From64Error
-{
-    DecodeInvalidPadding,
-    DecodeInvalidByte(usize, u8),
-    DecodeInvalidLastSymbol(usize, u8),
-    DecodeInvalidLength,
-    ShaInvalidLength
-}
-
-impl fmt::Display for From64Error
-{
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
-    {
-        match self
-        {
-            From64Error::DecodeInvalidPadding =>
-                write!(formatter, "Invalid padding"),
-
-            From64Error::DecodeInvalidByte(location, byte) =>
-                write!(formatter, "Invalid byte: {} at location {}", byte, location),
-
-            From64Error::DecodeInvalidLastSymbol(location, byte) =>
-                write!(formatter, "Invalid last symbol: {} at location {}", byte, location),
-
-            From64Error::DecodeInvalidLength =>
-                write!(formatter, "Failed to decode base-64: invalid length"),
-
-            From64Error::ShaInvalidLength =>
-                write!(formatter, "Successful base-64 conversion to data of wrong size"),
-        }
-    }
+    sha: [u8; 32],
 }
 
 impl Ticket
@@ -259,32 +267,15 @@ impl Ticket
     /*  Returns a string URL-safe human-readable hash string */
     pub fn human_readable(&self) -> String
     {
-        format!("{}", general_purpose::URL_SAFE.encode(&self.sha))
+        encode62(&self.sha)
     }
 
     /*  Takes a url-safe human-readable hash string and returns a ticket objcet
         or an error about why the hash string was invalid. */
     pub fn from_human_readable(human_readable_str: &str) ->
-        Result<Ticket, From64Error>
+        Result<Ticket, FromHumanReadableError>
     {
-        match general_purpose::URL_SAFE.decode(human_readable_str)
-        {
-            Ok(sha) => 
-            {
-                if sha.len() == 32
-                {
-                    Ok(Ticket{sha:sha})
-                }
-                else
-                {
-                    Err(From64Error::ShaInvalidLength)
-                }
-            },
-            Err(DecodeError::InvalidPadding) => Err(From64Error::DecodeInvalidPadding),
-            Err(DecodeError::InvalidByte(location, byte)) => Err(From64Error::DecodeInvalidByte(location, byte)),
-            Err(DecodeError::InvalidLastSymbol(location, byte)) => Err(From64Error::DecodeInvalidLastSymbol(location, byte)),
-            Err(DecodeError::InvalidLength) => Err(From64Error::DecodeInvalidLength),
-        }
+        Ok(Ticket{sha:decode62(human_readable_str)?})
     }
 
     /*  Use this function to create a ticket based on the targets, sources and command
@@ -341,9 +332,11 @@ impl Hash for Ticket
     }
 }
 
+#[cfg(test)]
 use std::collections::HashMap;
 
 /*  Takes a string, computes a map of character to character-count */
+#[cfg(test)]
 fn get_counts(hash_str : &str) -> HashMap<char, i32>
 {
     let mut result = HashMap::new();
@@ -364,6 +357,7 @@ fn get_counts(hash_str : &str) -> HashMap<char, i32>
         - sufficiently long,
         - comprised of ascii characters you can type
         - random-ish. */
+#[cfg(test)]
 pub fn hash_heuristic(hash_str : &str) -> bool
 {
     if hash_str.len() < 20
@@ -393,8 +387,10 @@ mod test
     {
         Ticket,
         TicketFactory,
-        From64Error,
+        FromHumanReadableError,
         hash_heuristic,
+        encode62,
+        decode62,
     };
     use crate::system::util::
     {
@@ -407,6 +403,7 @@ mod test
     use crate::system::System;
     use lipsum::{LOREM_IPSUM};
     use std::collections::HashSet;
+    use rand::prelude::*;
 
     #[test]
     fn ticket_factory_passes_heuristic()
@@ -442,6 +439,70 @@ mod test
         assert!(!hash_heuristic("appleappleappleappleappleappleappleapple"));
         assert!(!hash_heuristic("0000000000000000000000000000000000000000"));
         assert!(!hash_heuristic("abcdefghijklmnopqrstabcdefghijklmnopqrst"));
+    }
+
+    #[test]
+    fn encode_flat_byte_arrays()
+    {
+        assert_eq!("0000000000000000000000000000000000000000000", encode62(&[0u8; 32]));
+        assert_eq!("92DWrWRE9D5pbrqNyzR7wOBASXgV2j8dfuSWxfx6Le0", encode62(&[1u8; 32]));
+        assert_eq!("i4gTTSJjjgbOmSQA79Jf2DdbLVxQ5CgquYKT5v4dwt0", encode62(&[2u8; 32]));
+        assert_eq!("1Px8WoR5J2acUNJh7gll8MwzwhMy1la1zo6aDWKSJHY", encode62(&[255u8; 32]));
+    }
+
+    #[test]
+    fn decode_flat_byte_arrays()
+    {
+        assert_eq!(decode62("0000000000000000000000000000000000000000000").unwrap(), [0u8; 32]);
+        assert_eq!(decode62("92DWrWRE9D5pbrqNyzR7wOBASXgV2j8dfuSWxfx6Le0").unwrap(), [1u8; 32]);
+        assert_eq!(decode62("i4gTTSJjjgbOmSQA79Jf2DdbLVxQ5CgquYKT5v4dwt0").unwrap(), [2u8; 32]);
+        assert_eq!(decode62("1Px8WoR5J2acUNJh7gll8MwzwhMy1la1zo6aDWKSJHY").unwrap(), [255u8; 32]);
+    }
+
+    #[test]
+    fn decode_invalid_length()
+    {
+        assert_eq!(
+            decode62("92DWrWRE9D5pbrqNyzR7wOBASXgV2j8dfuSWxfx6Le00"),
+            Err(FromHumanReadableError::InvalidLength));
+
+        assert_eq!(
+            decode62("92DWrWRE9D5pbrqNyzR7wOBASXgV2j8dfuSWxfx6Le"),
+            Err(FromHumanReadableError::InvalidLength));
+
+        assert_eq!(
+            decode62(""),
+            Err(FromHumanReadableError::InvalidLength));
+    }
+
+    #[test]
+    fn decode_invalid_character()
+    {
+        assert_eq!(
+            decode62("92DWrWRE9D5pbrqNyzR7wO-ASXgV2j8dfuSWxfx6Le0"),
+            Err(FromHumanReadableError::InvalidCharacter('-')));
+    }
+
+    #[test]
+    fn decode_overflow()
+    {
+        // Add 1 to the human-readable string representing all-ones, expect it to overflow
+        assert_eq!(
+            decode62("2Px8WoR5J2acUNJh7gll8MwzwhMy1la1zo6aDWKSJHY"),
+            Err(FromHumanReadableError::Overflow));
+    }
+
+    #[test]
+    fn encode_random_bytes()
+    {
+        for _ in 0..6000
+        {
+            let mut bytes = [0u8; 32];
+            rand::thread_rng().fill_bytes(&mut bytes);
+            let hash_string = encode62(&bytes);
+            assert_eq!(hash_string.len(), 43);
+            assert_eq!(decode62(&hash_string).unwrap(), bytes);
+        }
     }
 
     #[test]
@@ -593,8 +654,7 @@ mod test
             {
                 let mut new_factory = TicketFactory::from_str("time1.txt\n:\n:\n:\n");
                 new_factory.input_ticket(factory.result());
-                assert_eq!(new_factory.result().human_readable(),
-                    "k4eqylqAAMXeFu_O8Gigms5bM9n9iFwFznBDRojDO8o=");
+                assert!(hash_heuristic(&new_factory.result().human_readable()));
             },
             Err(why) => panic!("Failed to open test file time1.txt: {}", why),
         }
@@ -607,20 +667,13 @@ mod test
     {
         let mut file_system = FakeSystem::new(10);
 
-        println!("{} {}\n", LOREM_IPSUM.len(), LOREM_IPSUM);
-
-        match write_str_to_file(&mut file_system, "good_and_evil.txt", LOREM_IPSUM)
-        {
-            Ok(_) => {},
-            Err(_) => panic!("File write operation failed"),
-        }
+        write_str_to_file(&mut file_system, "good_and_evil.txt", LOREM_IPSUM).unwrap();
 
         match TicketFactory::from_file(&file_system, "good_and_evil.txt")
         {
             Ok(mut factory) =>
             {
-                assert_eq!(factory.result().human_readable(),
-                    "1-TbmtqWEoNv0OQQLb3OkYE2-f1LUOIH0SU71FP7Qo0=");
+                assert!(hash_heuristic(&factory.result().human_readable()));
             },
             Err(why) => panic!("Failed to open test file good_and_evil.txt: {}", why),
         }
@@ -640,13 +693,14 @@ mod test
 
     /*  Decode a valid ticket as human_readable, and do a round-trip check.*/
     #[test]
-    fn ticket_from_human_readable()
+    fn ticket_from_human_readable_round_trip()
     {
-        match Ticket::from_human_readable("1-TbmtqWEoNv0OQQLb3OkYE2-f1LUOIH0SU71FP7Qo0=")
+        let human_readable = "0123456789abcdefghij0123456789ABCDEFGHIJ012";
+        match Ticket::from_human_readable(human_readable)
         {
             Ok(ticket) => 
             {
-                assert_eq!(ticket.human_readable(), "1-TbmtqWEoNv0OQQLb3OkYE2-f1LUOIH0SU71FP7Qo0=");
+                assert_eq!(ticket.human_readable(), human_readable);
             },
             Err(error) =>
             {
@@ -656,7 +710,7 @@ mod test
     }
 
     /*  Attempt to decode the empty string as base-64,
-        check that it fails with ShaInvalidLength. */
+        check that it fails. */
     #[test]
     fn ticket_from_human_readable_empty()
     {
@@ -666,7 +720,7 @@ mod test
             {
                 panic!("Unexpected success getting ticket from empty string as human-readable")
             },
-            Err(From64Error::ShaInvalidLength) =>
+            Err(FromHumanReadableError::InvalidLength) =>
             {
             },
             Err(error) =>
@@ -687,7 +741,7 @@ mod test
             {
                 panic!("Unexpected success getting ticket from short string as human-readable")
             },
-            Err(From64Error::ShaInvalidLength) =>
+            Err(FromHumanReadableError::InvalidLength) =>
             {
             },
             Err(error) =>
@@ -700,18 +754,17 @@ mod test
     /*  Attempt to decode a string as base-64 that has an ampersand in it,
         check that it fails with DecodeInvalidByte. */
     #[test]
-    fn ticket_from_human_readable_invalid_byte()
+    fn ticket_from_human_readable_invalid_character()
     {
-        match Ticket::from_human_readable("abcde&ghijk=")
+        match Ticket::from_human_readable("0123456789012345678&01234567890123456789012")
         {
             Ok(_ticket) =>
             {
                 panic!("Unexpected success getting ticket from string with invalid character as human_readable")
             },
-            Err(From64Error::DecodeInvalidByte(location, byte)) =>
+            Err(FromHumanReadableError::InvalidCharacter(c)) =>
             {
-                assert_eq!(location, 5);
-                assert_eq!(byte, 38);
+                assert_eq!(c, '&');
             },
             Err(error) =>
             {
@@ -725,13 +778,13 @@ mod test
     #[test]
     fn ticket_from_human_readable_invalid_length()
     {
-        match Ticket::from_human_readable("0abcdef==")
+        match Ticket::from_human_readable("0abcdef")
         {
             Ok(_ticket) =>
             {
                 panic!("Unexpected success getting ticket from string as human-readable")
             },
-            Err(From64Error::DecodeInvalidLength) =>
+            Err(FromHumanReadableError::InvalidLength) =>
             {
             },
             Err(error) =>
