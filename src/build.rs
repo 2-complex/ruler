@@ -1070,8 +1070,6 @@ poem.txt
         write_str_to_file(&mut system, "stanza1.txt", "Some wrong content\n").unwrap();
         write_str_to_file(&mut system, "build.rules", rules).unwrap();
 
-
-
         match build(
             system.clone(),
             &mut EmptyPrinter::new(),
@@ -1145,8 +1143,6 @@ poem.txt
             }
 
             write_str_to_file(&mut system, "build.rules", rules).unwrap();
-
-
 
             match build(
                 system.clone(),
@@ -1440,6 +1436,62 @@ poem.txt
         assert_eq!(
             read_file_to_string(&mut system, "poem.txt").unwrap(),
             "Roses are red.\nViolets are violet.\n");
+
+        let elements = directory::init(&mut system, "ruler-directory").unwrap();
+        match elements.cache.open(&TicketFactory::from_str("Roses are red.\nViolets are violet.\n").result())
+        {
+            Ok(_file) => panic!("Unexpected cache presence after first build"),
+            Err(OpenError::NotThere) => {},
+            Err(_) => panic!("Unexpected error trying to access cache after first build"),
+        }
+    }
+
+    #[test]
+    fn build_poem_in_directory()
+    {
+        println!("build_poem_in_directory line 1");
+
+        let rules = "\
+poemdir
+:
+verse1.txt
+verse2.txt
+:
+mycat
+verse1.txt
+verse2.txt
+poemdir/poem.txt
+:
+";
+        let mut system = FakeSystem::new(19);
+
+        write_str_to_file(&mut system, "verse1.txt", "Roses are red.\n").unwrap();
+        write_str_to_file(&mut system, "verse2.txt", "Violets are violet.\n").unwrap();
+        write_str_to_file(&mut system, "build.rules", rules).unwrap();
+
+        build(
+            system.clone(),
+            &mut EmptyPrinter::new(),
+            BuildParams
+            {
+                directory_path : ".ruler".to_string(),
+                rulefile_paths : vec!["build.rules".to_string()],
+                urlfile_path_opt : None,
+                goal_target_opt : Some("poemdir".to_string()),
+            }
+        ).unwrap();
+
+        println!("pass 0");
+
+        assert!(system.is_dir("poemdir"));
+
+        println!("pass 1");
+
+        assert_eq!(
+            read_file_to_string(&mut system, "poemdir/poem.txt").unwrap(),
+            "Roses are red.\nViolets are violet.\n");
+
+        println!("pass 2");
 
         let elements = directory::init(&mut system, "ruler-directory").unwrap();
         match elements.cache.open(&TicketFactory::from_str("Roses are red.\nViolets are violet.\n").result())

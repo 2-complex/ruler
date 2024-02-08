@@ -54,6 +54,19 @@ pub fn write_str_to_file
 )
 -> Result<(), ReadWriteError>
 {
+    let components : Vec<&str> = file_path.split("/").collect();
+    let dir_components = &components[0..components.len()-1];
+
+    if dir_components.len() > 0
+    {
+        let dir_path = dir_components.join("/");
+        match system.create_dir(&dir_path)
+        {
+            Ok(_) => {},
+            Err(error) => return Err(ReadWriteError::SystemError(error)),
+        }
+    }
+
     match system.create_file(file_path)
     {
         Ok(mut file) =>

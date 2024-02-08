@@ -786,6 +786,9 @@ impl System for FakeSystem
         }
 
         let mut output = String::new();
+
+        println!("FIRST ARGUMENT {}", command_list[0].as_str());
+
         match command_list[0].as_str()
         {
             "error" =>
@@ -822,6 +825,7 @@ impl System for FakeSystem
                     Ok(_) => Ok(CommandLineOutput::new()),
                     Err(why) =>
                     {
+                        println!("WHY = {}", why);
                         Ok(CommandLineOutput::error(format!("Failed to cat into file: {} : {}", command_list[n-1], why)))
                     }
                 }
@@ -872,6 +876,23 @@ impl System for FakeSystem
                     Err(why) => return Ok(CommandLineOutput::error(
                         format!("mycat2: failed to cat into file: {}: {}", command_list[n-1], why)))
                 }
+            },
+
+            "mkdir" =>
+            {
+                for path in command_list[1..n].iter()
+                {
+                    match self.create_dir(path)
+                    {
+                        Ok(_) => {}
+                        Err(_) =>
+                        {
+                            return Ok(CommandLineOutput::error(format!("File failed make directory: {}", path)));
+                        }
+                    }
+                }
+
+                Ok(CommandLineOutput::new())
             },
 
             "rm" =>

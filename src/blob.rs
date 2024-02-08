@@ -542,7 +542,7 @@ impl fmt::Display for GetCurrentFileInfoError
     doesn't bother recomputing the ticket, instead it takes the ticket from the
     target_info's history.
 */
-pub fn get_actual_file_state<SystemType: System>
+fn get_actual_file_state<SystemType: System>
 (
     system : &SystemType,
     path : &str,
@@ -792,6 +792,28 @@ mod test
 
         let file_state = get_actual_file_state(&system,
             "quine.sh",
+            &FileState
+            {
+                ticket : TicketFactory::from_str("cat $0").result(),
+                timestamp : 23,
+                executable : false,
+            }).unwrap();
+
+        assert_eq!(file_state.ticket, TicketFactory::from_str("cat $0").result());
+        assert_eq!(file_state.timestamp, 23);
+        assert_eq!(file_state.executable, false);
+    }
+
+    /*  Create a directory, and make FileInfo that matches the reality of that file.
+        Call get_actual_file_state and check that the returned data matches. */
+    #[test]
+    fn blob_get_actual_file_state_on_directory()
+    {
+        let mut system = FakeSystem::new(24);
+        write_str_to_file(&mut system, "quines/quine.sh", "cat $0").unwrap();
+
+        let file_state = get_actual_file_state(&system,
+            "quines",
             &FileState
             {
                 ticket : TicketFactory::from_str("cat $0").result(),
