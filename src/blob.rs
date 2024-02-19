@@ -41,7 +41,29 @@ pub enum FileResolution
     representing the file's contents, a timestamp (modifed date), and a bool for whether the file is executable.
     Those things would follow the file in a rename/move operation. */
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
-pub struct FileState
+pub enum FileState
+{
+    Uninitialized,
+    File(FileContents),
+}
+
+impl FileState
+{
+    pub fn get_contents_ticket(&self)
+    {
+        match self
+        {
+            FileState::Uninitialized => panic!("Not supposed to get the ticket of an uninitialized filestate"),
+            FileState::File(contents) =>
+            {
+                contents.ticket
+            },
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
+pub struct FileContents
 {
     pub ticket : Ticket,
     pub timestamp : u64,
@@ -53,12 +75,7 @@ impl FileState
     /*  Create a new empty FileState */
     pub fn empty() -> FileState
     {
-        FileState
-        {
-            ticket : TicketFactory::new().result(),
-            timestamp : 0,
-            executable : false,
-        }
+        FileState::Uninitialized
     }
 
     #[cfg(test)]
@@ -66,26 +83,28 @@ impl FileState
         ticket : Ticket,
         timestamp : u64) -> FileState
     {
-        FileState
+        FileState::File(FileContents
         {
             ticket : ticket,
             timestamp : timestamp,
             executable : false,
-        }
+        })
     }
 
     #[cfg(test)]
     pub fn new_with_ticket(
         ticket : Ticket) -> FileState
     {
-        FileState
+        FileState::File(FileContents
         {
             ticket : ticket,
             timestamp : 0,
             executable : false,
-        }
+        })
     }
 }
+
+
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct FileInfo
@@ -163,7 +182,7 @@ impl Blob
         );
     }
 
-    /*  Takes a system, and updates the file contents in the blob to reflect the files in the system.
+    /*  Updates the file contents in this blob to reflect the files in the system.
         Returns a vector of FileStates which is current according to the file system. */
     pub fn update_to_match_system_file_state<SystemType: System>
     (
@@ -172,7 +191,6 @@ impl Blob
     )
     -> Result<FileStateVec, GetCurrentFileInfoError>
     {
-        let mut infos = vec![];
         for target_info in self.file_infos.iter_mut()
         {
             match get_actual_file_state(system, &target_info.path, &target_info.file_state)
@@ -180,21 +198,10 @@ impl Blob
                 Ok(current_info) =>
                 {
                     target_info.file_state = current_info.clone();
-                    infos.push(
-                        FileState
-                        {
-                            ticket : current_info.ticket,
-                            timestamp : 0,
-                            executable : current_info.executable,
-                        });
                 },
                 Err(error) => return Err(error),
             }
         }
-
-        return Ok(
-            FileStateVec::from_ticket_vec(infos.iter().map(|info| info.ticket.clone()).collect())
-        );
     }
 
     pub fn get_file_infos
@@ -318,18 +325,19 @@ pub struct FileStateVec
 
 impl FileStateVec
 {
+    #[cfg(test)]
     pub fn from_ticket_vec(tickets : Vec<Ticket>) -> FileStateVec
     {
         let mut infos = vec![];
         for ticket in tickets
         {
             infos.push(
-                FileState
+                FileState::File(FileContents
                 {
                     ticket : ticket,
                     timestamp : 0,
                     executable : false,
-                }
+                })
             );
         }
 
@@ -580,24 +588,24 @@ fn get_actual_file_state<SystemType: System>
     if timestamp == assumed_file_state.timestamp
     {
         return Ok(
-            FileState
+            FileState::File(FileContents
             {
                 ticket : assumed_file_state.ticket.clone(),
                 timestamp : timestamp,
                 executable : executable
-            }
+            })
         )
     }
 
     match TicketFactory::from_file(system, &path)
     {
         Ok(mut factory) => Ok(
-            FileState
+            FileState::File(FileContents
             {
                 ticket : factory.result(),
                 timestamp : timestamp,
                 executable : executable
-            }),
+            })),
         Err(read_write_error) => Err(GetCurrentFileInfoError::ErrorGettingTicketForFile(
             path.to_string(),
             read_write_error)),
@@ -765,6 +773,7 @@ mod test
     {
         FileState,
         FileStateVec,
+        FileContents,
         BlobError,
         get_file_ticket,
         get_file_ticket_from_path,
@@ -774,12 +783,35 @@ mod test
     use crate::system::
     {
         fake::FakeSystem,
-        System
+        System,
+        SystemError
     };
     use crate::system::util::
     {
         write_str_to_file,
     };
+
+    fn file_state_helper(content_str : &str, timestamp : u64, executable : bool)
+    {
+        FileState::File(FileContents
+        {
+            ticket : TicketFactory::from_str(content_str).result(),
+            timestamp : timestamp,
+            executable : executable,
+        })
+    }
+
+    fn quine_helper(system : &FakeSystem, timestamp : u64) -> FileState
+    {
+        get_actual_file_state(&system,
+            "quine.sh",
+            &FileState::File(FileContents
+            {
+                ticket : TicketFactory::from_str("cat $0").result(),
+                timestamp : timestamp,
+                executable : false,
+            })).unwrap()
+    }
 
     /*  Create a file, and make FileInfo that matches the reality of that file.
         Call get_actual_file_state and check that the returned data matches. */
@@ -787,18 +819,9 @@ mod test
     fn blob_get_actual_file_state_complete_match()
     {
         let mut system = FakeSystem::new(23);
-
         write_str_to_file(&mut system, "quine.sh", "cat $0").unwrap();
 
-        let file_state = get_actual_file_state(&system,
-            "quine.sh",
-            &FileState
-            {
-                ticket : TicketFactory::from_str("cat $0").result(),
-                timestamp : 23,
-                executable : false,
-            }).unwrap();
-
+        let file_state = quine_helper(system, 23);
         assert_eq!(file_state.ticket, TicketFactory::from_str("cat $0").result());
         assert_eq!(file_state.timestamp, 23);
         assert_eq!(file_state.executable, false);
@@ -811,15 +834,7 @@ mod test
     {
         let mut system = FakeSystem::new(24);
         write_str_to_file(&mut system, "quines/quine.sh", "cat $0").unwrap();
-
-        let file_state = get_actual_file_state(&system,
-            "quines",
-            &FileState
-            {
-                ticket : TicketFactory::from_str("cat $0").result(),
-                timestamp : 23,
-                executable : false,
-            }).unwrap();
+        let file_state = quine_helper(system, 24);
 
         assert_eq!(file_state.ticket, TicketFactory::from_str("cat $0").result());
         assert_eq!(file_state.timestamp, 23);
@@ -839,14 +854,7 @@ mod test
         write_str_to_file(&mut system, "quine.sh", "cat $0").unwrap();
         system.set_is_executable("quine.sh", true).unwrap();
 
-        let file_state = get_actual_file_state(&system,
-            "quine.sh",
-            &FileState
-            {
-                ticket : TicketFactory::from_str("cat $0").result(),
-                timestamp : 23,
-                executable : false,
-            }).unwrap();
+        let file_state = quine_helper(system, 23);
 
         assert_eq!(file_state.ticket, TicketFactory::from_str("cat $0").result());
         assert_eq!(file_state.timestamp, 23);
@@ -864,15 +872,7 @@ mod test
         let mut system = FakeSystem::new(24);
 
         write_str_to_file(&mut system, "quine.sh", "cat $0").unwrap();
-
-        let file_state = get_actual_file_state(&system,
-            "quine.sh",
-            &FileState
-            {
-                ticket : TicketFactory::from_str("cat $0").result(),
-                timestamp : 11,
-                executable : false,
-            }).unwrap();
+        let file_state = quine_helper(&system, 11);
 
         assert_eq!(file_state.ticket, TicketFactory::from_str("cat $0").result());
         assert_eq!(file_state.timestamp, 24);
@@ -892,13 +892,7 @@ mod test
         write_str_to_file(&mut system, "story.txt", "final draft").unwrap();
 
         let file_state = get_actual_file_state(&system,
-            "story.txt",
-            &FileState
-            {
-                ticket : TicketFactory::from_str("rough draft").result(),
-                timestamp : 11,
-                executable : false,
-            }).unwrap();
+            "story.txt", &file_state_helper("rough draft", 11, false)).unwrap();
 
         assert_eq!(file_state.ticket, TicketFactory::from_str("final draft").result());
         assert_eq!(file_state.timestamp, 25);
@@ -922,12 +916,8 @@ mod test
 
         let file_state = get_actual_file_state(&system,
             "story.txt",
-            &FileState
-            {
-                ticket : TicketFactory::from_str("rough draft").result(),
-                timestamp : 25,
-                executable : false,
-            }).unwrap();
+            &file_state_helper("rough draft", 25, false)).unwrap();
+
         assert_eq!(file_state.ticket, TicketFactory::from_str("rough draft").result());
         assert_eq!(file_state.timestamp, 25);
         assert_eq!(file_state.executable, false);
@@ -939,23 +929,11 @@ mod test
     fn blob_get_actual_file_state_file_not_found()
     {
         let system = FakeSystem::new(25);
-
-        match get_actual_file_state(&system,
-            "story.txt",
-            &FileState
-            {
-                ticket : TicketFactory::from_str("final draft").result(),
-                timestamp : 10,
-                executable : false,
-            })
-        {
-            Ok(_) => panic!("Unexpected success"),
-            Err(GetCurrentFileInfoError::TargetFileNotFound(path, _system_error)) =>
-            {
-                assert_eq!(path, "story.txt");
-            },
-            _ => panic!("Unexpected error"),
-        }
+        let path = "story.txt";
+        assert_eq!(get_actual_file_state(&system,
+            path,
+            file_state_helper("final draft", 10, false)).unwrap_err(),
+            Err(GetCurrentFileInfoError::TargetFileNotFound(path, SystemError::NotFound)));
     }
 
     /*  Use a fake system to create a file, and write a string to it.  Then use

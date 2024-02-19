@@ -1481,17 +1481,11 @@ poemdir/poem.txt
             }
         ).unwrap();
 
-        println!("pass 0");
-
         assert!(system.is_dir("poemdir"));
-
-        println!("pass 1");
 
         assert_eq!(
             read_file_to_string(&mut system, "poemdir/poem.txt").unwrap(),
             "Roses are red.\nViolets are violet.\n");
-
-        println!("pass 2");
 
         let elements = directory::init(&mut system, "ruler-directory").unwrap();
         match elements.cache.open(&TicketFactory::from_str("Roses are red.\nViolets are violet.\n").result())
