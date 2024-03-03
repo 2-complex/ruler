@@ -14,6 +14,7 @@ use crate::system::real::RealSystem;
 use crate::printer::StandardPrinter;
 
 mod blob;
+mod bundle;
 mod build;
 mod cache;
 mod directory;
