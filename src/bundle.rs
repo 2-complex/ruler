@@ -1,7 +1,5 @@
 use std::collections::BTreeMap;
 
-static INDENT_CHAR : char = '\t';
-
 #[derive(Debug, Eq, PartialEq, PartialOrd, Ord)]
 enum PathNodeType
 {
@@ -40,18 +38,8 @@ fn indented(line: &str) -> Option<&str>
     let  mut iter = line.chars();
     match iter.next()
     {
-        Some(c) =>
-        {
-            if c == INDENT_CHAR
-            {
-                Some(iter.as_str())
-            }
-            else
-            {
-                None
-            }
-        },
-        None => None,
+        Some('\t') => Some(iter.as_str()),
+        _ => None,
     }
 }
 
@@ -134,7 +122,7 @@ impl PathBundle
         }
 
         Ok(PathBundle{nodes:nodes.into_iter().map(
-            |(key, value)| {PathNode{name:key, node_type:value}}
+            |(name, node_type)| {PathNode{name:name, node_type:node_type}}
         ).collect()})
     }
 
@@ -150,7 +138,7 @@ impl PathBundle
         let lines = text.split('\n').collect::<Vec<&str>>();
 
         if lines[0..lines.len()-1].iter().any(
-            |line| !line.chars().any(|c| c!=INDENT_CHAR))
+            |line| !line.chars().any(|c| c != '\t'))
         {
             return Err(ParseError::ContainsEmptyLines);
         }
@@ -192,7 +180,7 @@ impl PathBundle
                 PathNodeType::Parent(children) =>
                 {
                     lines.append(&mut children.get_text_lines(
-                        indent.clone() + INDENT_CHAR.to_string().as_str()));
+                        indent.clone() + "\t"));
                 }
             }
         }
