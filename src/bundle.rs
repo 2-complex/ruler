@@ -1,83 +1,33 @@
-// use crate::system::
-// {
-//     // System,
-//     // SystemError,
-//     // ReadWriteError,
-// };
-// use crate::ticket::
-// {
-//     // TicketFactory,
-//     // Ticket,
-// };
-// use serde::
-// {
-//     // Serialize,
-//     // Deserialize,
-// };
-// use std::fmt;
-// use std::time::
-// {
-//     // SystemTimeError
-// };
+use std::collections::BTreeMap;
 
-use std::cmp::Ordering;
-
-#[derive(Debug, Eq)]
-enum PathNode
+#[derive(Debug, Eq, PartialEq, PartialOrd, Ord)]
+enum PathNodeType
 {
-    Parent(String, PathBundle),
-    End(String),
+    Parent(PathBundle),
+    Leaf,
+}
+
+#[derive(Debug, Eq, PartialEq, PartialOrd, Ord)]
+struct PathNode
+{
+    name : String, // note to self write a test that fails if you swap these
+    node_type : PathNodeType,
 }
 
 impl PathNode
 {
-    pub fn clean(&mut self)
+    fn parent(name : String, children : PathBundle) -> Self
     {
-        match self
-        {
-            PathNode::End(_) => {},
-            PathNode::Parent(_name, path_bundle) =>
-            {
-                path_bundle.clean();
-            }
-        }
+        Self{name:name, node_type:PathNodeType::Parent(children)}
     }
-    
-    pub fn name(&self) -> &str
+
+    fn leaf(name : String) -> Self
     {
-        match self
-        {
-            PathNode::End(name) => name,
-            PathNode::Parent(name, _) => name,
-        }
+        Self{name:name, node_type:PathNodeType::Leaf}
     }
 }
 
-impl Ord for PathNode
-{
-    fn cmp(&self, other: &Self) -> Ordering
-    {
-        self.name().cmp(&other.name())
-    }
-}
-
-impl PartialOrd for PathNode
-{
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering>
-    {
-        Some(self.cmp(other))
-    }
-}
-
-impl PartialEq for PathNode
-{
-    fn eq(&self, other: &Self) -> bool
-    {
-        self.name() == other.name()
-    }
-}
-
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, PartialOrd, Ord)]
 struct PathBundle
 {
     nodes : Vec<PathNode>
@@ -112,6 +62,7 @@ enum ParseError
     Empty,
     ContainsEmptyLines,
     DoesNotEndWithNewline,
+    Contradiction
 }
 
 fn is_only_indentation(s: &str) -> bool
@@ -126,43 +77,47 @@ fn is_only_indentation(s: &str) -> bool
     return true;
 }
 
+fn add_to_nodes(nodes : &mut BTreeMap<String, PathNodeType>, in_node : PathNode) -> Result<(), ParseError>
+{
+    match nodes.get(&in_node.name)
+    {
+        Some(node_type) =>
+        {
+            if *node_type != in_node.node_type
+            {
+                return Err(ParseError::Contradiction);
+            }
+        },
+        None =>
+        {
+            nodes.insert(in_node.name, in_node.node_type);
+        },
+    }
+    Ok(())
+}
+
 impl PathBundle
 {
-    fn from_lines(mut lines : Vec<&str>) -> Self
+    fn from_lines(lines : Vec<&str>) -> Result<Self, ParseError>
     {
-        let mut path_bundle = PathBundle{nodes:vec![]};
-        match lines.last()
-        {
-            Some(last)=>
-            {
-                if *last != ""
-                {
-                    lines.push("");
-                }
-            },
-            None=>
-            {
-                return path_bundle;
-            }
-        }
-
         let mut it = lines.iter();
         let mut prev_name = match it.next()
         {
             Some(line) => line,
-            None => return path_bundle,
+            None => return Ok(PathBundle{nodes:vec![]}),
         };
-    
+
+        let mut nodes = BTreeMap::new();
         while let Some(line) = it.next()
         {
             match indented(line)
             {
-                None=>
+                None =>
                 {
-                    path_bundle.nodes.push(PathNode::End(prev_name.to_string()));
+                    add_to_nodes(&mut nodes, PathNode::leaf(prev_name.to_string()))?;
                     prev_name = line;
                 },
-                Some(rest)=>
+                Some(rest) =>
                 {
                     let mut v = vec![rest];
                     while let Some(line) = it.next()
@@ -171,7 +126,10 @@ impl PathBundle
                         {
                             None=>
                             {
-                                path_bundle.nodes.push(PathNode::Parent(prev_name.to_string(), PathBundle::from_lines(v)));
+                                v.push("");
+                                add_to_nodes(&mut nodes, PathNode::parent(
+                                    prev_name.to_string(),
+                                    PathBundle::from_lines(v)?))?;
                                 prev_name = line;
                                 break;
                             },
@@ -185,7 +143,9 @@ impl PathBundle
             }
         }
 
-        path_bundle
+        Ok(PathBundle{nodes:nodes.into_iter().map(
+            |(key, value)| {PathNode{name:key, node_type:value}}
+        ).collect()})
     }
 
     fn parse(text: &str) -> Result<PathBundle, ParseError>
@@ -212,7 +172,7 @@ impl PathBundle
             }
         }
 
-        Ok(PathBundle::from_lines(lines))
+        PathBundle::from_lines(lines)
     }
 
     fn get_path_strings_with_prefix(self, prefix : String) -> Vec<String>
@@ -220,15 +180,15 @@ impl PathBundle
         let mut path_strings = vec![];
         for node in self.nodes
         {
-            match node
+            match node.node_type
             {
-                PathNode::End(name) =>
+                PathNodeType::Leaf =>
                 {
-                    path_strings.push(prefix.clone() + name.as_str());
+                    path_strings.push(prefix.clone() + node.name.as_str());
                 },
-                PathNode::Parent(name, path_bundle) =>
+                PathNodeType::Parent(path_bundle) =>
                 {
-                    let new_prefix = prefix.clone() + name.as_str();
+                    let new_prefix = prefix.clone() + node.name.as_str();
                     path_strings.extend(path_bundle.get_path_strings_with_prefix(new_prefix));
                 }
             }
@@ -241,29 +201,19 @@ impl PathBundle
         let mut path_strings = vec![];
         for node in self.nodes
         {
-            match node
+            match node.node_type
             {
-                PathNode::End(name) =>
+                PathNodeType::Leaf =>
                 {
-                    path_strings.push(name);
+                    path_strings.push(node.name);
                 },
-                PathNode::Parent(name, path_bundle) =>
+                PathNodeType::Parent(path_bundle) =>
                 {
-                    path_strings.extend(path_bundle.get_path_strings_with_prefix(name + FILE_SEPARATOR));
+                    path_strings.extend(path_bundle.get_path_strings_with_prefix(node.name + FILE_SEPARATOR));
                 }
             }
         }
         path_strings
-    }
-
-    pub fn clean(&mut self)
-    {
-        self.nodes.sort();
-
-        for node in self.nodes.iter_mut()
-        {
-            node.clean();
-        }
     }
 }
 
@@ -274,8 +224,11 @@ mod test
     use crate::bundle::
     {
         PathBundle,
-        ParseError
+        ParseError,
+        PathNode
     };
+
+    use std::collections::BTreeSet;
 
     /*  Parse an empty string check for the the empty parse-error. */
     #[test]
@@ -337,7 +290,122 @@ mod test
     #[test]
     fn bundle_parse_one_file()
     {
-        PathBundle::parse("file\n").unwrap();
+        assert_eq!(
+            PathBundle::parse("file\n").unwrap(),
+            PathBundle{nodes:vec![PathNode::leaf("file".to_string())]})
+    }
+
+    /*  Parse one directory with one file in it */
+    #[test]
+    fn bundle_parse_one_directory()
+    {
+        assert_eq!(
+            PathBundle::parse("directory\n\tfile\n").unwrap(),
+            PathBundle{nodes:vec![
+                PathNode::parent("directory".to_string(),
+                    PathBundle{nodes:vec![PathNode::leaf("file".to_string())]})]});
+    }
+
+    /*  Parse one directory with two files in it */
+    #[test]
+    fn bundle_parse_one_directory_two_files()
+    {
+        assert_eq!(
+            PathBundle::parse("directory\n\tfile1\n\tfile2\n").unwrap(),
+            PathBundle{nodes:vec![
+                PathNode::parent("directory".to_string(),
+                    PathBundle{nodes:vec![
+                        PathNode::leaf("file1".to_string()),
+                        PathNode::leaf("file2".to_string())]})]});
+    }
+
+    /*  Parse two files, check the result */
+    #[test]
+    fn bundle_parse_two_files()
+    {
+        assert_eq!(
+            PathBundle::parse("file1\nfile2\n").unwrap(),
+            PathBundle{nodes:vec![
+                PathNode::leaf("file1".to_string()),
+                PathNode::leaf("file2".to_string())]});
+    }
+
+    /*  Parse two duplicate files, check the result contains only one */
+    #[test]
+    fn bundle_parse_duplicate_files()
+    {
+        assert_eq!(
+            PathBundle::parse("file\nfile\n").unwrap(),
+            PathBundle{nodes:vec![
+                PathNode::leaf("file".to_string())]});
+    }
+
+    /*  Parse two directories, check the result contains them both */
+    #[test]
+    fn bundle_parse_two_directories()
+    {
+        assert_eq!(
+            PathBundle::parse("images\n\tapple.png\nproduce\n\tcarrot\n").unwrap(),
+            PathBundle{nodes:vec![
+                PathNode::parent("images".to_string(),
+                    PathBundle{nodes:vec![PathNode::leaf("apple.png".to_string())]}),
+                PathNode::parent("produce".to_string(),
+                    PathBundle{nodes:vec![PathNode::leaf("carrot".to_string())]}),
+            ]});
+    }
+
+    /*  Parse two directories, check the result contains them both */
+    #[test]
+    fn bundle_parse_duplicate_directories()
+    {
+        assert_eq!(
+            PathBundle::parse("images\n\tapple.png\nimages\n\tapple.png\n").unwrap(),
+            PathBundle{nodes:vec![
+                PathNode::parent("images".to_string(),
+                    PathBundle{nodes:vec![PathNode::leaf("apple.png".to_string())]}),
+            ]});
+    }
+
+    /*  Parse two directories, check the result contains them both */
+    #[test]
+    fn bundle_parse_directories_with_contradictory_content()
+    {
+        assert_eq!(
+            PathBundle::parse("images\n\tapple.png\nimages\n\tbanana.png\n"),
+            Err(ParseError::Contradiction)
+        );
+    }
+
+    /*  Put more than one file with the same name into a set and make sure it removes the dupes */
+    #[test]
+    fn bundle_path_node_set_dedupes_files()
+    {
+        let mut file_set = BTreeSet::new();
+        file_set.insert(PathNode::leaf("carrot".to_string()));
+        file_set.insert(PathNode::leaf("carrot".to_string()));
+        file_set.insert(PathNode::leaf("carrot".to_string()));
+        assert_eq!(file_set.len(), 1);
+
+        let files : Vec<PathNode> = file_set.into_iter().collect();
+        assert_eq!(files, vec![PathNode::leaf("carrot".to_string())]);
+    }
+
+    /*  Put files not in order into a set and check that they come out in order */
+    #[test]
+    fn bundle_path_node_set_puts_files_in_order()
+    {
+        let mut file_set = BTreeSet::new();
+        file_set.insert(PathNode::leaf("banana".to_string()));
+        file_set.insert(PathNode::leaf("celery".to_string()));
+        file_set.insert(PathNode::leaf("apple".to_string()));
+        assert_eq!(file_set.len(), 3);
+
+        let files : Vec<PathNode> = file_set.into_iter().collect();
+        assert_eq!(files, vec![
+            PathNode::leaf("apple".to_string()),
+            PathNode::leaf("banana".to_string()),
+            PathNode::leaf("celery".to_string()),
+        ]);
     }
 }
 
