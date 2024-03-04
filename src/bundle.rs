@@ -47,8 +47,8 @@ fn indented(line: &str) -> Option<&str>
 enum ParseError
 {
     Empty,
-    ContainsEmptyLines,
     DoesNotEndWithNewline,
+    ContainsEmptyLines(Vec<usize>),
     Contradiction,
     WrongIndent
 }
@@ -137,10 +137,12 @@ impl PathBundle
 
         let lines = text.split('\n').collect::<Vec<&str>>();
 
-        if lines[0..lines.len()-1].iter().any(
-            |line| !line.chars().any(|c| c != '\t'))
+        let empty_lines : Vec<usize> = lines[0..lines.len()-1].iter().enumerate().filter(
+            |(_, line)| !line.chars().any(|c| c != '\t')).map(|(i, _)| i).collect();
+
+        if empty_lines.len() > 0
         {
-            return Err(ParseError::ContainsEmptyLines);
+            return Err(ParseError::ContainsEmptyLines(empty_lines));
         }
 
         PathBundle::from_lines(lines)
@@ -216,28 +218,30 @@ mod test
     #[test]
     fn bundle_parse_newline()
     {
-        assert_eq!(PathBundle::parse("\n"), Err(ParseError::ContainsEmptyLines));
+        assert_eq!(PathBundle::parse("\n"), Err(ParseError::ContainsEmptyLines(vec![0])));
     }
 
     /*  Parse a bunch of newlines, check for the ends with empty line parse-error */
     #[test]
     fn bundle_parse_newlines()
     {
-        assert_eq!(PathBundle::parse("\n\n\n"), Err(ParseError::ContainsEmptyLines));
+        assert_eq!(PathBundle::parse("\n\n\n"), Err(ParseError::ContainsEmptyLines(vec![0, 1, 2])));
     }
 
     /*  Parse a list of files with extra newlines, check for the contains empty error */
     #[test]
     fn bundle_parse_extra_newlines()
     {
-        assert_eq!(PathBundle::parse("\n\nfile1\nfile2\n"), Err(ParseError::ContainsEmptyLines));
+        assert_eq!(
+            PathBundle::parse("\n\nfile1\nfile2\n"),
+            Err(ParseError::ContainsEmptyLines(vec![0, 1])));
     }
 
     /*  Parse an enindented empty line, check for the empty lines error */
     #[test]
     fn bundle_parse_indented_empty_line()
     {
-        assert_eq!(PathBundle::parse("\t\n"), Err(ParseError::ContainsEmptyLines));
+        assert_eq!(PathBundle::parse("\t\n"), Err(ParseError::ContainsEmptyLines(vec![0])));
     }
 
     /*  Parse an enindented empty line, check for the empty lines error */
