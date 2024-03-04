@@ -1,5 +1,8 @@
 use std::collections::BTreeMap;
 
+static INDENT_CHAR : char = '\t';
+static FILE_SEPARATOR : &str = "/";
+
 #[derive(Debug, Eq, PartialEq, PartialOrd, Ord)]
 enum PathNodeType
 {
@@ -10,7 +13,7 @@ enum PathNodeType
 #[derive(Debug, Eq, PartialEq, PartialOrd, Ord)]
 struct PathNode
 {
-    name : String, // note to self write a test that fails if you swap these
+    name : String,
     node_type : PathNodeType,
 }
 
@@ -32,9 +35,6 @@ struct PathBundle
 {
     nodes : Vec<PathNode>
 }
-
-static INDENT_CHAR : char = '\t';
-static FILE_SEPARATOR : &str = "/";
 
 fn indented(line: &str) -> Option<&str>
 {
@@ -62,7 +62,8 @@ enum ParseError
     Empty,
     ContainsEmptyLines,
     DoesNotEndWithNewline,
-    Contradiction
+    Contradiction,
+    WrongIndent
 }
 
 fn is_only_indentation(s: &str) -> bool
@@ -106,6 +107,12 @@ impl PathBundle
             Some(line) => line,
             None => return Ok(PathBundle{nodes:vec![]}),
         };
+
+        match indented(prev_name)
+        {
+            Some(_) => return Err(ParseError::WrongIndent),
+            None => {}
+        }
 
         let mut nodes = BTreeMap::new();
         while let Some(line) = it.next()
@@ -227,8 +234,6 @@ mod test
         ParseError,
         PathNode
     };
-
-    use std::collections::BTreeSet;
 
     /*  Parse an empty string check for the the empty parse-error. */
     #[test]
@@ -356,6 +361,20 @@ mod test
 
     /*  Parse two directories, check the result contains them both */
     #[test]
+    fn bundle_parse_expect_alphabetical_despite_type()
+    {
+        assert_eq!(
+            PathBundle::parse("images\n\tapple.png\nhenry\njack\n").unwrap(),
+            PathBundle{nodes:vec![
+                PathNode::leaf("henry".to_string()),
+                PathNode::parent("images".to_string(),
+                    PathBundle{nodes:vec![PathNode::leaf("apple.png".to_string())]}),
+                PathNode::leaf("jack".to_string()),
+            ]});
+    }
+
+    /*  Parse two directories, check the result contains them both */
+    #[test]
     fn bundle_parse_duplicate_directories()
     {
         assert_eq!(
@@ -376,38 +395,50 @@ mod test
         );
     }
 
-    /*  Put more than one file with the same name into a set and make sure it removes the dupes */
+    /*  Parse a directory and a file with the same name, check for contradiction error */
     #[test]
-    fn bundle_path_node_set_dedupes_files()
+    fn bundle_parse_directory_and_file_same_name()
     {
-        let mut file_set = BTreeSet::new();
-        file_set.insert(PathNode::leaf("carrot".to_string()));
-        file_set.insert(PathNode::leaf("carrot".to_string()));
-        file_set.insert(PathNode::leaf("carrot".to_string()));
-        assert_eq!(file_set.len(), 1);
-
-        let files : Vec<PathNode> = file_set.into_iter().collect();
-        assert_eq!(files, vec![PathNode::leaf("carrot".to_string())]);
+        assert_eq!(PathBundle::parse("produce\n\tapple\n\tbanana\nproduce\n"), Err(ParseError::Contradiction));
     }
 
-    /*  Put files not in order into a set and check that they come out in order */
+    /*  Parse something with wrong indentation, check for the wrong-indentation error */
     #[test]
-    fn bundle_path_node_set_puts_files_in_order()
+    fn bundle_parse_wrong_indentation()
     {
-        let mut file_set = BTreeSet::new();
-        file_set.insert(PathNode::leaf("banana".to_string()));
-        file_set.insert(PathNode::leaf("celery".to_string()));
-        file_set.insert(PathNode::leaf("apple".to_string()));
-        assert_eq!(file_set.len(), 3);
+        assert_eq!(PathBundle::parse("\t\tapple\n"), Err(ParseError::WrongIndent));
+        assert_eq!(PathBundle::parse("produce\n\t\tapple\n"), Err(ParseError::WrongIndent));
+    }
 
-        let files : Vec<PathNode> = file_set.into_iter().collect();
-        assert_eq!(files, vec![
-            PathNode::leaf("apple".to_string()),
-            PathNode::leaf("banana".to_string()),
-            PathNode::leaf("celery".to_string()),
-        ]);
+    /*  Parse, then get filepaths, and check the result */
+    #[test]
+    fn bundle_parse_then_get_paths()
+    {
+        let text =
+"produce
+\tapple
+\tbanana
+images
+\tdog.jpg
+\tcat.jpg
+";
+        assert_eq!(PathBundle::parse(text).unwrap().get_path_strings(),
+            ["images/cat.jpg", "images/dog.jpg", "produce/apple", "produce/banana"]);
+    }
+
+    /*  Parse, then get filepaths, and check the result */
+    #[test]
+    fn bundle_parse_then_get_paths_with_redundancy()
+    {
+        let text =
+"produce
+\tapple
+\tbanana
+produce
+\tbanana
+\tapple
+";
+        assert_eq!(PathBundle::parse(text).unwrap().get_path_strings(),
+            ["produce/apple", "produce/banana"]);
     }
 }
-
-
-
