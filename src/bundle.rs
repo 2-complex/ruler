@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 
 static INDENT_CHAR : char = '\t';
-static FILE_SEPARATOR : &str = "/";
 
 #[derive(Debug, Eq, PartialEq, PartialOrd, Ord)]
 enum PathNodeType
@@ -159,7 +158,7 @@ impl PathBundle
         PathBundle::from_lines(lines)
     }
 
-    fn get_path_strings_with_prefix(&self, prefix : String) -> Vec<String>
+    fn get_path_strings_with_prefix(&self, prefix : String, separator : &str) -> Vec<String>
     {
         let mut path_strings = vec![];
         for node in &self.nodes
@@ -170,15 +169,15 @@ impl PathBundle
                     path_strings.push(prefix.clone() + node.name.as_str()),
                 PathNodeType::Parent(children) =>
                     path_strings.extend(children.get_path_strings_with_prefix(
-                        prefix.clone() + node.name.as_str() + FILE_SEPARATOR)),
+                        prefix.clone() + node.name.as_str() + separator, separator)),
             }
         }
         path_strings
     }
 
-    pub fn get_path_strings(&self) -> Vec<String>
+    pub fn get_path_strings(&self, separator : char) -> Vec<String>
     {
-        self.get_path_strings_with_prefix("".to_string())
+        self.get_path_strings_with_prefix("".to_string(), separator.to_string().as_str())
     }
 
     fn get_text_lines(&self, indent : String) -> Vec<String>
@@ -405,8 +404,24 @@ images
 \tdog.jpg
 \tcat.jpg
 ";
-        assert_eq!(PathBundle::parse(text).unwrap().get_path_strings(),
+        assert_eq!(PathBundle::parse(text).unwrap().get_path_strings('/'),
             ["images/cat.jpg", "images/dog.jpg", "produce/apple", "produce/banana"]);
+    }
+
+    /*  Parse, then get filepaths, and check the result, this time with a different separator */
+    #[test]
+    fn bundle_parse_then_get_paths_with_backslash()
+    {
+        let text = "\
+produce
+\tapple
+\tbanana
+images
+\tdog.jpg
+\tcat.jpg
+";
+        assert_eq!(PathBundle::parse(text).unwrap().get_path_strings('\\'),
+            ["images\\cat.jpg", "images\\dog.jpg", "produce\\apple", "produce\\banana"]);
     }
 
     /*  Parse, then get filepaths, and check the result */
@@ -423,7 +438,7 @@ b
 \t\tb
 \t\t\tb
 ";
-        assert_eq!(PathBundle::parse(text).unwrap().get_path_strings(), ["a/a/a/a", "b/b/b/b"]);
+        assert_eq!(PathBundle::parse(text).unwrap().get_path_strings('/'), ["a/a/a/a", "b/b/b/b"]);
     }
 
     /*  Parse, then get filepaths, and check the result */
@@ -438,7 +453,7 @@ produce
 \tbanana
 \tapple
 ";
-        assert_eq!(PathBundle::parse(text).unwrap().get_path_strings(),
+        assert_eq!(PathBundle::parse(text).unwrap().get_path_strings('/'),
             ["produce/apple", "produce/banana"]);
     }
 
