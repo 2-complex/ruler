@@ -51,7 +51,7 @@ enum ParseError
     DoesNotEndWithNewline,
     ContainsEmptyLines(Vec<usize>),
     Contradiction(usize, usize),
-    WrongIndent
+    WrongIndent(usize)
 }
 
 fn add_to_nodes(nodes : &mut BTreeMap<String, (PathNodeType, usize)>, in_node : PathNode, in_index : usize) -> Result<(), ParseError>
@@ -86,7 +86,7 @@ impl PathBundle
 
         match indented(prev_line.1)
         {
-            Some(_) => return Err(ParseError::WrongIndent),
+            Some(_) => return Err(ParseError::WrongIndent(prev_line.0)),
             None => {}
         }
 
@@ -412,8 +412,8 @@ produce
     #[test]
     fn bundle_parse_wrong_indentation()
     {
-        assert_eq!(PathBundle::parse("\t\tapple\n"), Err(ParseError::WrongIndent));
-        assert_eq!(PathBundle::parse("produce\n\t\tapple\n"), Err(ParseError::WrongIndent));
+        assert_eq!(PathBundle::parse("\tapple\n"), Err(ParseError::WrongIndent(0)));
+        assert_eq!(PathBundle::parse("produce\n\t\tapple\n"), Err(ParseError::WrongIndent(1)));
     }
 
     /*  Parse, then get filepaths, and check the result */
