@@ -46,27 +46,28 @@ fn indented(line: &str) -> Option<&str>
 #[derive(Debug, PartialEq)]
 enum ParseError
 {
+    Weird,
     Empty,
     DoesNotEndWithNewline,
     ContainsEmptyLines(Vec<usize>),
-    Contradiction,
+    Contradiction(usize, usize),
     WrongIndent
 }
 
-fn add_to_nodes(nodes : &mut BTreeMap<String, PathNodeType>, in_node : PathNode) -> Result<(), ParseError>
+fn add_to_nodes(nodes : &mut BTreeMap<String, (PathNodeType, usize)>, in_node : PathNode, in_index : usize) -> Result<(), ParseError>
 {
     match nodes.get(&in_node.name)
     {
-        Some(node_type) =>
+        Some((node_type, index)) =>
         {
             if *node_type != in_node.node_type
             {
-                return Err(ParseError::Contradiction);
+                return Err(ParseError::Contradiction(*index, in_index));
             }
         },
         None =>
         {
-            nodes.insert(in_node.name, in_node.node_type);
+            nodes.insert(in_node.name, (in_node.node_type, in_index));
         },
     }
     Ok(())
@@ -74,47 +75,49 @@ fn add_to_nodes(nodes : &mut BTreeMap<String, PathNodeType>, in_node : PathNode)
 
 impl PathBundle
 {
-    fn from_lines(lines : Vec<&str>) -> Result<Self, ParseError>
+    fn from_lines(lines : Vec<(usize, &str)>) -> Result<Self, ParseError>
     {
         let mut it = lines.iter();
-        let mut prev_name = match it.next()
+        let mut prev_line = match it.next()
         {
             Some(line) => line,
-            None => return Ok(PathBundle{nodes:vec![]}),
+            None => return Err(ParseError::Weird),
         };
 
-        match indented(prev_name)
+        match indented(prev_line.1)
         {
             Some(_) => return Err(ParseError::WrongIndent),
             None => {}
         }
 
         let mut nodes = BTreeMap::new();
-        while let Some(line) = it.next()
+        while let Some(curr_line) = it.next()
         {
-            match indented(line)
+            match indented(curr_line.1)
             {
                 None =>
                 {
-                    add_to_nodes(&mut nodes, PathNode::leaf(prev_name.to_string()))?;
-                    prev_name = line;
+                    add_to_nodes(&mut nodes, PathNode::leaf(prev_line.1.to_string()), prev_line.0)?;
+                    prev_line = curr_line;
                 },
                 Some(rest) =>
                 {
-                    let mut temp = vec![rest];
+                    let mut temp = vec![(curr_line.0, rest)];
                     while let Some(line) = it.next()
                     {
-                        match indented(line)
+                        match indented(line.1)
                         {
                             None =>
                             {
-                                temp.push("");
-                                add_to_nodes(&mut nodes, PathNode::parent(
-                                    prev_name.to_string(), PathBundle::from_lines(temp)?))?;
-                                prev_name = line;
+                                temp.push((0, "")); // oof
+                                add_to_nodes(&mut nodes,
+                                    PathNode::parent(prev_line.1.to_string(), PathBundle::from_lines(temp)?),
+                                    prev_line.0
+                                )?;
+                                prev_line = line;
                                 break;
                             },
-                            Some(rest) => temp.push(rest),
+                            Some(rest) => temp.push((line.0, rest)),
                         }
                     }
                 },
@@ -122,7 +125,7 @@ impl PathBundle
         }
 
         Ok(PathBundle{nodes:nodes.into_iter().map(
-            |(name, node_type)| {PathNode{name:name, node_type:node_type}}
+            |(name, (node_type, _index))| {PathNode{name:name, node_type:node_type}}
         ).collect()})
     }
 
@@ -145,7 +148,7 @@ impl PathBundle
             return Err(ParseError::ContainsEmptyLines(empty_lines));
         }
 
-        PathBundle::from_lines(lines)
+        PathBundle::from_lines(lines.into_iter().enumerate().collect())
     }
 
     fn get_path_strings_with_prefix(&self, prefix : String, separator : &str) -> Vec<String>
@@ -359,13 +362,36 @@ mod test
             ]});
     }
 
-    /*  Parse two directories, check the result contains them both */
+    /*  Parse two directories with contradicting contents, check for the contradiction error
+        with the contradicting lines flagged */
     #[test]
-    fn bundle_parse_directories_with_contradictory_content()
+    fn bundle_parse_directories_with_contradictory_content_basic()
     {
         assert_eq!(
-            PathBundle::parse("images\n\tapple.png\nimages\n\tbanana.png\n"),
-            Err(ParseError::Contradiction)
+            PathBundle::parse("\
+images
+\tapple.png
+images
+\tbanana.png
+"),
+            Err(ParseError::Contradiction(0, 2))
+        );
+    }
+
+    /*  Parse two directories with contradicting contents, check for the contradiction error
+        with the contradicting lines flagged */
+    #[test]
+    fn bundle_parse_directories_with_contradictory_content_one_deep()
+    {
+        assert_eq!(
+            PathBundle::parse("\
+documents
+\timages
+\t\tapple.png
+\timages
+\t\tbanana.png
+"),
+            Err(ParseError::Contradiction(1, 3))
         );
     }
 
@@ -373,7 +399,13 @@ mod test
     #[test]
     fn bundle_parse_directory_and_file_same_name()
     {
-        assert_eq!(PathBundle::parse("produce\n\tapple\n\tbanana\nproduce\n"), Err(ParseError::Contradiction));
+        assert_eq!(PathBundle::parse("\
+produce
+\tapple
+\tbanana
+produce
+"),
+        Err(ParseError::Contradiction(0, 3)));
     }
 
     /*  Parse something with wrong indentation, check for the wrong-indentation error */
