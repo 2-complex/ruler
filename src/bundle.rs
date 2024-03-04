@@ -159,12 +159,12 @@ impl PathBundle
         PathBundle::from_lines(lines)
     }
 
-    fn get_path_strings_with_prefix(self, prefix : String) -> Vec<String>
+    fn get_path_strings_with_prefix(&self, prefix : String) -> Vec<String>
     {
         let mut path_strings = vec![];
-        for node in self.nodes
+        for node in &self.nodes
         {
-            match node.node_type
+            match &node.node_type
             {
                 PathNodeType::Leaf =>
                     path_strings.push(prefix.clone() + node.name.as_str()),
@@ -176,12 +176,12 @@ impl PathBundle
         path_strings
     }
 
-    pub fn get_path_strings(self) -> Vec<String>
+    pub fn get_path_strings(&self) -> Vec<String>
     {
         self.get_path_strings_with_prefix("".to_string())
     }
 
-    pub fn get_text_lines(&self, indent : String) -> Vec<String>
+    fn get_text_lines(&self, indent : String) -> Vec<String>
     {
         let mut lines = vec![];
         for node in &self.nodes
