@@ -211,16 +211,37 @@ impl PathBundle
             match node.node_type
             {
                 PathNodeType::Leaf =>
-                {
-                    path_strings.push(node.name);
-                },
+                    path_strings.push(node.name),
                 PathNodeType::Parent(path_bundle) =>
-                {
-                    path_strings.extend(path_bundle.get_path_strings_with_prefix(node.name + FILE_SEPARATOR));
-                }
+                    path_strings.extend(path_bundle.get_path_strings_with_prefix(node.name + FILE_SEPARATOR)),
             }
         }
         path_strings
+    }
+
+    pub fn get_text_lines(&self, indent : String) -> Vec<String>
+    {
+        let mut lines = vec![];
+        for node in &self.nodes
+        {
+            lines.push(indent.clone() + node.name.as_str());
+            match &node.node_type
+            {
+                PathNodeType::Leaf => {},
+                PathNodeType::Parent(children) =>
+                {
+                    lines.append(&mut children.get_text_lines(
+                        indent.clone() + INDENT_CHAR.to_string().as_str()));
+                }
+            }
+        }
+
+        lines
+    }
+
+    pub fn get_text(&self) -> String
+    {
+        self.get_text_lines("".to_string()).join("\n") + "\n"
     }
 }
 
@@ -414,8 +435,8 @@ mod test
     #[test]
     fn bundle_parse_then_get_paths()
     {
-        let text =
-"produce
+        let text = "\
+produce
 \tapple
 \tbanana
 images
@@ -430,8 +451,8 @@ images
     #[test]
     fn bundle_parse_then_get_paths_with_redundancy()
     {
-        let text =
-"produce
+        let text = "\
+produce
 \tapple
 \tbanana
 produce
@@ -440,5 +461,162 @@ produce
 ";
         assert_eq!(PathBundle::parse(text).unwrap().get_path_strings(),
             ["produce/apple", "produce/banana"]);
+    }
+
+    /*  Roundtrip using parse and get_text */
+    #[test]
+    fn bundle_parse_roundtrip()
+    {
+        let text = "\
+images
+\tcat.jpg
+\tdog.jpg
+produce
+\tapple
+\tbanana
+";
+        assert_eq!(PathBundle::parse(text).unwrap().get_text(), text);
+    }
+
+    /*  Roundtrip using parse and get_text */
+    #[test]
+    fn bundle_parse_roundtrip_more()
+    {
+        let text = "\
+images
+\tanimals
+\t\tcat.jpg
+\t\tdog.jpg
+produce
+\tfruit
+\t\tapple
+\t\tbanana
+\tveg
+\t\tcelery
+\t\tlettuce
+";
+        assert_eq!(PathBundle::parse(text).unwrap().get_text(), text);
+    }
+
+    /*  Roundtrip using parse and get_text */
+    #[test]
+    fn bundle_parse_roundtrip_lots_of_testing()
+    {
+        let text = "\
+a
+\ta
+\t\ta
+\t\t\ta
+\t\t\t\ta
+\t\t\t\t\ta
+\t\t\t\t\t\ta
+\t\t\t\t\t\t\ta
+\t\t\t\t\t\t\t\ta
+\t\t\t\t\t\t\t\t\ta
+";
+
+        assert_eq!(PathBundle::parse(text).unwrap().get_text(), text);
+    }
+
+    /*  Roundtrip using parse and get_text */
+    #[test]
+    fn bundle_parse_roundtrip_lots_at_the_base_level()
+    {
+        let text = "\
+apple
+blue
+lines
+link
+peach
+pizza
+rock
+sorted
+wacky
+zebra
+";
+
+        assert_eq!(PathBundle::parse(text).unwrap().get_text(), text);
+    }
+
+    /*  Roundtrip using parse and get_text.  Check that an unsorted bundle round-trips to a sorted one */
+    #[test]
+    fn bundle_parse_roundtrip_sorts()
+    {
+        let text_out_of_order = "\
+produce
+\tveg
+\t\tlettuce
+\t\tcelery
+\tfruit
+\t\tbanana
+\t\tapple
+images
+\tanimals
+\t\tdog.jpg
+\t\tcat.jpg
+";
+
+        let text_in_order = "\
+images
+\tanimals
+\t\tcat.jpg
+\t\tdog.jpg
+produce
+\tfruit
+\t\tapple
+\t\tbanana
+\tveg
+\t\tcelery
+\t\tlettuce
+";
+        assert_eq!(PathBundle::parse(text_out_of_order).unwrap().get_text(), text_in_order);
+    }
+
+    /*  Roundtrip using parse and get_text.  Check that a bundle with dupes round-trips to a sorted one without dupes */
+    #[test]
+    fn bundle_parse_roundtrip_dedupes()
+    {
+        let text_with_dupes = "\
+produce
+\tveg
+\t\tlettuce
+\t\tcelery
+\tfruit
+\t\tbanana
+\t\tapple
+produce
+\tfruit
+\t\tapple
+\t\tbanana
+\tveg
+\t\tcelery
+\t\tlettuce
+images
+\tanimals
+\t\tcat.jpg
+\t\tdog.jpg
+images
+\tanimals
+\t\tdog.jpg
+\t\tcat.jpg
+file1
+file1
+";
+
+        let text_without_dupes = "\
+file1
+images
+\tanimals
+\t\tcat.jpg
+\t\tdog.jpg
+produce
+\tfruit
+\t\tapple
+\t\tbanana
+\tveg
+\t\tcelery
+\t\tlettuce
+";
+        assert_eq!(PathBundle::parse(text_with_dupes).unwrap().get_text(), text_without_dupes);
     }
 }
