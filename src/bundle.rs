@@ -113,20 +113,20 @@ impl PathBundle
                 },
                 Some(rest) =>
                 {
-                    let mut v = vec![rest];
+                    let mut temp = vec![rest];
                     while let Some(line) = it.next()
                     {
                         match indented(line)
                         {
                             None =>
                             {
-                                v.push("");
+                                temp.push("");
                                 add_to_nodes(&mut nodes, PathNode::parent(
-                                    prev_name.to_string(), PathBundle::from_lines(v)?))?;
+                                    prev_name.to_string(), PathBundle::from_lines(temp)?))?;
                                 prev_name = line;
                                 break;
                             },
-                            Some(rest) => v.push(rest),
+                            Some(rest) => temp.push(rest),
                         }
                     }
                 },
