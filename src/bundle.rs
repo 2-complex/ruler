@@ -119,19 +119,15 @@ impl PathBundle
                     {
                         match indented(line)
                         {
-                            None=>
+                            None =>
                             {
                                 v.push("");
                                 add_to_nodes(&mut nodes, PathNode::parent(
-                                    prev_name.to_string(),
-                                    PathBundle::from_lines(v)?))?;
+                                    prev_name.to_string(), PathBundle::from_lines(v)?))?;
                                 prev_name = line;
                                 break;
                             },
-                            Some(rest)=>
-                            {
-                                v.push(rest);
-                            },
+                            Some(rest) => v.push(rest),
                         }
                     }
                 },
@@ -145,26 +141,19 @@ impl PathBundle
 
     fn parse(text: &str) -> Result<PathBundle, ParseError>
     {
-        if text == ""
-        {
-            return Err(ParseError::Empty);
-        }
-
-        let lines : Vec<&str> = text.split('\n').collect();
-
-        match lines.last()
+        match text.chars().last()
         {
             None => return Err(ParseError::Empty),
-            Some(&"") => {},
-            Some(_) => return Err(ParseError::DoesNotEndWithNewline),
+            Some('\n') => {},
+            _ => return Err(ParseError::DoesNotEndWithNewline),
         }
 
-        for line in &lines[0..lines.len()-1]
+        let lines = text.split('\n').collect::<Vec<&str>>();
+
+        if lines[0..lines.len()-1].iter().any(
+            |line| !line.chars().any(|c| c!=INDENT_CHAR))
         {
-            if !line.chars().any(|c| c!=INDENT_CHAR)
-            {
-                return Err(ParseError::ContainsEmptyLines);
-            }
+            return Err(ParseError::ContainsEmptyLines);
         }
 
         PathBundle::from_lines(lines)
@@ -178,33 +167,18 @@ impl PathBundle
             match node.node_type
             {
                 PathNodeType::Leaf =>
-                {
-                    path_strings.push(prefix.clone() + node.name.as_str());
-                },
-                PathNodeType::Parent(path_bundle) =>
-                {
-                    let new_prefix = prefix.clone() + node.name.as_str();
-                    path_strings.extend(path_bundle.get_path_strings_with_prefix(new_prefix));
-                }
+                    path_strings.push(prefix.clone() + node.name.as_str()),
+                PathNodeType::Parent(children) =>
+                    path_strings.extend(children.get_path_strings_with_prefix(
+                        prefix.clone() + node.name.as_str() + FILE_SEPARATOR)),
             }
         }
         path_strings
     }
-    
+
     pub fn get_path_strings(self) -> Vec<String>
     {
-        let mut path_strings = vec![];
-        for node in self.nodes
-        {
-            match node.node_type
-            {
-                PathNodeType::Leaf =>
-                    path_strings.push(node.name),
-                PathNodeType::Parent(path_bundle) =>
-                    path_strings.extend(path_bundle.get_path_strings_with_prefix(node.name + FILE_SEPARATOR)),
-            }
-        }
-        path_strings
+        self.get_path_strings_with_prefix("".to_string())
     }
 
     pub fn get_text_lines(&self, indent : String) -> Vec<String>
@@ -433,6 +407,23 @@ images
 ";
         assert_eq!(PathBundle::parse(text).unwrap().get_path_strings(),
             ["images/cat.jpg", "images/dog.jpg", "produce/apple", "produce/banana"]);
+    }
+
+    /*  Parse, then get filepaths, and check the result */
+    #[test]
+    fn bundle_parse_then_get_paths_deeper()
+    {
+        let text = "\
+a
+\ta
+\t\ta
+\t\t\ta
+b
+\tb
+\t\tb
+\t\t\tb
+";
+        assert_eq!(PathBundle::parse(text).unwrap().get_path_strings(), ["a/a/a/a", "b/b/b/b"]);
     }
 
     /*  Parse, then get filepaths, and check the result */
