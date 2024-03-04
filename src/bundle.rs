@@ -66,18 +66,6 @@ enum ParseError
     WrongIndent
 }
 
-fn is_only_indentation(s: &str) -> bool
-{
-    for c in s.chars()
-    {
-        if c != INDENT_CHAR
-        {
-            return false;
-        }
-    }
-    return true;
-}
-
 fn add_to_nodes(nodes : &mut BTreeMap<String, PathNodeType>, in_node : PathNode) -> Result<(), ParseError>
 {
     match nodes.get(&in_node.name)
@@ -173,7 +161,7 @@ impl PathBundle
 
         for line in &lines[0..lines.len()-1]
         {
-            if is_only_indentation(line)
+            if !line.chars().any(|c| c!=INDENT_CHAR)
             {
                 return Err(ParseError::ContainsEmptyLines);
             }
@@ -538,7 +526,8 @@ zebra
         assert_eq!(PathBundle::parse(text).unwrap().get_text(), text);
     }
 
-    /*  Roundtrip using parse and get_text.  Check that an unsorted bundle round-trips to a sorted one */
+    /*  Roundtrip using parse and get_text.  Check that an unsorted bundle
+        round-trips to a sorted one */
     #[test]
     fn bundle_parse_roundtrip_sorts()
     {
@@ -572,7 +561,8 @@ produce
         assert_eq!(PathBundle::parse(text_out_of_order).unwrap().get_text(), text_in_order);
     }
 
-    /*  Roundtrip using parse and get_text.  Check that a bundle with dupes round-trips to a sorted one without dupes */
+    /*  Roundtrip using parse and get_text.  Check that a bundle with dupes
+        round-trips to a sorted one without dupes */
     #[test]
     fn bundle_parse_roundtrip_dedupes()
     {
