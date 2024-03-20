@@ -33,41 +33,78 @@ struct PathBundle
     nodes : Vec<PathNode>
 }
 
-fn indented(line: &str) -> Option<&str>
+#[derive(Debug)]
+struct NumberedIndentedLine
 {
-    let  mut iter = line.chars();
-    match iter.next()
+    num : usize,
+    level : usize,
+    text : String,
+}
+
+impl NumberedIndentedLine
+{
+    fn new(num: usize, line: String) -> Self
     {
-        Some('\t') => Some(iter.as_str()),
-        _ => None,
+        let mut it = line.chars();
+        let mut level = 0;
+
+        loop
+        {
+            match it.next()
+            {
+                Some('\t') =>
+                {
+                    level+=1;
+                },
+                Some(c) =>
+                {
+                    return NumberedIndentedLine
+                    {
+                        num: num,
+                        level: level,
+                        text: c.to_string() + &it.collect::<String>()
+                    };
+                },
+                None =>
+                {
+                    return NumberedIndentedLine
+                    {
+                        num: num,
+                        level: level,
+                        text: "".to_string(),
+                    };
+                },
+            }
+        }
     }
 }
 
 #[derive(Debug, PartialEq)]
 enum ParseError
 {
-    Weird,
     Empty,
-    DoesNotEndWithNewline,
     ContainsEmptyLines(Vec<usize>),
     Contradiction(usize, usize),
     WrongIndent(usize)
 }
 
-fn add_to_nodes(nodes : &mut BTreeMap<String, (PathNodeType, usize)>, in_node : PathNode, in_index : usize) -> Result<(), ParseError>
+fn add_to_nodes(
+    nodes : &mut BTreeMap<String, (PathNode, usize)>,
+    in_node : PathNode,
+    in_index : usize) -> Result<(), ParseError>
 {
     match nodes.get(&in_node.name)
     {
-        Some((node_type, index)) =>
+        Some((node, index)) =>
         {
-            if *node_type != in_node.node_type
+            if node.node_type != in_node.node_type
             {
                 return Err(ParseError::Contradiction(*index, in_index));
             }
         },
         None =>
         {
-            nodes.insert(in_node.name, (in_node.node_type, in_index));
+            nodes.insert(in_node.name.clone(), (in_node, in_index));
         },
     }
     Ok(())
@@ -75,80 +112,70 @@ fn add_to_nodes(nodes : &mut BTreeMap<String, (PathNodeType, usize)>, in_node : 
 
 impl PathBundle
 {
-    fn from_lines(lines : Vec<(usize, &str)>) -> Result<Self, ParseError>
+    fn parse_recusrive_helper(level:usize, lines: &[NumberedIndentedLine]) -> Result<Self, ParseError>
     {
-        let mut it = lines.iter();
-        let mut prev_line = match it.next()
+        let n = lines.len();
+        if lines.len() == 0
         {
-            Some(line) => line,
-            None => return Err(ParseError::Weird),
-        };
+            return Err(ParseError::Empty);
+        }
 
-        match indented(prev_line.1)
+        if lines[0].level != level
         {
-            Some(_) => return Err(ParseError::WrongIndent(prev_line.0)),
-            None => {}
+            return Err(ParseError::WrongIndent(lines[0].num))
         }
 
         let mut nodes = BTreeMap::new();
-        while let Some(curr_line) = it.next()
+        let mut i = 0;
+        while i < n
         {
-            match indented(curr_line.1)
+            let mut j = i+1;
+            while j < n && lines[j].level > level
             {
-                None =>
-                {
-                    add_to_nodes(&mut nodes, PathNode::leaf(prev_line.1.to_string()), prev_line.0)?;
-                    prev_line = curr_line;
-                },
-                Some(rest) =>
-                {
-                    let mut temp = vec![(curr_line.0, rest)];
-                    while let Some(line) = it.next()
-                    {
-                        match indented(line.1)
-                        {
-                            None =>
-                            {
-                                temp.push((0, "")); // oof
-                                add_to_nodes(&mut nodes,
-                                    PathNode::parent(prev_line.1.to_string(), PathBundle::from_lines(temp)?),
-                                    prev_line.0
-                                )?;
-                                prev_line = line;
-                                break;
-                            },
-                            Some(rest) => temp.push((line.0, rest)),
-                        }
-                    }
-                },
+                j+=1;
             }
+            let name = lines[i].text.clone();
+            add_to_nodes(&mut nodes, 
+                if i+1 < j
+                {
+                    PathNode::parent(name, Self::parse_recusrive_helper(level+1, &lines[i+1..j])?)
+                }
+                else
+                {
+                    PathNode::leaf(name)
+                }, lines[i].num)?;
+            i = j;
         }
 
-        Ok(PathBundle{nodes:nodes.into_iter().map(
-            |(name, (node_type, _index))| {PathNode{name:name, node_type:node_type}}
-        ).collect()})
+        Ok(PathBundle{nodes: nodes.into_iter().map(|(_key, (node, _index))| {node}).collect()})
+    }
+
+    fn get_empty_line_indices(lines : &Vec<&str>) -> Vec<usize>
+    {
+        lines.iter().enumerate().filter(
+            |(_, line)| !line.chars().any(|c| c != '\t')).map(|(i, _)| i).collect()
     }
 
     fn parse(text: &str) -> Result<PathBundle, ParseError>
     {
-        match text.chars().last()
+        let mut lines = text.split('\n').collect::<Vec<&str>>();
+
+        match lines.last()
         {
-            None => return Err(ParseError::Empty),
-            Some('\n') => {},
-            _ => return Err(ParseError::DoesNotEndWithNewline),
+            Some(&"") => {lines.pop();},
+            _ => {}
         }
 
-        let lines = text.split('\n').collect::<Vec<&str>>();
-
-        let empty_lines : Vec<usize> = lines[0..lines.len()-1].iter().enumerate().filter(
-            |(_, line)| !line.chars().any(|c| c != '\t')).map(|(i, _)| i).collect();
-
-        if empty_lines.len() > 0
+        let empty_line_indices = Self::get_empty_line_indices(&lines);
+        if empty_line_indices.len() > 0
         {
-            return Err(ParseError::ContainsEmptyLines(empty_lines));
+            return Err(ParseError::ContainsEmptyLines(empty_line_indices));
         }
 
-        PathBundle::from_lines(lines.into_iter().enumerate().collect())
+        Self::parse_recusrive_helper(0, &lines.into_iter().enumerate().map(|(num, text)|
+        {
+            NumberedIndentedLine::new(num, text.to_owned())
+        }).collect::<Vec<NumberedIndentedLine>>())
     }
 
     fn get_path_strings_with_prefix(&self, prefix : String, separator : &str) -> Vec<String>
@@ -240,25 +267,25 @@ mod test
             Err(ParseError::ContainsEmptyLines(vec![0, 1])));
     }
 
-    /*  Parse an enindented empty line, check for the empty lines error */
+    /*  Parse an indented empty line, check for the empty lines error */
     #[test]
     fn bundle_parse_indented_empty_line()
     {
         assert_eq!(PathBundle::parse("\t\n"), Err(ParseError::ContainsEmptyLines(vec![0])));
     }
 
-    /*  Parse an enindented empty line, check for the empty lines error */
+    /*  Parse an indented empty line, check for the empty lines error */
     #[test]
     fn bundle_parse_just_tab()
     {
-        assert_eq!(PathBundle::parse("\t"), Err(ParseError::DoesNotEndWithNewline));
+        assert_eq!(PathBundle::parse("\t"), Err(ParseError::ContainsEmptyLines(vec![0])));
     }
 
-    /*  Parse one file except we forgot the newline character at the end */
+    /*  Parse one file with no newline character at the end */
     #[test]
     fn bundle_parse_one_file_no_newline()
     {
-        assert_eq!(PathBundle::parse("file"), Err(ParseError::DoesNotEndWithNewline));
+        PathBundle::parse("file").unwrap();
     }
 
     /*  Parse one file, that should be okay */
@@ -270,7 +297,7 @@ mod test
 
     /*  Parse one file, that should be okay */
     #[test]
-    fn bundle_parse_one_file()
+    fn bundle_parse_one_file_only()
     {
         assert_eq!(
             PathBundle::parse("file\n").unwrap(),
@@ -279,7 +306,7 @@ mod test
 
     /*  Parse one directory with one file in it */
     #[test]
-    fn bundle_parse_one_directory()
+    fn bundle_parse_one_directory_only()
     {
         assert_eq!(
             PathBundle::parse("directory\n\tfile\n").unwrap(),
