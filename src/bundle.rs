@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::fmt;
 
 #[derive(Debug, Eq, PartialEq, PartialOrd, Ord)]
 enum PathNodeType
@@ -28,7 +29,7 @@ impl PathNode
 }
 
 #[derive(Debug, Eq, PartialEq, PartialOrd, Ord)]
-struct PathBundle
+pub struct PathBundle
 {
     nodes : Vec<PathNode>
 }
@@ -80,12 +81,34 @@ impl NumberedIndentedLine
 }
 
 #[derive(Debug, PartialEq)]
-enum ParseError
+pub enum ParseError
 {
     Empty,
     ContainsEmptyLines(Vec<usize>),
     Contradiction(usize, usize),
     WrongIndent(usize)
+}
+
+impl fmt::Display for ParseError
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
+    {
+        match self
+        {
+            ParseError::Empty =>
+                write!(formatter, "Attempt to parse empty string as bundle"),
+
+            ParseError::ContainsEmptyLines(line_numbers) =>
+                write!(formatter, "Unexpeced empty line(s): [{}]",
+                    line_numbers.iter().map(|size|{format!("{}", size)}).collect::<Vec<String>>().join(", ")),
+
+            ParseError::Contradiction(first, second) =>
+                write!(formatter, "Path bundle contains contradiction: {}. {}", first, second),
+
+            ParseError::WrongIndent(line_number) =>
+                write!(formatter, "Wrong indent on line {}", line_number),
+        }
+    }
 }
 
 fn add_to_nodes(
@@ -156,10 +179,8 @@ impl PathBundle
             |(_, line)| !line.chars().any(|c| c != '\t')).map(|(i, _)| i).collect()
     }
 
-    fn parse(text: &str) -> Result<PathBundle, ParseError>
+    pub fn parse_lines(mut lines: Vec<&str>) -> Result<PathBundle, ParseError>
     {
-        let mut lines = text.split('\n').collect::<Vec<&str>>();
-
         match lines.last()
         {
             Some(&"") => {lines.pop();},
@@ -172,10 +193,15 @@ impl PathBundle
             return Err(ParseError::ContainsEmptyLines(empty_line_indices));
         }
 
-        Self::parse_recusrive_helper(0, &lines.into_iter().enumerate().map(|(num, text)|
+        Self::parse_recusrive_helper(0, &lines.into_iter().enumerate().map(|(num, line)|
         {
-            NumberedIndentedLine::new(num, text.to_owned())
+            NumberedIndentedLine::new(num, line.to_owned())
         }).collect::<Vec<NumberedIndentedLine>>())
+    }
+
+    pub fn parse(text: &str) -> Result<PathBundle, ParseError>
+    {
+        Self::parse_lines(text.split('\n').collect::<Vec<&str>>())
     }
 
     fn get_path_strings_with_prefix(&self, prefix : String, separator : &str) -> Vec<String>
@@ -237,28 +263,28 @@ mod test
         PathNode
     };
 
-    /*  Parse an empty string check for the the empty parse-error. */
+    /*  Parse an empty string, check for the empty parse-error. */
     #[test]
     fn bundle_parse_empty()
     {
         assert_eq!(PathBundle::parse(""), Err(ParseError::Empty));
     }
 
-    /*  Parse just a newline, check for the ends with empty line parse-error */
+    /*  Parse just a newline, check for the contains-empty-lines parse-error */
     #[test]
     fn bundle_parse_newline()
     {
         assert_eq!(PathBundle::parse("\n"), Err(ParseError::ContainsEmptyLines(vec![0])));
     }
 
-    /*  Parse a bunch of newlines, check for the ends with empty line parse-error */
+    /*  Parse a bunch of newlines, check for the contains-empty-lines parse-error */
     #[test]
     fn bundle_parse_newlines()
     {
         assert_eq!(PathBundle::parse("\n\n\n"), Err(ParseError::ContainsEmptyLines(vec![0, 1, 2])));
     }
 
-    /*  Parse a list of files with extra newlines, check for the contains empty error */
+    /*  Parse a list of files with extra newlines, check for the contains-empty-lines error */
     #[test]
     fn bundle_parse_extra_newlines()
     {
@@ -267,14 +293,21 @@ mod test
             Err(ParseError::ContainsEmptyLines(vec![0, 1])));
     }
 
-    /*  Parse an indented empty line, check for the empty lines error */
+    /*  Parse an indented empty line, check for the contains-empty-lines error */
     #[test]
     fn bundle_parse_indented_empty_line()
     {
         assert_eq!(PathBundle::parse("\t\n"), Err(ParseError::ContainsEmptyLines(vec![0])));
     }
 
-    /*  Parse an indented empty line, check for the empty lines error */
+    /*  Parse a mix of types of empty line, check for the contains-empty-lines error */
+    #[test]
+    fn bundle_parse_mixed_empty_lines()
+    {
+        assert_eq!(PathBundle::parse("\t\n\n"), Err(ParseError::ContainsEmptyLines(vec![0, 1])));
+    }
+
+    /*  Parse a lone tab character, check for the contains-empty-lines error */
     #[test]
     fn bundle_parse_just_tab()
     {
@@ -288,14 +321,14 @@ mod test
         PathBundle::parse("file").unwrap();
     }
 
-    /*  Parse one file, that should be okay */
+    /*  Parse one file with a newline */
     #[test]
     fn bundle_parse_one_file_with_newline()
     {
         PathBundle::parse("file\n").unwrap();
     }
 
-    /*  Parse one file, that should be okay */
+    /*  Parse one file, check result */
     #[test]
     fn bundle_parse_one_file_only()
     {
@@ -326,6 +359,20 @@ mod test
                     PathBundle{nodes:vec![
                         PathNode::leaf("file1".to_string()),
                         PathNode::leaf("file2".to_string())]})]});
+    }
+
+    /*  Parse tested directories */
+    #[test]
+    fn bundle_parse_nested_directory()
+    {
+        assert_eq!(
+            PathBundle::parse("directory\n\tdirectory\n\t\tfile1\n").unwrap(),
+            PathBundle{nodes:vec![
+                PathNode::parent("directory".to_string(),
+                    PathBundle{nodes:vec![
+                        PathNode::parent("directory".to_string(),
+                            PathBundle{nodes:vec![
+                                PathNode::leaf("file1".to_string())]})]})]});
     }
 
     /*  Parse two files, check the result */

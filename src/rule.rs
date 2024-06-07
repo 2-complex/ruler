@@ -3,7 +3,13 @@ use std::collections::HashSet;
 use std::fmt;
 
 use crate::ticket::Ticket;
+use crate::bundle::
+{
+    self,
+    PathBundle
+};
 
+#[derive(Debug, PartialEq)]
 pub struct Rule
 {
     pub targets : Vec<String>,
@@ -100,80 +106,15 @@ impl fmt::Display for Node
     }
 }
 
-
-struct EndpointPair
-{
-    start : usize,
-    end : usize,
-}
-
-/*  Iterates through the given str, returns an EndpointPair indicating
-    the line content (without the newline character itself) */
-fn get_line_endpoints(content : &str) -> Vec<EndpointPair>
-{
-    let mut endpoints = Vec::new();
-    let mut last_i = 0usize;
-    let mut current_i = 0usize;
-    for (i, c) in content.chars().enumerate()
-    {
-        current_i = i;
-        match c
-        {
-            '\n' =>
-            {
-                endpoints.push(EndpointPair{
-                    start:last_i,
-                    end:current_i,
-                });
-                last_i = current_i+1;
-            },
-            _ => {},
-        }
-    }
-    current_i += 1;
-
-    if current_i > 1 && last_i < current_i
-    {
-        endpoints.push(EndpointPair{
-            start:last_i,
-            end:current_i,
-        });
-    }
-
-    endpoints
-}
-
-/*  Takes a String and a vector of EndpointPairs.  Consumes both inputs and
-    outputs a vector of Strings split off from the input String at the indices
-    indicated by the endpoints. */
-fn split_along_endpoints(
-    mut content : String,
-    mut endpoints : Vec<EndpointPair>) -> Vec<String>
-{
-    let mut result = Vec::new();
-    let mut total = 0usize;
-
-    for p in endpoints.drain(..)
-    {
-        let mut chunk = content.split_off(p.start - total);
-        content = chunk.split_off(p.end - p.start);
-        chunk.shrink_to_fit();
-        total = p.end;
-        result.push(chunk);
-    }
-
-    result
-}
-
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ParseError
 {
     UnexpectedEmptyLine(String, usize),
     UnexpectedExtraColon(String, usize),
-    UnexpectedContent(String, usize),
     UnexpectedEndOfFileMidTargets(String, usize),
     UnexpectedEndOfFileMidSources(String, usize),
     UnexpectedEndOfFileMidCommand(String, usize),
+    BundleError(String, bundle::ParseError),
 }
 
 impl fmt::Display for ParseError
@@ -188,9 +129,6 @@ impl fmt::Display for ParseError
             ParseError::UnexpectedExtraColon(filename, line_number) =>
                 write!(formatter, "Unexpected extra ':' on line {}:{}", filename, line_number),
 
-            ParseError::UnexpectedContent(filename, line_number) =>
-                write!(formatter, "Unexpected content on line {}:{}", filename, line_number),
-
             ParseError::UnexpectedEndOfFileMidTargets(filename, line_number) =>
                 write!(formatter, "Unexpected end of file mid-targets line {}:{}", filename, line_number),
 
@@ -199,6 +137,9 @@ impl fmt::Display for ParseError
 
             ParseError::UnexpectedEndOfFileMidCommand(filename, line_number) =>
                 write!(formatter, "Unexpected end of file mid-command line {}:{}", filename, line_number),
+
+            ParseError::BundleError(filename, bundle_error) =>
+                write!(formatter, "Bundle parse error {}:{}", filename, bundle_error),
         }
     }
 }
@@ -208,8 +149,7 @@ impl fmt::Display for ParseError
 
     If the aprsing of any one file presents an error, this function returns the
     ParseError object for the first error, and does not bother parsing the
-    rest.
-*/
+    rest. */
 pub fn parse_all(mut contents : Vec<(String, String)>)
 -> Result<Vec<Rule>, ParseError>
 {
@@ -229,65 +169,89 @@ pub fn parse(filename : String, content : String)
 {
     enum Mode
     {
+        Pending,
         Targets,
         Sources,
         Command,
-        NewLine
     }
 
     let mut rules = Vec::new();
-    let mut targets = vec![];
-    let mut sources = vec![];
+    let mut target_lines = vec![];
+    let mut source_lines = vec![];
     let mut command = vec![];
-    let mut mode = Mode::Targets;
+    let mut mode = Mode::Pending;
     let mut line_number = 1;
 
-    let endpoints = get_line_endpoints(&content);
-    for line in split_along_endpoints(content, endpoints).drain(..)
+    let lines = content.split('\n').collect::<Vec<&str>>();
+
+    for line in lines
     {
         match mode
         {
+            Mode::Pending =>
+            {
+                match line
+                {
+                    "" => {},
+                    ":" => return Err(ParseError::UnexpectedExtraColon(filename, line_number)),
+                    _ =>
+                    {
+                        mode = Mode::Targets;
+                        target_lines.push(line);
+                    },
+                }
+            },
             Mode::Targets =>
             {
-                match line.as_ref()
+                match line
                 {
                     "" => return Err(ParseError::UnexpectedEmptyLine(filename, line_number)),
                     ":" => mode = Mode::Sources,
-                    _ => targets.push(line),
+                    _ => target_lines.push(line),
                 }
             },
             Mode::Sources =>
             {
-                match line.as_ref()
+                match line
                 {
                     "" => return Err(ParseError::UnexpectedEmptyLine(filename, line_number)),
                     ":" => mode = Mode::Command,
-                    _ => sources.push(line),
+                    _ => source_lines.push(line),
                 }
             },
             Mode::Command =>
             {
-                match line.as_ref()
+                match line
                 {
                     "" => return Err(ParseError::UnexpectedEmptyLine(filename, line_number)),
                     ":" =>
                     {
-                        mode = Mode::NewLine;
-                        rules.push(Rule::new(targets, sources, command));
-                        targets = vec![];
-                        sources = vec![];
+                        mode = Mode::Pending;
+
+                        let target_bundle = match PathBundle::parse_lines(target_lines)
+                        {
+                            Ok(bundle) => bundle,
+                            Err(error) => return Err(ParseError::BundleError(filename, error)),
+                        };
+
+                        let source_bundle = match PathBundle::parse_lines(source_lines)
+                        {
+                            Ok(bundle) => bundle,
+                            Err(error) => return Err(ParseError::BundleError(filename, error)),
+                        };
+
+                        let rule = Rule::new(
+                            target_bundle.get_path_strings('/'),
+                            source_bundle.get_path_strings('/'),
+                            command);
+
+                        rules.push(rule);
+
+                        target_lines = vec![];
+                        source_lines = vec![];
                         command = vec![];
                     }
-                    _ => command.push(line),
-                }
-            },
-            Mode::NewLine =>
-            {
-                match line.as_ref()
-                {
-                    "" => mode = Mode::Targets,
-                    ":" => return Err(ParseError::UnexpectedExtraColon(filename, line_number)),
-                    _ => return Err(ParseError::UnexpectedContent(filename, line_number)),
+                    _ => command.push(line.to_string()),
                 }
             },
         }
@@ -297,7 +261,7 @@ pub fn parse(filename : String, content : String)
 
     match mode
     {
-        Mode::NewLine => return Ok(rules),
+        Mode::Pending => return Ok(rules),
         Mode::Targets => return Err(ParseError::UnexpectedEndOfFileMidTargets(filename, line_number)),
         Mode::Sources => return Err(ParseError::UnexpectedEndOfFileMidSources(filename, line_number)),
         Mode::Command => return Err(ParseError::UnexpectedEndOfFileMidCommand(filename, line_number)),
@@ -692,12 +656,9 @@ mod tests
         topological_sort,
         topological_sort_all,
         TopologicalSortError,
-        EndpointPair,
-        split_along_endpoints,
         parse,
         parse_all,
         ParseError,
-        get_line_endpoints,
     };
 
     /*  Use the Rule constructor with some vectors of strings, and check that the
@@ -1511,194 +1472,23 @@ mod tests
         }
     }
 
-    /*  Check the function split_along_endpoints returns an empty list when given the empty string. */
-    #[test]
-    fn split_along_endpoints_empty()
-    {
-        let v = split_along_endpoints("".to_string(), vec![]);
-        assert_eq!(v.len(), 0);
-    }
-
-    /*  Call split_along_endpoints with a string and endpoints that cut a prefix off the string,
-        Check that the prefix is returned. */
-    #[test]
-    fn split_along_endpoints_one()
-    {
-        let v = split_along_endpoints("apples".to_string(),
-            vec![
-                EndpointPair
-                {
-                    start: 0usize,
-                    end: 3usize,
-                }
-            ]
-        );
-        assert_eq!(v.len(), 1);
-        assert_eq!(v[0], "app");
-    }
-
-    /*  Call split_along_endpoints with two words and endpoints that cut the string into the two words,
-        Check that two words are returned as separate strings. */
-    #[test]
-    fn split_along_endpoints_two()
-    {
-        let v = split_along_endpoints("applesbananas".to_string(),
-            vec![
-                EndpointPair
-                {
-                    start: 0usize,
-                    end: 6usize,
-                },
-                EndpointPair
-                {
-                    start: 6usize,
-                    end: 13usize,
-                },
-            ]
-        );
-        assert_eq!(v.len(), 2);
-        assert_eq!(v[0], "apples");
-        assert_eq!(v[1], "bananas");
-    }
-
-    /*  Call split_along_endpoints with two words with junk interspersed and endpoints that separate out the two words,
-        Check that two words are returned as separate strings. */
-    #[test]
-    fn split_along_endpoints_two_padding()
-    {
-        let v = split_along_endpoints("123apples012bananas".to_string(),
-            vec![
-                EndpointPair
-                {
-                    start: 3usize,
-                    end: 9usize,
-                },
-                EndpointPair
-                {
-                    start: 12usize,
-                    end: 19usize,
-                },
-            ]
-        );
-        assert_eq!(v.len(), 2);
-        assert_eq!(v[0], "apples");
-        assert_eq!(v[1], "bananas");
-    }
-
-    /*  Call get_line_endpoints on a string with no newlines.  Check we get that string's endpoints in a vec */
-    #[test]
-    fn get_line_endpoints_empty()
-    {
-        let v = get_line_endpoints("abcd");
-        assert_eq!(v.len(), 1);
-        assert_eq!(v[0].start, 0);
-        assert_eq!(v[0].end, 4);
-    }
-
-    /*  Call get_line_endpoints on a string ending in a newline. Check that we get endpoints capturing the
-        string upto but not including the newline. */
-    #[test]
-    fn get_line_endpoints_one()
-    {
-        let v = get_line_endpoints("abcd\n");
-        assert_eq!(v.len(), 1);
-        assert_eq!(v[0].start, 0);
-        assert_eq!(v[0].end, 4);
-    }
-
-    /*  Call get_line_endpoints on a string with newlines interspersed. Check that we get endpoints capturing
-        the non-newline content. */
-    #[test]
-    fn get_line_endpoints_two()
-    {
-        let v = get_line_endpoints("ab\ncd\n");
-        assert_eq!(v.len(), 2);
-        assert_eq!(v[0].start, 0);
-        assert_eq!(v[0].end, 2);
-        assert_eq!(v[1].start, 3);
-        assert_eq!(v[1].end, 5);
-    }
-
-    /*  Call get_line_endpoints on a string with no newline at the end. Check that we get endpoints capturing
-        the non-newline content. */
-    #[test]
-    fn get_line_endpoints_no_newline_at_end()
-    {
-        let v = get_line_endpoints("ab\ncd");
-        assert_eq!(v.len(), 2);
-        assert_eq!(v[0].start, 0);
-        assert_eq!(v[0].end, 2);
-        assert_eq!(v[1].start, 3);
-        assert_eq!(v[1].end, 5);
-    }
-
-    /*  Call get_line_endpoints on a string with newlines interspersed. Check that we get endpoints capturing
-        the non-newline content.  This time by extracting substrings using the endpoints */
-    #[test]
-    fn get_line_endpoints_rule()
-    {
-        let s = "a\n:\nb\n:\nc\n:\n";
-        let v = get_line_endpoints(s);
-        assert_eq!(v.len(), 6);
-        assert_eq!(s[v[0].start..v[0].end], *"a");
-        assert_eq!(s[v[1].start..v[1].end], *":");
-        assert_eq!(s[v[2].start..v[2].end], *"b");
-        assert_eq!(s[v[3].start..v[3].end], *":");
-        assert_eq!(s[v[4].start..v[4].end], *"c");
-        assert_eq!(s[v[5].start..v[5].end], *":");
-    }
-
-    /*  Combine get_line_endpoints and split_along_endpoints to parse a properly formatted rule. */
-    #[test]
-    fn split_along_endpoints_rule()
-    {
-        let text = "a\n:\nb\n:\nc\n:\n".to_string();
-        let endpoints = get_line_endpoints(&text);
-        assert_eq!(endpoints.len(), 6);
-
-        let v = split_along_endpoints(text, endpoints);
-        assert_eq!(v.len(), 6);
-        assert_eq!(v[0], "a");
-        assert_eq!(v[1], ":");
-        assert_eq!(v[2], "b");
-        assert_eq!(v[3], ":");
-        assert_eq!(v[4], "c");
-        assert_eq!(v[5], ":");
-    }
-
     /*  Call parse on an empty string, check that the rule list is empty. */
     #[test]
     fn parse_empty()
     {
-        match parse("spool.rules".to_string(), "".to_string())
-        {
-            Ok(_) =>
-            {
-                panic!("Unexpected success when parsing empty string");
-            },
-            Err(error) =>
-            {
-                match error
-                {
-                    ParseError::UnexpectedEndOfFileMidTargets(filename, line_number) =>
-                    {
-                        assert_eq!(filename, "spool.rules".to_string());
-                        assert_eq!(line_number, 1);
-                    },
-                    _=> panic!("Expected unexpected end of file mid-targets error"),
-                }
-            }
-        };
+        assert_eq!(parse("spool.rules".to_string(), "".to_string()).unwrap(), vec![]);
     }
 
     /*  Call parse on a properly formatted rule, check that the targets,
         sources and command are what was in the text. */
     #[test]
-    fn parse_one()
+    fn parse_one_rule()
     {
-        match parse(
-            "seven.rules".to_string(),
-            "a\n:\nb\n:\nc\n:\n".to_string())
+        let result = parse(
+            "one.rules".to_string(),
+            "a\n:\nb\n:\nc\n:\n".to_string());
+
+        match result
         {
             Ok(v) =>
             {
@@ -1787,37 +1577,48 @@ mod tests
         };
     }
 
-    /*  Call parse on improperly formatted rules, check the error. */
+    /*  Call parse on rules with some extra empty lines in there, that is okay */
     #[test]
-    fn parse_extra_newline_error1()
+    fn parse_allow_empty_lines_at_the_beginning_of_the_file()
     {
-        match parse(
-            "banana.rules".to_string(),
-            "\na\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\nf\n:\n".to_string())
-        {
-            Ok(_) => panic!("Unexpected success"),
-            Err(error) =>
-            {
-                match error
-                {
-                    ParseError::UnexpectedEmptyLine(filename, line_number) => 
-                    {
-                        assert_eq!(filename, "banana.rules".to_string());
-                        assert_eq!(line_number, 1);
-                    },
-                    error => panic!("Unexpected {}", error),
-                }
-            }
-        };
+        parse("banana.rules".to_string(),
+"
+a
+:
+b
+:
+c
+:
+".to_string()).unwrap();
     }
 
-    /*  Call parse on improperly formatted rules, check the error. */
+    /*  Call parse on rules that end with the final color, that is okay. */
     #[test]
-    fn parse_extra_newline_error2()
+    fn parse_allow_no_newline_at_end_of_file()
+    {
+        parse("banana.rules".to_string(),
+"\
+a
+:
+b
+:
+c
+:".to_string()).unwrap();
+    }
+
+    /*  Call parse on rules with extra empty lines in the sources, that errors */
+    #[test]
+    fn parse_extra_newline_mid_sources_error()
     {
         match parse(
             "fruit.rules".to_string(),
-            "a\n:\nb\n\n:\nc\n:\n\nd\n:\ne\n:\nf\n:\n".to_string())
+            "\
+a
+:
+b
+
+:
+".to_string())
         {
             Ok(_) => panic!("Unexpected success"),
             Err(error) =>
@@ -1837,50 +1638,44 @@ mod tests
 
     /*  Call parse on improperly formatted rules, check the error. */
     #[test]
-    fn parse_extra_newline_error3()
+    fn allow_empty_lines_between_rules()
     {
-        match parse(
+        parse(
             "well.rules".to_string(),
-            "a\n:\nb\n:\nc\n:\n\n\nd\n:\ne\n:\nf\n:\n".to_string())
-        {
-            Ok(_) => panic!("Unexpected success"),
-            Err(error) =>
-            {
-                match error
-                {
-                    ParseError::UnexpectedEmptyLine(filename, line_number) =>
-                    {
-                        assert_eq!(filename, "well.rules".to_string());
-                        assert_eq!(line_number, 8);
-                    }
-                    error => panic!("Unexpected {}", error),
-                }
-            }
-        };
+"\
+a
+:
+b
+:
+c
+:
+
+
+d
+:
+e
+:
+f
+:
+".to_string()).unwrap();
     }
 
     /*  Call parse on improperly formatted rules, check the error. */
     #[test]
     fn parse_unexpected_eof_mid_targets1()
     {
-        match parse(
+        assert_eq!(parse(
             "glass.rules".to_string(),
-            "a\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\nf\n:\n\n".to_string())
-        {
-            Ok(_) => panic!("Unexpected success"),
-            Err(error) =>
-            {
-                match error
-                {
-                    ParseError::UnexpectedEndOfFileMidTargets(filename, line_number) =>
-                    {
-                        assert_eq!(filename, "glass.rules".to_string());
-                        assert_eq!(line_number, 15);
-                    },
-                    error => panic!("Unexpected {}", error),
-                }
-            }
-        };
+            "a".to_string()), Err(ParseError::UnexpectedEndOfFileMidTargets("glass.rules".to_string(), 2)));
+    }
+
+    /*  Call parse on improperly formatted rules, check the error. */
+    #[test]
+    fn parse_unexpected_empty_line_mid_targets1()
+    {
+        assert_eq!(parse(
+            "glass.rules".to_string(),
+            "a\n".to_string()), Err(ParseError::UnexpectedEmptyLine("glass.rules".to_string(), 2)));
     }
 
     /*  Call parse on improperly formatted rules, check the error. */
@@ -1909,50 +1704,59 @@ mod tests
 
     /*  Call parse on improperly formatted rules, check the error. */
     #[test]
+    fn parse_unexpected_empty_line_mid_targets3()
+    {
+        assert_eq!(parse(
+            "movie.rules".to_string(),
+            "a\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\nf\n:\n\nt\n".to_string()),
+            Err(ParseError::UnexpectedEmptyLine("movie.rules".to_string(), 16)));
+    }
+
+    /*  Call parse on improperly formatted rules, check the error. */
+    #[test]
     fn parse_unexpected_eof_mid_targets3()
     {
-        match parse(
+        assert_eq!(parse(
             "movie.rules".to_string(),
-            "a\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\nf\n:\n\nt\n".to_string())
-        {
-            Ok(_) => panic!("Unexpected success"),
-            Err(error) =>
-            {
-                match error
-                {
-                    ParseError::UnexpectedEndOfFileMidTargets(filename, line_number) =>
-                    {
-                        assert_eq!(filename, "movie.rules".to_string());
-                        assert_eq!(line_number, 16);
-                    },
-                    error => panic!("Unexpected {}", error),
-                }
-            }
-        };
+            "a\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\nf\n:\n\nt".to_string()),
+            Err(ParseError::UnexpectedEndOfFileMidTargets("movie.rules".to_string(), 16)));
+    }
+
+    /*  Call parse on improperly formatted rules, check the error. */
+    #[test]
+    fn parse_unexpected_newline_mid_sources1()
+    {
+        assert_eq!(parse(
+            "box.rules".to_string(),
+"\
+a
+:
+b
+:
+c
+:
+
+d
+:
+".to_string()), Err(ParseError::UnexpectedEmptyLine("box.rules".to_string(), 10)));
     }
 
     /*  Call parse on improperly formatted rules, check the error. */
     #[test]
     fn parse_unexpected_eof_mid_sources1()
     {
-        match parse(
+        assert_eq!(parse(
             "box.rules".to_string(),
-            "a\n:\nb\n:\nc\n:\n\nd\n:\n".to_string())
-        {
-            Ok(_) => panic!("Unexpected success"),
-            Err(error) =>
-            {
-                match error
-                {
-                    ParseError::UnexpectedEndOfFileMidSources(filename, line_number) =>
-                    {
-                        assert_eq!(filename, "box.rules".to_string());
-                        assert_eq!(line_number, 10);
-                    },
-                    error => panic!("Unexpected {}", error),
-                }
-            }
-        };
+"\
+a
+:
+b
+:
+c
+:
+
+d
+:".to_string()), Err(ParseError::UnexpectedEndOfFileMidSources("box.rules".to_string(), 10)));
     }
 
     /*  Call parse on improperly formatted rules, check the error. */
@@ -1981,74 +1785,125 @@ mod tests
 
     /*  Call parse on improperly formatted rules, check the error. */
     #[test]
+    fn parse_unexpected_empty_line_mid_sources3()
+    {
+        assert_eq!(parse(
+            "pi.rules".to_string(),
+            "\
+a
+:
+b
+:
+c
+:
+
+d
+:
+s
+".to_string()), Err(ParseError::UnexpectedEmptyLine("pi.rules".to_string(), 11)));
+    }
+
+    /*  Call parse on improperly formatted rules, check the error. */
+    #[test]
     fn parse_unexpected_eof_mid_sources3()
     {
-        match parse(
+        assert_eq!(parse(
             "pi.rules".to_string(),
-            "a\n:\nb\n:\nc\n:\n\nd\n:\ns\n".to_string())
-        {
-            Ok(_) => panic!("Unexpected success"),
-            Err(error) =>
-            {
-                match error
-                {
-                    ParseError::UnexpectedEndOfFileMidSources(filename, line_number) =>
-                    {
-                        assert_eq!(filename, "pi.rules".to_string());
-                        assert_eq!(line_number, 11);
-                    },
-                    error => panic!("Unexpected {}", error),
-                }
-            }
-        };
+            "\
+a
+:
+b
+:
+c
+:
+
+d
+:
+s".to_string()), Err(ParseError::UnexpectedEndOfFileMidSources("pi.rules".to_string(), 11)));
+    }
+
+    /*  Call parse on improperly formatted rules, check the error. */
+    #[test]
+    fn parse_unexpected_empty_line_mid_command1()
+    {
+        assert_eq!(parse(
+            "green.rules".to_string(),
+"\
+a
+:
+b
+:
+c
+:
+
+d
+:
+e
+:
+".to_string()), Err(ParseError::UnexpectedEmptyLine("green.rules".to_string(), 12)));
+    }
+
+    /*  Call parse on improperly formatted rules, check the error. */
+    #[test]
+    fn parse_unexpected_empty_line_mid_command2()
+    {
+        assert_eq!(parse(
+            "sunset.rules".to_string(),
+"\
+a
+:
+b
+:
+c
+:
+
+d
+:
+e
+:
+".to_string()),
+        Err(ParseError::UnexpectedEmptyLine("sunset.rules".to_string(), 12)));
     }
 
     /*  Call parse on improperly formatted rules, check the error. */
     #[test]
     fn parse_unexpected_eof_mid_command1()
     {
-        match parse(
+        assert_eq!(parse(
             "green.rules".to_string(),
-            "a\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\n".to_string())
-        {
-            Ok(_) => panic!("Unexpected success"),
-            Err(error) =>
-            {
-                match error
-                {
-                    ParseError::UnexpectedEndOfFileMidCommand(filename, line_number) =>
-                    {
-                        assert_eq!(filename, "green.rules".to_string());
-                        assert_eq!(line_number, 12);
-                    },
-                    error => panic!("Unexpected {}", error),
-                }
-            }
-        };
+"\
+a
+:
+b
+:
+c
+:
+
+d
+:
+e
+:".to_string()), Err(ParseError::UnexpectedEndOfFileMidCommand("green.rules".to_string(), 12)));
     }
 
     /*  Call parse on improperly formatted rules, check the error. */
     #[test]
     fn parse_unexpected_eof_mid_command2()
     {
-        match parse(
+        assert_eq!(parse(
             "sunset.rules".to_string(),
-            "a\n:\nb\n:\nc\n:\n\nd\n:\ne\n:\n".to_string())
-        {
-            Ok(_) => panic!("Unexpected success"),
-            Err(error) =>
-            {
-                match error
-                {
-                    ParseError::UnexpectedEndOfFileMidCommand(filename, line_number) =>
-                    {
-                        assert_eq!(filename, "sunset.rules".to_string());
-                        assert_eq!(line_number, 12);
-                    },
-                    error => panic!("Unexpected {}", error),
-                }
-            }
-        };
+"\
+a
+:
+b
+:
+c
+:
+
+d
+:
+e
+:".to_string()),
+        Err(ParseError::UnexpectedEndOfFileMidCommand("sunset.rules".to_string(), 12)));
     }
 
     /*  Call parse on improperly formatted rules, check the error. */
@@ -2074,5 +1929,4 @@ mod tests
             }
         };
     }
-
 }
