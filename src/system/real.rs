@@ -7,6 +7,7 @@ use crate::system::
 use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
+use std::path::PathBuf;
 use std::time::SystemTime;
 
 use execute::Execute;
@@ -70,13 +71,49 @@ pub fn set_is_executable(path: &str, executable : bool) -> Result<(), SystemErro
     }
 }
 
+fn to_path_buf(path: &str) -> PathBuf
+{
+    Path::new(".").join(path.split("/").map(|s|{s.to_string()}).collect::<PathBuf>())
+}
+
+fn to_path_str(path : &Path) -> Result<String, SystemError>
+{
+    let mut result = Vec::new();
+    for component in path.components()
+    {
+        result.push(
+            match component.as_os_str().to_str()
+            {
+                Some(s) => s.to_string(),
+                None => return Err(SystemError::PathNotUnicode),
+            }
+        )
+    }
+
+    match result.get(0)
+    {
+        Some(string) =>
+        {
+            if string == "."
+            {
+                Ok(result[1..].join("/"))
+            }
+            else
+            {
+                Err(SystemError::Weird)
+            }
+        }
+        _ => Err(SystemError::Weird)
+    }
+}
+
 impl System for RealSystem
 {
     type File = fs::File;
 
     fn open(&self, path: &str) -> Result<Self::File, SystemError>
     {
-        match fs::File::open(path)
+        match fs::File::open(to_path_buf(path))
         {
             Ok(file) => Ok(file),
             Err(error) => Err(convert_io_error_to_system_error(error)),
@@ -85,7 +122,7 @@ impl System for RealSystem
 
     fn create_file(&mut self, path: &str) -> Result<Self::File, SystemError>
     {
-        match fs::File::create(path)
+        match fs::File::create(to_path_buf(path))
         {
             Ok(file) => Ok(file),
             Err(error) => Err(convert_io_error_to_system_error(error)),  
@@ -94,7 +131,7 @@ impl System for RealSystem
 
     fn create_dir(&mut self, path: &str) -> Result<(), SystemError>
     {
-        match fs::create_dir(path)
+        match fs::create_dir(to_path_buf(path))
         {
             Ok(_) => Ok(()),
             Err(error) => Err(convert_io_error_to_system_error(error)),  
@@ -103,17 +140,17 @@ impl System for RealSystem
 
     fn is_file(&self, path: &str) -> bool
     {
-        Path::new(path).is_file()
+        Path::new(&to_path_buf(path)).is_file()
     }
 
     fn is_dir(&self, path: &str) -> bool
     {
-        Path::new(path).is_dir()
+        Path::new(&to_path_buf(path)).is_dir()
     }
 
     fn remove_file(&mut self, path: &str) -> Result<(), SystemError>
     {
-        match fs::remove_file(path)
+        match fs::remove_file(to_path_buf(path))
         {
             Ok(_) => Ok(()),
             Err(error) => Err(convert_io_error_to_system_error(error)),  
@@ -122,11 +159,39 @@ impl System for RealSystem
 
     fn remove_dir(&mut self, path: &str) -> Result<(), SystemError>
     {
-        match fs::remove_dir(path)
+        match fs::remove_dir(to_path_buf(path))
         {
             Ok(_) => Ok(()),
             Err(error) => Err(convert_io_error_to_system_error(error)),
         }
+    }
+
+    fn list_dir(&self, path: &str) -> Result<Vec<String>, SystemError>
+    {
+        let mut result = Vec::new();
+        for dir_entry_opt in match fs::read_dir(to_path_buf(path))
+        {
+            Ok(entries) => entries,
+            Err(error) =>
+            {
+                return Err(convert_io_error_to_system_error(error));
+            },
+        }
+        {
+            result.push(
+                match dir_entry_opt
+                {
+                    Ok(entry) => to_path_str(&entry.path())?,
+                    Err(error) =>
+                    {
+                        return Err(convert_io_error_to_system_error(error));
+                    },
+                }
+            );
+        }
+
+        result.sort();
+        Ok(result)
     }
 
     fn rename(&mut self, from: &str, to: &str) -> Result<(), SystemError>

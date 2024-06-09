@@ -82,7 +82,7 @@ impl DownloaderCache
         for base_url in &self.base_urls
         {
             match download_file(
-                system, &format!("{}/{}", base_url, ticket.base64()), target_path)
+                system, &format!("{}/{}", base_url, ticket.human_readable()), target_path)
             {
                 Ok(()) => return DownloadResult::Done,
                 Err(_error) => {},
@@ -121,7 +121,7 @@ impl<SystemType : System> SysCache<SystemType>
         let system = &mut (*self.system_box);
         if system.is_dir(&self.path)
         {
-            let cache_path = format!("{}/{}", self.path, ticket.base64());
+            let cache_path = format!("{}/{}", self.path, ticket.human_readable());
             if system.is_file(&cache_path)
             {
                 match system.rename(&cache_path, &target_path)
@@ -149,7 +149,7 @@ impl<SystemType : System> SysCache<SystemType>
         let system = &(*self.system_box);
         if system.is_dir(&self.path)
         {
-            let cache_path = format!("{}/{}", self.path, ticket.base64());
+            let cache_path = format!("{}/{}", self.path, ticket.human_readable());
             if system.is_file(&cache_path)
             {
                 match system.open(&cache_path)
@@ -169,7 +169,7 @@ impl<SystemType : System> SysCache<SystemType>
         }
     }
 
-    /*  Creates a file with the given ticket (convertd to base64) as a name, and
+    /*  Creates a file with the given ticket (convertd to human_readable) as a name, and
         moves the file into that place. */
     pub fn back_up_file_with_ticket
     (
@@ -181,7 +181,7 @@ impl<SystemType : System> SysCache<SystemType>
     Result<(), ReadWriteError>
     {
         let system = &mut (*self.system_box);
-        let cache_path = format!("{}/{}", self.path, ticket.base64());
+        let cache_path = format!("{}/{}", self.path, ticket.human_readable());
         match system.rename(&target_path, &cache_path)
         {
             Ok(_) => Ok(()),

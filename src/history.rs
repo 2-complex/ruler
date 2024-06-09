@@ -2,7 +2,7 @@ use crate::ticket::Ticket;
 use crate::system::System;
 use crate::blob::
 {
-    TargetTickets,
+    FileStateVec,
     BlobError,
 };
 use crate::downloader::
@@ -30,18 +30,18 @@ pub struct DownloaderRuleHistory
 
 impl DownloaderRuleHistory
 {
-    pub fn get_target_tickets(&self, source_ticket: &Ticket) -> Option<TargetTickets>
+    pub fn get_file_state_vec(&self, source_ticket: &Ticket) -> Option<FileStateVec>
     {
         for base_url in &self.base_urls
         {
             match download_string(&format!("{}/{}/{}",
-                base_url, self.rule_ticket.base64(), source_ticket.base64()))
+                base_url, self.rule_ticket.human_readable(), source_ticket.human_readable()))
             {
                 Ok(download_string) =>
                 {
-                    match TargetTickets::from_download_string(&download_string)
+                    match FileStateVec::from_download_string(&download_string)
                     {
-                        Ok(target_tickets) => return Some(target_tickets),
+                        Ok(file_state_vec) => return Some(file_state_vec),
                         Err(_error) =>
                         {
                             println!("Warning: downloaded target tickets did not parse");
@@ -67,7 +67,7 @@ pub struct RuleHistory
     /*  Each rule history consists of a map
             key = source-ticket
             value = a target ticket for each target */
-    source_to_targets : HashMap<Ticket, TargetTickets>,
+    source_to_targets : HashMap<Ticket, FileStateVec>,
 }
 
 /*  Inserting target tickets in a RuleHistory can go wrong in a couple ways.
@@ -107,20 +107,20 @@ impl RuleHistory
         }
     }
 
-    /*  With the given source_ticket, add the given target_tickets to the history.
+    /*  With the given source_ticket, add the given file_state_vec to the history.
         If there's a contradiction, constructs a RuleHistoryInsertError::Contradiction
         with a vector of indices. */
     pub fn insert(
         &mut self,
         source_ticket: Ticket,
-        target_tickets: TargetTickets)
+        file_state_vec: FileStateVec)
     -> Result<(), RuleHistoryInsertError>
     {
         match self.source_to_targets.get(&source_ticket)
         {
             Some(existing_tickets) =>
             {
-                match existing_tickets.compare(target_tickets)
+                match existing_tickets.compare(file_state_vec)
                 {
                     Err(BlobError::Contradiction(v)) => Err(RuleHistoryInsertError::Contradiction(v)),
                     Err(BlobError::TargetSizesDifferWeird) => Err(RuleHistoryInsertError::TargetSizesDifferWeird),
@@ -129,13 +129,13 @@ impl RuleHistory
             },
             None =>
             {
-                self.source_to_targets.insert(source_ticket, target_tickets);
+                self.source_to_targets.insert(source_ticket, file_state_vec);
                 Ok(())
             }
         }
     }
 
-    pub fn get_target_tickets(&self, source_ticket: &Ticket) -> Option<&TargetTickets>
+    pub fn get_file_state_vec(&self, source_ticket: &Ticket) -> Option<&FileStateVec>
     {
         self.source_to_targets.get(source_ticket)
     }
@@ -149,13 +149,13 @@ impl fmt::Display for RuleHistory
     {
         let mut out = String::new();
 
-        for (source_ticket, target_tickets) in self.source_to_targets.iter()
+        for (source_ticket, file_state_vec) in self.source_to_targets.iter()
         {
             out.push_str("  ");
-            out.push_str(&source_ticket.base64());
+            out.push_str(&source_ticket.human_readable());
             out.push_str("\n");
 
-            out.push_str(&target_tickets.base64())
+            out.push_str(&file_state_vec.human_readable())
         }
 
         write!(formatter, "{}", out)
@@ -314,7 +314,7 @@ mod test
     };
     use crate::blob::
     {
-        TargetTickets,
+        FileStateVec,
     };
     use crate::ticket::TicketFactory;
     use crate::system::
@@ -336,13 +336,13 @@ mod test
         let mut rule_history = RuleHistory::new();
 
         let source_ticket = TicketFactory::from_str("source").result();
-        let target_tickets = TargetTickets::from_vec(vec![
+        let file_state_vec = FileStateVec::from_ticket_vec(vec![
             TicketFactory::from_str("target1").result(),
             TicketFactory::from_str("target2").result(),
             TicketFactory::from_str("target3").result(),
         ]);
 
-        match rule_history.insert(source_ticket.clone(), target_tickets.clone())
+        match rule_history.insert(source_ticket.clone(), file_state_vec.clone())
         {
             Ok(_) => {},
             Err(_) => panic!("Rule history failed to insert"),
@@ -352,14 +352,14 @@ mod test
         let decoded: RuleHistory = bincode::deserialize(&encoded[..]).unwrap();
         assert_eq!(rule_history, decoded);
 
-        let target_tickets2 =
-        match rule_history.get_target_tickets(&source_ticket)
+        let file_state_vec2 =
+        match rule_history.get_file_state_vec(&source_ticket)
         {
-            Some(target_tickets) => target_tickets,
+            Some(file_state_vec) => file_state_vec,
             None => panic!("Targets not found"),
         };
 
-        assert_eq!(target_tickets, *target_tickets2);
+        assert_eq!(file_state_vec, *file_state_vec2);
     }
 
     /*  Create a RuleHistory insert a source/target pair, then attempt to insert a different
@@ -370,24 +370,24 @@ mod test
         let mut rule_history = RuleHistory::new();
 
         let source_ticket = TicketFactory::from_str("source").result();
-        let target_tickets1 = TargetTickets::from_vec(vec![
+        let file_state_vec1 = FileStateVec::from_ticket_vec(vec![
             TicketFactory::from_str("target1").result(),
             TicketFactory::from_str("target2").result(),
             TicketFactory::from_str("target3").result(),
         ]);
-        let target_tickets2 = TargetTickets::from_vec(vec![
+        let file_state_vec2 = FileStateVec::from_ticket_vec(vec![
             TicketFactory::from_str("target1").result(),
             TicketFactory::from_str("targetX").result(),
             TicketFactory::from_str("target3").result(),
         ]);
 
-        match rule_history.insert(source_ticket.clone(), target_tickets1.clone())
+        match rule_history.insert(source_ticket.clone(), file_state_vec1.clone())
         {
             Ok(_) => {},
             Err(_) => panic!("Rule history failed to insert"),
         }
 
-        match rule_history.insert(source_ticket.clone(), target_tickets2.clone())
+        match rule_history.insert(source_ticket.clone(), file_state_vec2.clone())
         {
             Ok(_) => panic!("Rule history allowed insert when not expected"),
             Err(RuleHistoryInsertError::Contradiction(indices)) =>
@@ -406,23 +406,23 @@ mod test
         let mut rule_history = RuleHistory::new();
 
         let source_ticket = TicketFactory::from_str("source").result();
-        let target_tickets1 = TargetTickets::from_vec(vec![
+        let file_state_vec1 = FileStateVec::from_ticket_vec(vec![
             TicketFactory::from_str("target1").result(),
             TicketFactory::from_str("target2").result(),
             TicketFactory::from_str("target3").result(),
         ]);
-        let target_tickets2 = TargetTickets::from_vec(vec![
+        let file_state_vec2 = FileStateVec::from_ticket_vec(vec![
             TicketFactory::from_str("target1").result(),
             TicketFactory::from_str("target2").result(),
         ]);
 
-        match rule_history.insert(source_ticket.clone(), target_tickets1.clone())
+        match rule_history.insert(source_ticket.clone(), file_state_vec1.clone())
         {
             Ok(_) => {},
             Err(_) => panic!("Rule history failed to insert"),
         }
 
-        match rule_history.insert(source_ticket.clone(), target_tickets2.clone())
+        match rule_history.insert(source_ticket.clone(), file_state_vec2.clone())
         {
             Ok(_) => panic!("Rule history allowed insert when not expected"),
             Err(RuleHistoryInsertError::TargetSizesDifferWeird) => {},
@@ -438,24 +438,24 @@ mod test
         let mut rule_history = RuleHistory::new();
 
         let source_ticket = TicketFactory::from_str("source").result();
-        let target_tickets1 = TargetTickets::from_vec(vec![
+        let file_state_vec1 = FileStateVec::from_ticket_vec(vec![
             TicketFactory::from_str("target1").result(),
             TicketFactory::from_str("target2").result(),
             TicketFactory::from_str("target3").result(),
         ]);
-        let target_tickets2 = TargetTickets::from_vec(vec![
+        let file_state_vec2 = FileStateVec::from_ticket_vec(vec![
             TicketFactory::from_str("target1").result(),
             TicketFactory::from_str("target2").result(),
             TicketFactory::from_str("target3").result(),
         ]);
 
-        match rule_history.insert(source_ticket.clone(), target_tickets1.clone())
+        match rule_history.insert(source_ticket.clone(), file_state_vec1.clone())
         {
             Ok(_) => {},
             Err(_) => panic!("Rule history failed to insert"),
         }
 
-        match rule_history.insert(source_ticket.clone(), target_tickets2.clone())
+        match rule_history.insert(source_ticket.clone(), file_state_vec2.clone())
         {
             Ok(_) => {},
             Err(_) => panic!("Rule history failed to insert a second time"),
@@ -469,7 +469,7 @@ mod test
     {
         let rule_ticket = TicketFactory::from_str("rule").result();
         let source_ticket = TicketFactory::from_str("source").result();
-        let target_tickets = TargetTickets::from_vec(vec![
+        let file_state_vec = FileStateVec::from_ticket_vec(vec![
             TicketFactory::from_str("target1").result(),
             TicketFactory::from_str("target2").result(),
             TicketFactory::from_str("target3").result(),
@@ -491,7 +491,7 @@ mod test
         };
 
         assert_eq!(rule_history, RuleHistory::new());
-        match rule_history.insert(source_ticket.clone(), target_tickets.clone())
+        match rule_history.insert(source_ticket.clone(), file_state_vec.clone())
         {
             Ok(()) => {},
             Err(error) => panic!("RuleHisotry failed to insert source / target-ticket pair: {}", error),
@@ -512,13 +512,13 @@ mod test
         };
 
         assert_eq!(rule_history, rule_history2);
-        let target_tickets2 = match rule_history.get_target_tickets(&source_ticket)
+        let file_state_vec2 = match rule_history.get_file_state_vec(&source_ticket)
         {
-            Some(target_tickets) => target_tickets,
+            Some(file_state_vec) => file_state_vec,
             None => panic!("RuleHistory retrieved from History failed to produce expected TargetTicket"),
         };
 
-        assert_eq!(target_tickets, *target_tickets2);
+        assert_eq!(file_state_vec, *file_state_vec2);
     }
 
     /*  Plant a RuleHistory file with wrong data in it.  Attempt to load that, and check we get the expected error. */
@@ -533,7 +533,7 @@ mod test
         }
 
         let rule_ticket = TicketFactory::from_str("rule").result();
-        let path = format!("history/{}", rule_ticket.base64());
+        let path = format!("history/{}", rule_ticket.human_readable());
         let mut file =
         match system.create_file(&path)
         {

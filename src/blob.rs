@@ -4,7 +4,6 @@ use crate::system::
     SystemError,
     ReadWriteError,
 };
-
 use crate::cache::
 {
     SysCache,
@@ -12,9 +11,7 @@ use crate::cache::
     RestoreResult,
     DownloadResult,
 };
-
 use crate::system::util::get_timestamp;
-
 use crate::ticket::
 {
     TicketFactory,
@@ -40,6 +37,56 @@ pub enum FileResolution
     NeedsRebuild,
 }
 
+/*  The data in FileState are things which would follow the file if it were renamed/moved.  There's a ticket
+    representing the file's contents, a timestamp (modifed date), and a bool for whether the file is executable.
+    Those things would follow the file in a rename/move operation. */
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
+pub struct FileState
+{
+    pub ticket : Ticket,
+    pub timestamp : u64,
+    pub executable : bool,
+}
+
+impl FileState
+{
+    /*  Create a new empty FileState */
+    pub fn empty() -> FileState
+    {
+        FileState
+        {
+            ticket : TicketFactory::new().result(),
+            timestamp : 0,
+            executable : false,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn new(
+        ticket : Ticket,
+        timestamp : u64) -> FileState
+    {
+        FileState
+        {
+            ticket : ticket,
+            timestamp : timestamp,
+            executable : false,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn new_with_ticket(
+        ticket : Ticket) -> FileState
+    {
+        FileState
+        {
+            ticket : ticket,
+            timestamp : 0,
+            executable : false,
+        }
+    }
+}
+
 #[derive(PartialEq, Clone, Debug)]
 pub struct FileInfo
 {
@@ -48,7 +95,7 @@ pub struct FileInfo
 }
 
 #[derive(Debug)]
-pub enum GetTicketsError
+pub enum GetFileStateError
 {
     FileNotFound(String),
     ReadWriteError(String, ReadWriteError),
@@ -87,14 +134,14 @@ impl Blob
         }
     }
 
-    pub fn get_current_target_tickets<SystemType: System>
+    pub fn get_current_file_state_vec<SystemType: System>
     (
         self : &Self,
         system : &SystemType,
     )
-    -> Result<Vec<Ticket>, GetTicketsError>
+    -> Result<FileStateVec, GetFileStateError>
     {
-        let mut target_tickets = Vec::new();
+        let mut tickets = vec![];
         for target_info in self.file_infos.iter()
         {
             match get_file_ticket(system, &target_info.path, &target_info.file_state)
@@ -103,25 +150,27 @@ impl Blob
                 {
                     match ticket_opt
                     {
-                        Some(ticket) => target_tickets.push(ticket),
-                        None => return Err(GetTicketsError::FileNotFound(target_info.path.clone())),
+                        Some(ticket) => tickets.push(ticket),
+                        None => return Err(GetFileStateError::FileNotFound(target_info.path.clone())),
                     }
                 },
-                Err(error) => return Err(GetTicketsError::ReadWriteError(target_info.path.clone(), error)),
+                Err(error) => return Err(GetFileStateError::ReadWriteError(target_info.path.clone(), error)),
             }
         }
 
-        Ok(target_tickets)
+        return Ok(
+            FileStateVec::from_ticket_vec(tickets.iter().map(|ticket| ticket.clone()).collect())
+        );
     }
 
     /*  Takes a system, and updates the file contents in the blob to reflect the files in the system.
-        Returns a vector of TargetContentInfos which is current according to the file system. */
+        Returns a vector of FileStates which is current according to the file system. */
     pub fn update_to_match_system_file_state<SystemType: System>
     (
         self : &mut Self,
         system : &SystemType
     )
-    -> Result<Vec<TargetContentInfo>, GetCurrentFileInfoError>
+    -> Result<FileStateVec, GetCurrentFileInfoError>
     {
         let mut infos = vec![];
         for target_info in self.file_infos.iter_mut()
@@ -132,9 +181,10 @@ impl Blob
                 {
                     target_info.file_state = current_info.clone();
                     infos.push(
-                        TargetContentInfo
+                        FileState
                         {
                             ticket : current_info.ticket,
+                            timestamp : 0,
                             executable : current_info.executable,
                         });
                 },
@@ -142,7 +192,9 @@ impl Blob
             }
         }
 
-        return Ok(infos);
+        return Ok(
+            FileStateVec::from_ticket_vec(infos.iter().map(|info| info.ticket.clone()).collect())
+        );
     }
 
     pub fn get_file_infos
@@ -174,13 +226,13 @@ impl Blob
         ).collect()}
     }
 
-    pub fn resolve_remembered_target_tickets<SystemType : System>
+    pub fn resolve_remembered_file_state_vec<SystemType : System>
     (
         self : &Self,
         system : &mut SystemType,
         cache : &mut SysCache<SystemType>,
         downloader_cache_opt : &Option<DownloaderCache>,
-        remembered_tickets : &TargetTickets,
+        remembered_tickets : &FileStateVec,
     )
     ->
     Result<Vec<FileResolution>, ResolutionError>
@@ -249,69 +301,58 @@ impl Blob
 
 }
 
-#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
-pub struct TargetContentInfo
-{
-    pub ticket : Ticket,
-    pub executable : bool,
-}
-
 #[derive(Debug)]
-pub enum TargetTicketsParseError
+pub enum FileStateVecParseError
 {
-    NotProperBase64,
+    NotFormattedRight,
 }
 
 /*  The target of a rule can be more than one file, and maybe one day, it can be a directory
     or a combination of those things.  A RuleHistory contains a map from source-ticket to this struct.
     This struct represents: whatever tickets we need to recover the target files. */
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
-pub struct TargetTickets
+pub struct FileStateVec
 {
-    infos : Vec<TargetContentInfo>,
+    infos : Vec<FileState>,
 }
 
-impl TargetTickets
+impl FileStateVec
 {
-    pub fn from_vec(tickets : Vec<Ticket>) -> TargetTickets
+    pub fn from_ticket_vec(tickets : Vec<Ticket>) -> FileStateVec
     {
         let mut infos = vec![];
         for ticket in tickets
         {
             infos.push(
-                TargetContentInfo
+                FileState
                 {
                     ticket : ticket,
+                    timestamp : 0,
                     executable : false,
                 }
             );
         }
 
-        TargetTickets{infos : infos}
-    }
-
-    pub fn from_infos(infos : Vec<TargetContentInfo>) -> TargetTickets
-    {
-        TargetTickets{infos : infos}
+        FileStateVec{infos : infos}
     }
 
     pub fn from_download_string(download_string : &str)
-        -> Result<TargetTickets, TargetTicketsParseError>
+        -> Result<FileStateVec, FileStateVecParseError>
     {
         let mut tickets = vec![];
         for part in download_string.split("\n")
         {
-            tickets.push(match Ticket::from_base64(part)
+            tickets.push(match Ticket::from_human_readable(part)
             {
                 Ok(ticket) => ticket,
                 Err(_) => return Err(
-                    TargetTicketsParseError::NotProperBase64),
+                    FileStateVecParseError::NotFormattedRight),
             });
         }
-        Ok(TargetTickets::from_vec(tickets))
+        Ok(FileStateVec::from_ticket_vec(tickets))
     }
 
-    /*  Takes a TargetTickets and looks at how the lists differ.
+    /*  Takes a FileStateVec and looks at how the lists differ.
 
         Returns Ok if they're idendical, otherwise returns an error
         enum that indicates the way in which they differ.
@@ -324,7 +365,7 @@ impl TargetTickets
         BlobError::Contradiction */
     pub fn compare(
         &self,
-        other : TargetTickets)
+        other : FileStateVec)
     ->
     Result<(), BlobError>
     {
@@ -359,20 +400,25 @@ impl TargetTickets
     fn get_info(
         &self,
         i : usize)
-    -> TargetContentInfo
+    -> FileState
     {
         self.infos[i].clone()
     }
 
+    pub fn get_ticket(&self, sub_index : usize) -> Ticket
+    {
+        self.infos[sub_index].ticket.clone()
+    }
+
     /*  Currently used by a display function, hence the formatting. */
-    pub fn base64(&self)
+    pub fn human_readable(&self)
     -> String
     {
         let mut out = String::new();
         for info in self.infos.iter()
         {
             out.push_str("    ");
-            out.push_str(&info.ticket.base64());
+            out.push_str(&info.ticket.human_readable());
             out.push_str("\n");
         }
         out
@@ -382,7 +428,7 @@ impl TargetTickets
     pub fn download_string(&self)
     -> String
     {
-        self.infos.iter().map(|info|{info.ticket.base64()}).collect::<Vec<String>>().join("\n")
+        self.infos.iter().map(|info|{info.ticket.human_readable()}).collect::<Vec<String>>().join("\n")
     }
 }
 
@@ -392,16 +438,24 @@ impl TargetTickets
     If the file does not exist, returns Ok, but with no Ticket inside
     If the file exists but does not open or some other error occurs when generating
     the ticket, returns an error. */
-pub fn get_file_ticket_from_path<SystemType: System>
+fn get_file_ticket_from_path<SystemType: System>
 (
     system : &SystemType,
     path : &str
 )
 -> Result<Option<Ticket>, ReadWriteError>
 {
-    if system.is_file(&path) || system.is_dir(&path)
+    if system.is_file(&path)
     {
         match TicketFactory::from_file(system, &path)
+        {
+            Ok(mut factory) => Ok(Some(factory.result())),
+            Err(error) => Err(error),
+        }
+    }
+    else if system.is_dir(&path)
+    {
+        match TicketFactory::from_directory(system, &path)
         {
             Ok(mut factory) => Ok(Some(factory.result())),
             Err(error) => Err(error),
@@ -410,59 +464,6 @@ pub fn get_file_ticket_from_path<SystemType: System>
     else
     {
         Ok(None)
-    }
-}
-
-/*  There are two steps to checking if a target file is up-to-date.  First: check the rule-history to see what the target
-    hash should be.  Second: compare the hash it should be to the hash it actually is.
-
-    The data in FileState are things which would follow the file if it were renamed/moved.  There's a ticket
-    representing the file's contents, a timestamp (modifed date), executable permissions.  Those things would
-    follow the file in a rename/move operation. */
-#[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
-pub struct FileState
-{
-    pub ticket : Ticket,
-    pub timestamp : u64,
-    pub executable : bool,
-}
-
-impl FileState
-{
-    /*  Create a new empty FileState */
-    pub fn empty() -> FileState
-    {
-        FileState
-        {
-            ticket : TicketFactory::new().result(),
-            timestamp : 0,
-            executable : false,
-        }
-    }
-
-    #[cfg(test)]
-    pub fn new(
-        ticket : Ticket,
-        timestamp : u64) -> FileState
-    {
-        FileState
-        {
-            ticket : ticket,
-            timestamp : timestamp,
-            executable : false,
-        }
-    }
-
-    #[cfg(test)]
-    pub fn new_with_ticket(
-        ticket : Ticket) -> FileState
-    {
-        FileState
-        {
-            ticket : ticket,
-            timestamp : 0,
-            executable : false,
-        }
     }
 }
 
@@ -534,7 +535,7 @@ impl fmt::Display for GetCurrentFileInfoError
 /*  Takes a system, a path and an assumed FileState.
     Returns a FileState object which is current according to the file system.
 
-    Why does the function take the assumed FileState at all?  Why doens't it just take system
+    Why does the function take the assumed FileState at all?  Why doesn't it just take system
     and path?  Because it does the following optimization:
 
     If the modified date of the file matches the one in FileState exactly, it
@@ -638,7 +639,7 @@ fn restore_or_download<SystemType : System>
     system : &mut SystemType,
     cache : &mut SysCache<SystemType>,
     downloader_cache_opt : &Option<DownloaderCache>,
-    remembered_target_content_info : &TargetContentInfo,
+    remembered_target_content_info : &FileState,
     target_info : &FileInfo
 )
 -> Result<FileResolution, ResolutionError>
@@ -699,7 +700,7 @@ pub fn resolve_single_target<SystemType : System>
     system : &mut SystemType,
     cache : &mut SysCache<SystemType>,
     downloader_cache_opt : &Option<DownloaderCache>,
-    remembered_target_content_info : &TargetContentInfo,
+    remembered_target_content_info : &FileState,
     target_info : &FileInfo
 )
 ->
@@ -758,13 +759,17 @@ mod test
     use crate::ticket::
     {
         TicketFactory,
+        hash_heuristic,
     };
     use crate::blob::
     {
         FileState,
-        TargetTickets,
+        FileStateVec,
         BlobError,
-        get_file_ticket
+        get_file_ticket,
+        get_file_ticket_from_path,
+        get_actual_file_state,
+        GetCurrentFileInfoError,
     };
     use crate::system::
     {
@@ -774,12 +779,6 @@ mod test
     use crate::system::util::
     {
         write_str_to_file,
-    };
-    use crate::blob::
-    {
-        get_file_ticket_from_path,
-        get_actual_file_state,
-        GetCurrentFileInfoError,
     };
 
     /*  Create a file, and make FileInfo that matches the reality of that file.
@@ -963,14 +962,14 @@ mod test
     #[test]
     fn blob_compare_identical()
     {
-        let a = TargetTickets::from_vec(
+        let a = FileStateVec::from_ticket_vec(
             vec![
                 TicketFactory::from_str("Roses are red\nViolets are blue\n").result(),
                 TicketFactory::from_str("Sugar is sweet\nThis is a poem\n").result(),
             ]
         );
 
-        let b = TargetTickets::from_vec(
+        let b = FileStateVec::from_ticket_vec(
             vec![
                 TicketFactory::from_str("Roses are red\nViolets are blue\n").result(),
                 TicketFactory::from_str("Sugar is sweet\nThis is a poem\n").result(),
@@ -987,14 +986,14 @@ mod test
     #[test]
     fn blob_compare_mismatched_sizes()
     {
-        let a = TargetTickets::from_vec(
+        let a = FileStateVec::from_ticket_vec(
             vec![
                 TicketFactory::from_str("Roses are red\nViolets are blue\n").result(),
                 TicketFactory::from_str("Sugar is sweet\nThis is a poem\n").result(),
             ]
         );
 
-        let b = TargetTickets::from_vec(
+        let b = FileStateVec::from_ticket_vec(
             vec![
                 TicketFactory::from_str("Roses are red\nViolets are blue\n").result(),
             ]
@@ -1011,14 +1010,14 @@ mod test
     #[test]
     fn blob_compare_contradiction()
     {
-        let a = TargetTickets::from_vec(
+        let a = FileStateVec::from_ticket_vec(
             vec![
                 TicketFactory::from_str("Roses are red\nViolets are blue\n").result(),
                 TicketFactory::from_str("Sugar is sweet\nThis is a poem\n").result(),
             ]
         );
 
-        let b = TargetTickets::from_vec(
+        let b = FileStateVec::from_ticket_vec(
             vec![
                 TicketFactory::from_str("Roses are red\nViolets are blue\n").result(),
                 TicketFactory::from_str("Sugar is sweet\nChicken soup\n").result(),
@@ -1143,14 +1142,46 @@ mod test
         }
     }
 
+    /*  Create a directory, and then call get_file_ticketm, check result. */
+    #[test]
+    fn blob_test_get_file_ticket_directory()
+    {
+        // Set the clock to 11
+        let mut system = FakeSystem::new(11);
+        system.create_dir("things").unwrap();
+        let some_ticket = TicketFactory::from_str("some content").result();
+
+        // Then get the ticket for the current target file, passing the FileInfo
+        // with timestamp 11.  Check that it gives the ticket for the C++ code.
+        match get_file_ticket(
+            &system,
+            "things",
+            &FileState::new(some_ticket.clone(), 11))
+        {
+            Ok(ticket_opt) =>
+            {
+                match ticket_opt
+                {
+                    Some(ticket) =>
+                    {
+                        assert_ne!(ticket, some_ticket);
+                        assert!(hash_heuristic(&ticket.human_readable()));
+                    },
+                    None => panic!("Failed to generate ticket"),
+                }
+            },
+            Err(error) => panic!("Unexpected error getting file ticket {}", error),
+        }
+    }
+
     #[test]
     fn blob_test_download_string_round_trip()
     {
-        let target_tickets = TargetTickets::from_vec(vec![
+        let file_state_vec = FileStateVec::from_ticket_vec(vec![
             TicketFactory::from_str("Alabaster\n").result(),
             TicketFactory::from_str("Banana\n").result()]);
 
-        assert_eq!(target_tickets, TargetTickets::from_download_string(
-            &target_tickets.download_string()).unwrap());
+        assert_eq!(file_state_vec, FileStateVec::from_download_string(
+            &file_state_vec.download_string()).unwrap());
     }
 }
