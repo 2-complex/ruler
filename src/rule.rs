@@ -45,7 +45,7 @@ impl Rule
 
     Node also carries an optional Ticket.  If the Node came from a rule,
     that's the hash of the rule itself (not file content). */
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Node
 {
     pub targets: Vec<String>,
@@ -268,6 +268,7 @@ pub fn parse(filename : String, content : String)
     }
 }
 
+#[derive(PartialEq, Debug)]
 struct Frame
 {
     targets: Vec<String>,
@@ -315,7 +316,7 @@ impl Frame
     }
 }
 
-#[derive(Debug)]
+#[derive(PartialEq, Debug)]
 pub enum TopologicalSortError
 {
     TargetMissing(String),
@@ -649,9 +650,11 @@ pub fn topological_sort_all(
 #[cfg(test)]
 mod tests
 {
+    use crate::ticket::Ticket;
     use crate::rule::
     {
         Rule,
+        Node,
         rules_to_frame_buffer,
         topological_sort,
         topological_sort_all,
@@ -810,7 +813,7 @@ mod tests
     #[test]
     fn rules_to_frame_buffer_redundancy_error()
     {
-        match rules_to_frame_buffer(
+        assert_eq!(rules_to_frame_buffer(
             vec![
                 Rule
                 {
@@ -825,59 +828,22 @@ mod tests
                     command: vec!["water every day".to_string()],
                 },
             ]
-        )
-        {
-            Ok(_) =>
-            {
-                panic!("Unexpected success on rules with redundant targets");
-            },
-            Err(error) =>
-            {
-                match error
-                {
-                    TopologicalSortError::TargetInMultipleRules(target) => assert_eq!(target, "fruit"),
-                    _ => panic!("Unexpected error type when multiple fruit expected")
-                }
-            }
-        }
+        ), Err(TopologicalSortError::TargetInMultipleRules("fruit".to_string())));
+        
     }
 
     /*  Topological sort the empty set of rules, but with a goal-target.  That should error. */
     #[test]
     fn topological_sort_empty_is_error()
     {
-        match topological_sort(vec![], "prune")
-        {
-            Ok(_) =>
-            {
-                panic!("Enexpected success on topological sort of empty");
-            },
-            Err(error) =>
-            {
-                match error
-                {
-                    TopologicalSortError::TargetMissing(target) => assert_eq!(target, "prune"),
-                    _ => panic!("Expected target missing prune, got another type of error")
-                }
-            },
-        }
+        assert_eq!(topological_sort(vec![], "prune"), Err(TopologicalSortError::TargetMissing("prune".to_string())));
     }
 
     /*  Topological sort all of an empty set of rules, check that the result is empty. */
     #[test]
     fn topological_sort_all_empty_is_empty()
     {
-        match topological_sort_all(vec![])
-        {
-            Ok(result) =>
-            {
-                assert_eq!(result.len(), 0);
-            },
-            Err(error) =>
-            {
-                panic!("Expected success topological sorting empty vector of rules, got {}", error);
-            },
-        }
+        assert_eq!(topological_sort_all(vec![]), Ok(vec![]));
     }
 
     /*  Topological sort a list of one rule only.  Check the result
@@ -885,7 +851,7 @@ mod tests
     #[test]
     fn topological_sort_one_rule()
     {
-        match topological_sort(
+        assert_eq!(topological_sort(
             vec![
                 Rule
                 {
@@ -894,15 +860,19 @@ mod tests
                     command: vec![],
                 },
             ],
-            "plant")
-        {
-            Ok(nodes) =>
-            {
-                assert_eq!(nodes.len(), 1);
-                assert_eq!(nodes[0].targets[0], "plant");
-            }
-            Err(error) => panic!("Expected success, got: {}", error),
-        }
+            "plant"),
+            Ok(vec![
+                Node
+                {
+                    targets: vec!["plant".to_string()],
+                    source_indices: vec![],
+                    command : vec![],
+                    rule_ticket : Some(Ticket::from_strings(
+                        &vec!["plant".to_string()],
+                        &vec![],
+                        &vec![])),
+                }
+            ]));
     }
 
     /*  Topological sort a list of one rule only.  Check the result

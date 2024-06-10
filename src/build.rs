@@ -1146,8 +1146,6 @@ poem.txt
 
             write_str_to_file(&mut system, "build.rules", rules).unwrap();
 
-
-
             match build(
                 system.clone(),
                 &mut EmptyPrinter::new(),
