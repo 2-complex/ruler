@@ -249,7 +249,7 @@ fn read_all_rules_files_to_strings<SystemType : System>
     Ok(result)
 }
 
-/*  Opens the rulefile, parses it, and returns the vector of rule Nodes. */
+/*  Open the rulefile(s), parse, and return the vector of Nodes. */
 pub fn get_nodes
 <
     SystemType : System,

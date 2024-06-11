@@ -147,7 +147,7 @@ impl fmt::Display for ParseError
 /*  Takes a vector of string-pairs representing (filename, content).  Parses
     each file's contents as rules and returns one big vector full of Rule objects.
 
-    If the aprsing of any one file presents an error, this function returns the
+    If the parsing of any one file presents an error, this function returns the
     ParseError object for the first error, and does not bother parsing the
     rest. */
 pub fn parse_all(mut contents : Vec<(String, String)>)
@@ -906,7 +906,7 @@ mod tests
     #[test]
     fn topological_sort_two_rules()
     {
-        match topological_sort(
+        assert_eq!(topological_sort(
             vec![
                 Rule
                 {
@@ -921,16 +921,27 @@ mod tests
                     command: vec![],
                 },
             ],
-            "fruit")
-        {
-            Ok(nodes) =>
-            {
-                assert_eq!(nodes.len(), 2);
-                assert_eq!(nodes[0].targets[0], "plant");
-                assert_eq!(nodes[1].targets[0], "fruit");
+            "fruit"),
+        Ok(vec![
+            Node{
+                targets: vec!["plant".to_string()],
+                source_indices: vec![],
+                command: vec![],
+                rule_ticket : Some(Ticket::from_strings(
+                    &vec!["plant".to_string()],
+                    &vec![],
+                    &vec![])),
+            },
+            Node{
+                targets: vec!["fruit".to_string()],
+                source_indices: vec![(0, 0)],
+                command: vec!["pick occasionally".to_string()],
+                rule_ticket : Some(Ticket::from_strings(
+                    &vec!["fruit".to_string()],
+                    &vec!["plant".to_string()],
+                    &vec!["pick occasionally".to_string()])),
             }
-            Err(error) => panic!("Expected success, got: {}", error),
-        }
+        ]));
     }
 
     /*  Topological sort all of a list of two rules only, one depends on the other as a source, but
@@ -938,7 +949,7 @@ mod tests
     #[test]
     fn topological_sort_all_two_rules()
     {
-        match topological_sort_all(
+        assert_eq!(topological_sort_all(
             vec![
                 Rule
                 {
@@ -952,16 +963,27 @@ mod tests
                     sources: vec![],
                     command: vec![],
                 },
-            ])
-        {
-            Ok(nodes) =>
-            {
-                assert_eq!(nodes.len(), 2);
-                assert_eq!(nodes[0].targets[0], "plant");
-                assert_eq!(nodes[1].targets[0], "fruit");
-            }
-            Err(error) => panic!("Expected success, got: {}", error),
-        }
+            ]),
+            Ok(vec![
+                Node{
+                    targets: vec!["plant".to_string()],
+                    source_indices: vec![],
+                    command: vec![],
+                    rule_ticket : Some(Ticket::from_strings(
+                        &vec!["plant".to_string()],
+                        &vec![],
+                        &vec![])),
+                },
+                Node{
+                    targets: vec!["fruit".to_string()],
+                    source_indices: vec![(0, 0)],
+                    command: vec!["pick occasionally".to_string()],
+                    rule_ticket : Some(Ticket::from_strings(
+                        &vec!["fruit".to_string()],
+                        &vec!["plant".to_string()],
+                        &vec!["pick occasionally".to_string()])),
+                }
+            ]));
     }
 
     /*  Topological sort a DAG that is not a tree.  Four nodes math, physics, graphics, game
