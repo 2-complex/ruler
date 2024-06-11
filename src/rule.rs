@@ -880,7 +880,7 @@ mod tests
     #[test]
     fn topological_sort_all_one_rule()
     {
-        match topological_sort_all(
+        assert_eq!(topological_sort_all(
             vec![
                 Rule
                 {
@@ -888,15 +888,17 @@ mod tests
                     sources: vec![],
                     command: vec![],
                 },
-            ])
-        {
-            Ok(nodes) =>
-            {
-                assert_eq!(nodes.len(), 1);
-                assert_eq!(nodes[0].targets[0], "plant");
-            }
-            Err(error) => panic!("Expected success, got: {}", error),
-        }
+            ]),
+            Ok(vec![Node{
+                targets: vec!["plant".to_string()],
+                source_indices: vec![],
+                command: vec![],
+                rule_ticket : Some(Ticket::from_strings(
+                    &vec!["plant".to_string()],
+                    &vec![],
+                    &vec![])),
+            }])
+        );
     }
 
     /*  Topological sort a list of two rules only, one depends on the other as a source, but
