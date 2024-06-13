@@ -88,7 +88,7 @@ use crate::system::util::
 };
 
 /*  Takes a vector of Nodes, iterates through them, and creates two multimaps, one for
-    senders and one for receivers. */
+    senders and one for receivers.*/
 fn make_multimaps(nodes : &Vec<Node>)
     -> (
         MultiMap<usize, (usize, Sender<Packet>)>,
@@ -508,13 +508,13 @@ pub fn build
         let downloader_history = DownloaderHistory::new(downloader_history_urls);
         let system_clone = system.clone();
 
-        handles.push(
-            (
-                node.rule_ticket.clone(),
-                match &node.rule_ticket
-                {
-                    None =>
-                    {
+        match &node.rule_ticket
+        {
+            None =>
+            {
+                handles.push(
+                    (
+                        None,
                         thread::spawn(
                             move || -> Result<WorkResult, BuildError>
                             {
@@ -547,19 +547,24 @@ pub fn build
                                 }
                             }
                         )
-                    },
-                    Some(ticket) =>
-                    {
-                        let rule_history = match elements.history.read_rule_history(&ticket)
-                        {
-                            Ok(rule_history) => rule_history,
-                            Err(history_error) => return Err(BuildError::HistoryError(history_error)),
-                        };
+                    )
+                )
+            },
+            Some(ticket) =>
+            {
+                let rule_history = match elements.history.read_rule_history(&ticket)
+                {
+                    Ok(rule_history) => rule_history,
+                    Err(history_error) => return Err(BuildError::HistoryError(history_error)),
+                };
 
-                        let cache_clone = elements.cache.clone();
-                        let downloader_cache_clone = downloader_cache.clone();
-                        let downloader_rule_history = downloader_history.get_rule_history(&ticket);
+                let cache_clone = elements.cache.clone();
+                let downloader_cache_clone = downloader_cache.clone();
+                let downloader_rule_history = downloader_history.get_rule_history(&ticket);
 
+                handles.push(
+                    (
+                        Some(ticket.clone()),
                         thread::spawn(
                             move || -> Result<WorkResult, BuildError>
                             {
@@ -620,10 +625,10 @@ pub fn build
                                 }
                             }
                         )
-                    }
-                }
-            )
-        );
+                    )
+                )
+            }
+        };
 
         index+=1;
     }
