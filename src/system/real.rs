@@ -168,14 +168,24 @@ impl System for RealSystem
 
     fn list_dir(&self, path: &str) -> Result<Vec<String>, SystemError>
     {
+        let path_buf = to_path_buf(path);
+        if !Path::new(&path_buf).is_dir()
+        {
+            if Path::new(&path_buf).is_file()
+            {
+                return Err(SystemError::ExpectedDirFoundFile)
+            }
+            else
+            {
+                return Err(SystemError::NotFound)
+            }
+        }
+
         let mut result = Vec::new();
-        for dir_entry_opt in match fs::read_dir(to_path_buf(path))
+        for dir_entry_opt in match fs::read_dir(path_buf)
         {
             Ok(entries) => entries,
-            Err(error) =>
-            {
-                return Err(convert_io_error_to_system_error(error));
-            },
+            Err(error) => return Err(convert_io_error_to_system_error(error))
         }
         {
             result.push(

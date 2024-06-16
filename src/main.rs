@@ -182,9 +182,16 @@ fn main()
         RulerSubcommand::List(list_config) =>
         {
             let system = RealSystem::new();
-            for l in system.list_dir(&list_config.path).unwrap()
+            match system.list_dir(&list_config.path)
             {
-                println!("{}", l);
+                Ok(walker) =>
+                {
+                    for l in walker
+                    {
+                        println!("{}", l);
+                    }
+                },
+                Err(error) => eprintln!("{}", error),
             }
         }
     }
