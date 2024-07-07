@@ -49,6 +49,7 @@ pub async fn serve
 (
     mut system : SystemType,
     directory_path : &str,
+    port : u16
 )
 -> Result<(), ServerError>
 {
@@ -252,7 +253,7 @@ pub async fn serve
             )
     };
 
-    let address = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
+    let address = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
     println!("Serving on {}", address);
 
     warp::serve(home_endpoint

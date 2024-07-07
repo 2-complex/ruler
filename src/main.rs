@@ -54,12 +54,14 @@ struct RunConfig
 #[derive(Parser)]
 struct ServeConfig
 {
+    #[arg(index=1, value_name = "PORT", default_value="build.rules", help = "An HTTP port number on which to serve")]
+    port : u16,
 }
 
 #[derive(Parser)]
 struct ListConfig
 {
-    #[arg(index=1, value_name = "PATH", help = "A path, again this is just a standin command for practical testing")]
+    #[arg(index=1, value_name = "PATH", help = "A path")]
     path : String,
 }
 
@@ -169,11 +171,12 @@ fn main()
                 Err(error) => eprintln!("{}", error),
             }
         },
-        RulerSubcommand::Serve(_serve_config) =>
+        RulerSubcommand::Serve(serve_config) =>
         {
             match server::serve(
                 RealSystem::new(),
-                &command_line.directory)
+                &command_line.directory,
+                serve_config.port)
             {
                 Ok(()) => {},
                 Err(error) => eprintln!("{}", error),
