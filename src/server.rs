@@ -1,8 +1,11 @@
 use std::fmt;
 use std::io::Read;
-use std::net::SocketAddr;
-use std::net::Ipv4Addr;
-use std::net::IpAddr;
+use std::net::
+{
+    SocketAddr,
+    IpAddr,
+    Ipv4Addr
+};
 
 use warp::http::
 {
@@ -253,7 +256,7 @@ pub async fn serve
             )
     };
 
-    let address = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
+    let address = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
     println!("Serving on {}", address);
 
     warp::serve(home_endpoint
