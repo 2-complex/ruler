@@ -199,6 +199,7 @@ impl PathBundle
         }).collect::<Vec<NumberedIndentedLine>>())
     }
 
+    #[cfg(test)]
     pub fn parse(text: &str) -> Result<PathBundle, ParseError>
     {
         Self::parse_lines(text.split('\n').collect::<Vec<&str>>())
@@ -226,6 +227,7 @@ impl PathBundle
         self.get_path_strings_with_prefix("".to_string(), separator.to_string().as_str())
     }
 
+    #[cfg(test)]
     fn get_text_lines(&self, indent : String) -> Vec<String>
     {
         let mut lines = vec![];
@@ -246,6 +248,7 @@ impl PathBundle
         lines
     }
 
+    #[cfg(test)]
     pub fn get_text(&self) -> String
     {
         self.get_text_lines("".to_string()).join("\n") + "\n"

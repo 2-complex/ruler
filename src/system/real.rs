@@ -5,6 +5,8 @@ use crate::system::
     CommandLineOutput
 };
 use std::fs;
+use std::fs::ReadDir;
+use std::ffi::OsString;
 use std::io::ErrorKind;
 use std::path::Path;
 use std::path::PathBuf;
@@ -76,18 +78,22 @@ fn to_path_buf(path: &str) -> PathBuf
     Path::new(".").join(path.split("/").map(|s|{s.to_string()}).collect::<PathBuf>())
 }
 
+fn to_file_name_str(os_string : OsString) -> Result<String, SystemError>
+{
+    match os_string.to_str()
+    {
+        Some(s) => Ok(s.to_string()),
+        None => return Err(SystemError::PathNotUnicode),
+    }
+}
+
+#[allow(dead_code)]
 fn to_path_str(path : &Path) -> Result<String, SystemError>
 {
     let mut result = Vec::new();
     for component in path.components()
     {
-        result.push(
-            match component.as_os_str().to_str()
-            {
-                Some(s) => s.to_string(),
-                None => return Err(SystemError::PathNotUnicode),
-            }
-        )
+        result.push(to_file_name_str(component.as_os_str().to_os_string())?);
     }
 
     match result.get(0)
@@ -104,6 +110,18 @@ fn to_path_str(path : &Path) -> Result<String, SystemError>
             }
         }
         _ => Err(SystemError::Weird)
+    }
+}
+
+fn read_dir_convert_error(path: &str) -> Result<ReadDir, SystemError>
+{
+    match fs::read_dir(to_path_buf(path))
+    {
+        Ok(entries) => Ok(entries),
+        Err(error) =>
+        {
+            return Err(convert_io_error_to_system_error(error));
+        },
     }
 }
 
@@ -168,24 +186,14 @@ impl System for RealSystem
 
     fn list_dir(&self, path: &str) -> Result<Vec<String>, SystemError>
     {
-        let mut result = Vec::new();
-        for dir_entry_opt in match fs::read_dir(to_path_buf(path))
-        {
-            Ok(entries) => entries,
-            Err(error) =>
-            {
-                return Err(convert_io_error_to_system_error(error));
-            },
-        }
+        let mut result = vec![];
+        for dir_entry_opt in read_dir_convert_error(path)?
         {
             result.push(
                 match dir_entry_opt
                 {
-                    Ok(entry) => to_path_str(&entry.path())?,
-                    Err(error) =>
-                    {
-                        return Err(convert_io_error_to_system_error(error));
-                    },
+                    Ok(entry) => to_file_name_str(entry.file_name())?,
+                    Err(error) => return Err(convert_io_error_to_system_error(error)),
                 }
             );
         }

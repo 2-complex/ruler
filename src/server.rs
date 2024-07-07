@@ -117,7 +117,7 @@ pub async fn serve
             }
         );
 
-    let history = elements.history;
+    let history = elements.history.clone();
     let rules_endpoint = warp::get()
         .and(warp::path!("rules" / String / String))
         .map(
@@ -172,10 +172,93 @@ pub async fn serve
                     .body(format!("{}", target_tickets.download_string()).into_bytes())
             });
 
+    let home_endpoint =
+    {
+        let history = elements.history.clone();
+        warp::get()
+            .and(warp::path!("history"))
+            .map(
+                move||
+                {
+                    let message =
+                    match history.list()
+                    {
+                        Ok(rule_hashes) =>
+                        {
+                            let mut message_vec = vec!["<html><head></head><body style = \"font-family: monospace;\">".to_string()];
+                            for hash in rule_hashes
+                            {
+                                message_vec.push(format!("<a href= \"rule_history/{}\">{}</a>", hash, hash));
+                            }
+                            message_vec.push("</body></html>".to_string());
+                            message_vec.join("\n")
+                        },
+                        Err(error) =>
+                        {
+                            format!("{}", error)
+                        }
+                    };
+
+                    Response::builder()
+                        .status(StatusCode::OK)
+                        .body(message)
+                }
+            )
+    };
+
+    let rule_history_endpoint =
+    {
+        let history = elements.history.clone();
+        warp::get()
+            .and(warp::path!("rule_history" / String))
+            .map(
+                move|rule_hash_str : String|
+                {
+                    let rule_ticket =
+                    match Ticket::from_human_readable(&rule_hash_str)
+                    {
+                        Ok(ticket) => ticket,
+                        Err(error) =>
+                        {
+                            return Response::builder()
+                                .status(StatusCode::NOT_FOUND)
+                                .body(format!("Error: {}", error).into_bytes())
+                        }
+                    };
+
+                    let rule_history =
+                    match history.read_rule_history(&rule_ticket)
+                    {
+                        Ok(rule_history) => rule_history,
+                        Err(error) => return
+                            Response::builder()
+                                .status(StatusCode::NOT_FOUND)
+                                .body(format!("Error: {}", error).into_bytes()),
+                    };
+
+                    let mut message_vec = vec!["<html><head></head><body style = \"font-family: monospace;\">".to_string()];
+                    let source_to_targets = &rule_history.get_source_to_targets();
+
+                    for (source_ticket, file_state_vec) in source_to_targets.iter()
+                    {
+                        let file_state_vec_download_string = file_state_vec.download_string();
+                        message_vec.push(format!("{} <a href = \"/files/{}\">{}</a><br/>", source_ticket, file_state_vec_download_string, file_state_vec_download_string));
+                    }
+
+                    Response::builder()
+                        .status(StatusCode::OK)
+                        .body(message_vec.join("\n").into_bytes())
+                }
+            )
+    };
+
     let address = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
     println!("Serving on {}", address);
 
-    warp::serve(files_endpoint.or(rules_endpoint))
+    warp::serve(home_endpoint
+            .or(files_endpoint)
+            .or(rules_endpoint)
+            .or(rule_history_endpoint))
         .run(address)
         .await;
 

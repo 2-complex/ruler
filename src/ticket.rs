@@ -218,13 +218,12 @@ impl TicketFactory
     ->
     Result<TicketFactory, ReadWriteError>
     {
-
-        let path_list =
+        let path_list : Vec<String> =
         match system.list_dir(path)
         {
             Ok(path_list) => path_list,
             Err(_error) => return Err(ReadWriteError::SystemError(SystemError::NotFound)),
-        };
+        }.iter().map(|name|{format!("{}/{}", path, name)}).collect();
 
         let mut factory = TicketFactory::from_str(&path_list.join("\n"));
         for path in path_list
