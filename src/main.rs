@@ -3,13 +3,13 @@ extern crate clap_derive;
 extern crate toml;
 extern crate serde;
 extern crate execute;
-
 use clap::Parser;
 use clap_derive::
 {
     Parser,
     Subcommand,
 };
+use std::net::Ipv4Addr;
 use crate::system::real::RealSystem;
 use crate::printer::StandardPrinter;
 
@@ -54,7 +54,10 @@ struct RunConfig
 #[derive(Parser)]
 struct ServeConfig
 {
-    #[arg(index=1, value_name = "PORT", default_value="build.rules", help = "An HTTP port number on which to serve")]
+    #[arg(index = 1, value_name = "ADDRESS", default_value="127.0.0.1", help = "An IP address on which to serve")]
+    address : Ipv4Addr,
+
+    #[arg(index = 2, value_name = "PORT", default_value="8080", help = "An HTTP port number on which to serve")]
     port : u16,
 }
 
@@ -176,6 +179,7 @@ fn main()
             match server::serve(
                 RealSystem::new(),
                 &command_line.directory,
+                serve_config.address,
                 serve_config.port)
             {
                 Ok(()) => {},
