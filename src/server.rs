@@ -13,24 +13,27 @@ use warp::http::
     StatusCode,
 };
 
+use warp::multipart::form;
+
 use crate::directory;
-
-use crate::ticket::
-{
-    Ticket,
-};
-
+use crate::ticket::Ticket;
 use warp::Filter;
+use warp::multipart::FormData;
+use futures::TryStreamExt;
+use futures::StreamExt;
+use futures::executor::block_on;
 
 use crate::system::
 {
     System,
 };
 
+
 pub enum ServerError
 {
     Weird,
 }
+
 
 impl fmt::Display for ServerError
 {
@@ -40,6 +43,37 @@ impl fmt::Display for ServerError
         {
             ServerError::Weird =>
                 write!(formatter, "Weird Server Error"),
+        }
+    }
+}
+
+async fn process_upload(cache: SysCache, form: FormData)
+{
+    let mut parts = form.into_stream();
+    loop
+    {
+        match parts.next().await
+        {
+            Some(part_result) =>
+            {
+                match part_result
+                {
+                    Ok(mut p) =>
+                    {
+                        println!("------Part Received-------");
+                        println!("name: {:?}", p.name());
+                        println!("filename: {:?}", p.filename());
+                        println!("content-type: {:?}", p.content_type());
+                    },
+
+                    Err(err) =>
+                    {
+                        println!("{:?}", err);
+                    },
+                }
+            },
+
+            None => break,
         }
     }
 }
@@ -257,13 +291,34 @@ pub async fn serve
             )
     };
 
+    let upload_file =
+    {
+        let history = elements.history.clone();
+        warp::post()
+            .and(warp::multipart::form())
+            .map(
+                move|form: FormData|
+                {
+                    println!("upload received!");
+                    let mut message_vec = vec!["".to_string()];
+                    block_on(process_upload(form));
+
+                    Response::builder()
+                        .status(StatusCode::OK)
+                        .body(message_vec.join("\n").into_bytes())
+                }
+            )
+    };
+
     let socket_address = SocketAddr::new(IpAddr::V4(address), port);
     println!("Serving on {}", socket_address);
 
     warp::serve(home_endpoint
             .or(files_endpoint)
             .or(rules_endpoint)
-            .or(rule_history_endpoint))
+            .or(rule_history_endpoint)
+            .or(upload_file)
+        )
         .run(socket_address)
         .await;
 
