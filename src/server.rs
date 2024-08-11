@@ -22,10 +22,14 @@ use warp::multipart::FormData;
 use futures::TryStreamExt;
 use futures::StreamExt;
 use futures::executor::block_on;
+use crate::cache::
+{
+    SysCache,
+};
 
 use crate::system::
 {
-    System,
+    System
 };
 
 
@@ -47,7 +51,7 @@ impl fmt::Display for ServerError
     }
 }
 
-async fn process_upload(cache: SysCache, form: FormData)
+async fn process_upload<SystemType :  System>(cache: SysCache<SystemType>, form: FormData)
 {
     let mut parts = form.into_stream();
     loop
@@ -301,7 +305,7 @@ pub async fn serve
                 {
                     println!("upload received!");
                     let mut message_vec = vec!["".to_string()];
-                    block_on(process_upload(form));
+                    block_on(process_upload(cache, form));
 
                     Response::builder()
                         .status(StatusCode::OK)
