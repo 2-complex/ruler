@@ -19,8 +19,7 @@ pub struct Rule
 
 /*  When a rule is first parsed, it goes into this struct, the targets,
     sources and command are simply parsed into vecs.  This is before the
-    topological-sort step which puts the data into a list of Nodes and
-    creates Nodes for sources that are not listed as targest of rules. */
+    topological-sort step which puts the data into a list of Nodes. */
 impl Rule
 {
     fn new(
