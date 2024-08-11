@@ -158,7 +158,7 @@ impl PathBundle
                 j+=1;
             }
             let name = lines[i].text.clone();
-            add_to_nodes(&mut nodes, 
+            add_to_nodes(&mut nodes,
                 if i+1 < j
                 {
                     PathNode::parent(name, Self::parse_recusrive_helper(level+1, &lines[i+1..j])?)

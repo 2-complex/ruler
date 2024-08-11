@@ -19,8 +19,7 @@ pub struct Rule
 
 /*  When a rule is first parsed, it goes into this struct, the targets,
     sources and command are simply parsed into vecs.  This is before the
-    topological-sort step which puts the data into a list of Nodes and
-    creates Nodes for sources that are not listed as targest of rules. */
+    topological-sort step which puts the data into a list of Nodes. */
 impl Rule
 {
     fn new(
@@ -45,7 +44,7 @@ impl Rule
 
     Node also carries an optional Ticket.  If the Node came from a rule,
     that's the hash of the rule itself (not file content). */
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Node
 {
     pub targets: Vec<String>,
@@ -147,7 +146,7 @@ impl fmt::Display for ParseError
 /*  Takes a vector of string-pairs representing (filename, content).  Parses
     each file's contents as rules and returns one big vector full of Rule objects.
 
-    If the aprsing of any one file presents an error, this function returns the
+    If the parsing of any one file presents an error, this function returns the
     ParseError object for the first error, and does not bother parsing the
     rest. */
 pub fn parse_all(mut contents : Vec<(String, String)>)
@@ -268,6 +267,7 @@ pub fn parse(filename : String, content : String)
     }
 }
 
+#[derive(PartialEq, Debug)]
 struct Frame
 {
     targets: Vec<String>,
@@ -315,7 +315,7 @@ impl Frame
     }
 }
 
-#[derive(Debug)]
+#[derive(PartialEq, Debug)]
 pub enum TopologicalSortError
 {
     TargetMissing(String),
@@ -649,9 +649,11 @@ pub fn topological_sort_all(
 #[cfg(test)]
 mod tests
 {
+    use crate::ticket::Ticket;
     use crate::rule::
     {
         Rule,
+        Node,
         rules_to_frame_buffer,
         topological_sort,
         topological_sort_all,
@@ -810,7 +812,7 @@ mod tests
     #[test]
     fn rules_to_frame_buffer_redundancy_error()
     {
-        match rules_to_frame_buffer(
+        assert_eq!(rules_to_frame_buffer(
             vec![
                 Rule
                 {
@@ -825,59 +827,22 @@ mod tests
                     command: vec!["water every day".to_string()],
                 },
             ]
-        )
-        {
-            Ok(_) =>
-            {
-                panic!("Unexpected success on rules with redundant targets");
-            },
-            Err(error) =>
-            {
-                match error
-                {
-                    TopologicalSortError::TargetInMultipleRules(target) => assert_eq!(target, "fruit"),
-                    _ => panic!("Unexpected error type when multiple fruit expected")
-                }
-            }
-        }
+        ), Err(TopologicalSortError::TargetInMultipleRules("fruit".to_string())));
+        
     }
 
     /*  Topological sort the empty set of rules, but with a goal-target.  That should error. */
     #[test]
     fn topological_sort_empty_is_error()
     {
-        match topological_sort(vec![], "prune")
-        {
-            Ok(_) =>
-            {
-                panic!("Enexpected success on topological sort of empty");
-            },
-            Err(error) =>
-            {
-                match error
-                {
-                    TopologicalSortError::TargetMissing(target) => assert_eq!(target, "prune"),
-                    _ => panic!("Expected target missing prune, got another type of error")
-                }
-            },
-        }
+        assert_eq!(topological_sort(vec![], "prune"), Err(TopologicalSortError::TargetMissing("prune".to_string())));
     }
 
     /*  Topological sort all of an empty set of rules, check that the result is empty. */
     #[test]
     fn topological_sort_all_empty_is_empty()
     {
-        match topological_sort_all(vec![])
-        {
-            Ok(result) =>
-            {
-                assert_eq!(result.len(), 0);
-            },
-            Err(error) =>
-            {
-                panic!("Expected success topological sorting empty vector of rules, got {}", error);
-            },
-        }
+        assert_eq!(topological_sort_all(vec![]), Ok(vec![]));
     }
 
     /*  Topological sort a list of one rule only.  Check the result
@@ -885,7 +850,7 @@ mod tests
     #[test]
     fn topological_sort_one_rule()
     {
-        match topological_sort(
+        assert_eq!(topological_sort(
             vec![
                 Rule
                 {
@@ -894,15 +859,19 @@ mod tests
                     command: vec![],
                 },
             ],
-            "plant")
-        {
-            Ok(nodes) =>
-            {
-                assert_eq!(nodes.len(), 1);
-                assert_eq!(nodes[0].targets[0], "plant");
-            }
-            Err(error) => panic!("Expected success, got: {}", error),
-        }
+            "plant"),
+            Ok(vec![
+                Node
+                {
+                    targets: vec!["plant".to_string()],
+                    source_indices: vec![],
+                    command : vec![],
+                    rule_ticket : Some(Ticket::from_strings(
+                        &vec!["plant".to_string()],
+                        &vec![],
+                        &vec![])),
+                }
+            ]));
     }
 
     /*  Topological sort a list of one rule only.  Check the result
@@ -910,7 +879,7 @@ mod tests
     #[test]
     fn topological_sort_all_one_rule()
     {
-        match topological_sort_all(
+        assert_eq!(topological_sort_all(
             vec![
                 Rule
                 {
@@ -918,15 +887,17 @@ mod tests
                     sources: vec![],
                     command: vec![],
                 },
-            ])
-        {
-            Ok(nodes) =>
-            {
-                assert_eq!(nodes.len(), 1);
-                assert_eq!(nodes[0].targets[0], "plant");
-            }
-            Err(error) => panic!("Expected success, got: {}", error),
-        }
+            ]),
+            Ok(vec![Node{
+                targets: vec!["plant".to_string()],
+                source_indices: vec![],
+                command: vec![],
+                rule_ticket : Some(Ticket::from_strings(
+                    &vec!["plant".to_string()],
+                    &vec![],
+                    &vec![])),
+            }])
+        );
     }
 
     /*  Topological sort a list of two rules only, one depends on the other as a source, but
@@ -934,7 +905,7 @@ mod tests
     #[test]
     fn topological_sort_two_rules()
     {
-        match topological_sort(
+        assert_eq!(topological_sort(
             vec![
                 Rule
                 {
@@ -949,16 +920,27 @@ mod tests
                     command: vec![],
                 },
             ],
-            "fruit")
-        {
-            Ok(nodes) =>
-            {
-                assert_eq!(nodes.len(), 2);
-                assert_eq!(nodes[0].targets[0], "plant");
-                assert_eq!(nodes[1].targets[0], "fruit");
+            "fruit"),
+        Ok(vec![
+            Node{
+                targets: vec!["plant".to_string()],
+                source_indices: vec![],
+                command: vec![],
+                rule_ticket : Some(Ticket::from_strings(
+                    &vec!["plant".to_string()],
+                    &vec![],
+                    &vec![])),
+            },
+            Node{
+                targets: vec!["fruit".to_string()],
+                source_indices: vec![(0, 0)],
+                command: vec!["pick occasionally".to_string()],
+                rule_ticket : Some(Ticket::from_strings(
+                    &vec!["fruit".to_string()],
+                    &vec!["plant".to_string()],
+                    &vec!["pick occasionally".to_string()])),
             }
-            Err(error) => panic!("Expected success, got: {}", error),
-        }
+        ]));
     }
 
     /*  Topological sort all of a list of two rules only, one depends on the other as a source, but
@@ -966,7 +948,7 @@ mod tests
     #[test]
     fn topological_sort_all_two_rules()
     {
-        match topological_sort_all(
+        assert_eq!(topological_sort_all(
             vec![
                 Rule
                 {
@@ -980,16 +962,27 @@ mod tests
                     sources: vec![],
                     command: vec![],
                 },
-            ])
-        {
-            Ok(nodes) =>
-            {
-                assert_eq!(nodes.len(), 2);
-                assert_eq!(nodes[0].targets[0], "plant");
-                assert_eq!(nodes[1].targets[0], "fruit");
-            }
-            Err(error) => panic!("Expected success, got: {}", error),
-        }
+            ]),
+            Ok(vec![
+                Node{
+                    targets: vec!["plant".to_string()],
+                    source_indices: vec![],
+                    command: vec![],
+                    rule_ticket : Some(Ticket::from_strings(
+                        &vec!["plant".to_string()],
+                        &vec![],
+                        &vec![])),
+                },
+                Node{
+                    targets: vec!["fruit".to_string()],
+                    source_indices: vec![(0, 0)],
+                    command: vec!["pick occasionally".to_string()],
+                    rule_ticket : Some(Ticket::from_strings(
+                        &vec!["fruit".to_string()],
+                        &vec!["plant".to_string()],
+                        &vec!["pick occasionally".to_string()])),
+                }
+            ]));
     }
 
     /*  Topological sort a DAG that is not a tree.  Four nodes math, physics, graphics, game
