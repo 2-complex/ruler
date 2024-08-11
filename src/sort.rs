@@ -1,14 +1,13 @@
-use std::collections::BTreeSet;
 use std::collections::HashMap;
 
 use crate::rule::Rule;
 
 /*  Assuming source leaf paths and nodes come in two separate lists,
     this enum encodes a reference by index into one of those lists. */
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Ord, Eq, PartialOrd)]
 pub enum SourceReference
 {
-    Leaf(usize),
+    Leaf(String),
     Rule(usize),
 }
 
@@ -24,10 +23,11 @@ pub struct Node
 #[derive(Debug, PartialEq)]
 pub struct RuleSortResult
 {
-    leaves : Vec<String>,
     nodes : Vec<Node>
 }
 
+/*  Look at rules, build a map sending each target path to the index
+    of that target in the rules vector. */
 fn get_target_to_node_index(rules : &Vec<Rule>) -> HashMap<String, usize>
 {
     let mut target_to_node_index = HashMap::new();
@@ -41,18 +41,11 @@ fn get_target_to_node_index(rules : &Vec<Rule>) -> HashMap<String, usize>
     target_to_node_index
 }
 
-/*  Construct this object, consuming a vector of Rules, to get a vector of source-paths (called leaves)
-    and a vector of Nodes.  Nodes correspond to Rules.
-
-    In the returned struct, "leaves" is a sorted vec of paths which do not occur in the target section
-    of any Rule in the input.
-*/
+/*  Construct this object, consuming a vector of Rules, to get a vector of Nodes. */
 impl RuleSortResult
 {
     fn new(rules : Vec<Rule>) -> RuleSortResult
     {
-        let mut leaves_set = BTreeSet::new();
-
         let target_to_node_index = get_target_to_node_index(&rules);
 
         let mut nodes = vec![];
@@ -61,18 +54,16 @@ impl RuleSortResult
             let mut node_sources = vec![];
             for source in rule.sources.into_iter()
             {
-                match target_to_node_index.get(&source)
-                {
-                    None => 
+                node_sources.push(
+                    match target_to_node_index.get(&source)
                     {
-                        leaves_set.insert(source);
-                    },
-                    Some(index) =>
-                    {
-                        node_sources.push(SourceReference::Rule(*index));
-                    },
-                }
+                        None => SourceReference::Leaf(source),
+                        Some(index) => SourceReference::Rule(*index),
+                    }
+                );
             }
+
+            node_sources.sort();
 
             nodes.push(Node{
                 targets: rule.targets,
@@ -83,7 +74,6 @@ impl RuleSortResult
 
         RuleSortResult
         {
-            leaves : leaves_set.into_iter().map(|key|{key.to_string()}).collect(),
             nodes : nodes
         }
     }
@@ -107,7 +97,6 @@ mod tests
         assert_eq!(RuleSortResult::new(vec![]),
             RuleSortResult
             {
-                leaves: vec![],
                 nodes: vec![],
             }
         );
@@ -128,11 +117,10 @@ mod tests
             ]),
             RuleSortResult
             {
-                leaves: vec!["apple.c".to_string()],
                 nodes: vec![
                     Node
                     {
-                        sources:vec![SourceReference::Leaf(0)],
+                        sources:vec![SourceReference::Leaf("apple.c".to_string())],
                         targets: vec!["apple.o".to_string()],
                         command: vec!["compile apple.c to apple.o".to_string()],
                     }
@@ -141,5 +129,69 @@ mod tests
         );
     }
 
+    #[test]
+    fn sort_two_sources()
+    {
+        assert_eq!(
+            RuleSortResult::new(vec![
+                Rule
+                {
+                    sources: vec![
+                        "math.c".to_string(),
+                        "physics.c".to_string(),
+                    ],
+                    targets: vec!["apple.o".to_string()],
+                    command: vec!["compile".to_string()],
+                }
+            ]),
+            RuleSortResult
+            {
+                nodes: vec![
+                    Node
+                    {
+                        sources:vec![
+                            SourceReference::Leaf("math.c".to_string()),
+                            SourceReference::Leaf("physics.c".to_string()),
+                        ],
+                        targets: vec!["apple.o".to_string()],
+                        command: vec!["compile".to_string()],
+                    }
+                ],
+            }
+        );
+    }
 
+    #[test]
+    fn sort_three_sources_sorted()
+    {
+        assert_eq!(
+            RuleSortResult::new(vec![
+                Rule
+                {
+                    sources: vec![
+                        "c.c".to_string(),
+                        "a.c".to_string(),
+                        "b.c".to_string(),
+                    ],
+                    targets: vec!["apple.o".to_string()],
+                    command: vec!["compile".to_string()],
+                }
+            ]),
+            RuleSortResult
+            {
+                nodes: vec![
+                    Node
+                    {
+                        sources:vec![
+                            SourceReference::Leaf("a.c".to_string()),
+                            SourceReference::Leaf("b.c".to_string()),
+                            SourceReference::Leaf("c.c".to_string()),
+                        ],
+                        targets: vec!["apple.o".to_string()],
+                        command: vec!["compile".to_string()],
+                    }
+                ],
+            }
+        );
+    }
 }
