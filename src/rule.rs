@@ -282,20 +282,6 @@ struct Frame
 
 impl Frame
 {
-    fn from_source_and_index(source : &str, index : usize) -> Frame
-    {
-        Frame
-        {
-            targets: vec![source.to_string()],
-            sources: vec![],
-            command: vec![],
-            rule_ticket: None,
-            index: index,
-            sub_index: 0,
-            visited: true,
-        }
-    }
-
     fn from_rule_and_index(rule : Rule, index : usize) -> Frame
     {
         let rule_ticket = Ticket::from_strings(
@@ -396,6 +382,8 @@ fn rules_to_frame_buffer(mut rules : Vec<Rule>)
 
 struct TopologicalSortMachine
 {
+    source_leaves : Vec<String>,
+
     /*  The "buffer" referred to by variable-names here is
         the buffer of frames (frame_buffer) */
     frame_buffer : Vec<Option<Frame>>,
@@ -404,9 +392,6 @@ struct TopologicalSortMachine
         - index of the rule in which it's a target
         - index of the target in the rule's target list */
     to_buffer_index : HashMap<String, (usize, usize)>,
-
-    /*  Keeps track of the next index to insert into frame_buffer with */
-    current_buffer_index : usize,
 
     /*  Recall frame_buffer is a vector of options.  That's so that
         the frames can be taken from frame_buffer and added to frames_in_order */
@@ -426,12 +411,11 @@ impl TopologicalSortMachine
     )
     -> TopologicalSortMachine
     {
-        let frame_buffer_length = frame_buffer.len();
         TopologicalSortMachine
         {
+            source_leaves : vec![],
             frame_buffer : frame_buffer,
             to_buffer_index : to_buffer_index,
-            current_buffer_index : frame_buffer_length,
             frames_in_order : vec![],
             index_bijection : HashMap::new(),
         }
@@ -511,11 +495,7 @@ impl TopologicalSortMachine
                         },
                         None =>
                         {
-                            self.index_bijection.insert(self.current_buffer_index, self.frames_in_order.len());
-                            self.frames_in_order.push(Frame::from_source_and_index(source, self.current_buffer_index));
-                            self.frame_buffer.push(None);
-                            self.to_buffer_index.insert(source.to_string(), (self.current_buffer_index, 0));
-                            self.current_buffer_index += 1;
+                            self.source_leaves.push(source.to_owned());
                         },
                     }
                 }
@@ -549,6 +529,19 @@ impl TopologicalSortMachine
     pub fn get_result(mut self) -> Result<Vec<Node>, TopologicalSortError>
     {
         let mut result = vec![];
+        for leaf in self.source_leaves.drain(..)
+        {
+            result.push(
+                Node
+                {
+                    targets: vec![leaf],
+                    source_indices: vec![],
+                    command: vec![],
+                    rule_ticket: None,
+                }
+            );
+        }
+
         for mut frame in self.frames_in_order.drain(..)
         {
             let mut source_indices = vec![];
