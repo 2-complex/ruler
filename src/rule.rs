@@ -455,8 +455,7 @@ impl TopologicalSortMachine
                 /*  Assume we're in the middle of a build-all operation,
                     and we've already handle this rule. */
                 return Ok(());
-            }, 
-                
+            },
         };
 
         let mut indices_in_stack = HashSet::new();
