@@ -10,7 +10,7 @@ use crate::bundle::
     PathBundle
 };
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialOrd, Ord, Eq, PartialEq, Clone)]
 pub struct Rule
 {
     pub targets : Vec<String>,
@@ -361,6 +361,7 @@ fn rules_to_frame_buffer(mut rules : Vec<Rule>)
     let mut to_buffer_index : HashMap<String, (usize, usize)> = HashMap::new();
 
     let mut current_buffer_index = 0usize;
+    rules.sort();
     for mut rule in rules.drain(..)
     {
         rule.targets.sort();
