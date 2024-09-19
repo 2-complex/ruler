@@ -1175,49 +1175,74 @@ mod tests
     #[test]
     fn topological_sort_poem()
     {
-        match topological_sort(
+        let poem_rule = Rule::new(
+            vec!["poem".to_string()],
+            vec!["stanza1".to_string(), "stanza2".to_string()],
+            vec!["poemcat stanza1 stanza2".to_string()],
+        );
+
+        let stanza1_rule = Rule::new(
+            vec!["stanza1".to_string()],
+            vec!["chorus".to_string(), "verse1".to_string()],
+            vec!["poemcat verse1 chorus".to_string()],
+        );
+
+        let stanza2_rule = Rule::new(
+            vec!["stanza2".to_string()],
+            vec!["chorus".to_string(), "verse2".to_string()],
+            vec!["poemcat verse2 chorus".to_string()],
+        );
+
+        assert_eq!(topological_sort(
             vec![
-                Rule
+                stanza1_rule.clone(),
+                stanza2_rule.clone(),
+                poem_rule.clone(),
+            ], "poem"),
+            Ok(vec![
+                Node {
+                    targets: vec!["chorus".to_string()],
+                    source_indices: vec![],
+                    command: vec![],
+                    rule_ticket: None
+                },
+                Node
+                {
+                    targets: vec!["verse1".to_string()],
+                    source_indices: vec![],
+                    command: vec![],
+                    rule_ticket: None
+                },
+                Node
+                {
+                    targets: vec!["verse2".to_string()],
+                    source_indices: vec![],
+                    command: vec![],
+                    rule_ticket: None
+                },
+                Node
                 {
                     targets: vec!["stanza1".to_string()],
-                    sources: vec!["chorus".to_string(), "verse1".to_string()],
+                    source_indices: vec![(0, 0), (1, 0)],
                     command: vec!["poemcat verse1 chorus".to_string()],
+                    rule_ticket: Some(stanza1_rule.get_ticket()),
                 },
-                Rule
+                Node
                 {
                     targets: vec!["stanza2".to_string()],
-                    sources: vec!["chorus".to_string(), "verse2".to_string()],
+                    source_indices: vec![(0, 0), (2, 0)],
                     command: vec!["poemcat verse2 chorus".to_string()],
+                    rule_ticket: Some(stanza2_rule.get_ticket()),
                 },
-                Rule
+                Node
                 {
                     targets: vec!["poem".to_string()],
-                    sources: vec!["stanza1".to_string(), "stanza2".to_string()],
+                    source_indices: vec![(3, 0), (4, 0)],
                     command: vec!["poemcat stanza1 stanza2".to_string()],
-                },
-            ],
-            "poem")
-        {
-            Ok(v) =>
-            {
-                assert_eq!(v.len(), 6);
-                assert_eq!(v[0].targets[0], "chorus");
-                assert_eq!(v[1].targets[0], "verse1");
-                assert_eq!(v[2].targets[0], "stanza1");
-                assert_eq!(v[3].targets[0], "verse2");
-                assert_eq!(v[4].targets[0], "stanza2");
-                assert_eq!(v[5].targets[0], "poem");
-
-                assert_eq!(v[0].source_indices.len(), 0);
-                assert_eq!(v[1].source_indices.len(), 0);
-                assert_eq!(v[3].source_indices.len(), 0);
-
-                assert_eq!(v[2].source_indices, [(0, 0), (1, 0)]);
-                assert_eq!(v[4].source_indices, [(0, 0), (3, 0)]);
-                assert_eq!(v[5].source_indices, [(2, 0), (4, 0)]);
-            }
-            Err(why) => panic!("Expected success, got: {}", why),
-        }
+                    rule_ticket: Some(poem_rule.get_ticket()),
+                }
+            ])
+        );
     }
 
     /*  Topological sort a poetry example.  This test is just like the one above but with the
@@ -1243,12 +1268,12 @@ mod tests
             vec!["poemcat verse2 chorus".to_string()],
         );
 
-        assert_eq!(topological_sort_all(
+        assert_eq!(topological_sort(
             vec![
                 stanza2_rule.clone(),
                 poem_rule.clone(),
                 stanza1_rule.clone(),
-            ]),
+            ], "poem"),
             Ok(vec![
                 Node {
                     targets: vec!["chorus".to_string()],
@@ -1302,7 +1327,7 @@ mod tests
     {
         let poem_rule = Rule::new(
             vec!["poem".to_string()],
-            vec!["stanza1".to_string(), "stanza2".to_string()],
+            vec!["stanza2".to_string(), "stanza1".to_string()],
             vec!["poemcat stanza1 stanza2".to_string()],
         );
 
@@ -1320,9 +1345,9 @@ mod tests
 
         assert_eq!(topological_sort_all(
             vec![
+                stanza2_rule.clone(),
                 poem_rule.clone(),
                 stanza1_rule.clone(),
-                stanza2_rule.clone(),
             ]),
             Ok(vec![
                 Node {
