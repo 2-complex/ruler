@@ -1274,48 +1274,74 @@ mod tests
     #[test]
     fn topological_sort_all_poem_scrambled()
     {
-        match topological_sort_all(
+        let poem_rule = Rule::new(
+            vec!["poem".to_string()],
+            vec!["stanza1".to_string(), "stanza2".to_string()],
+            vec!["poemcat stanza1 stanza2".to_string()],
+        );
+
+        let stanza1_rule = Rule::new(
+            vec!["stanza1".to_string()],
+            vec!["verse1".to_string(), "chorus".to_string()],
+            vec!["poemcat verse1 chorus".to_string()],
+        );
+
+        let stanza2_rule = Rule::new(
+            vec!["stanza2".to_string()],
+            vec!["verse2".to_string(), "chorus".to_string()],
+            vec!["poemcat verse2 chorus".to_string()],
+        );
+
+        assert_eq!(topological_sort_all(
             vec![
-                Rule
-                {
-                    targets: vec!["poem".to_string()],
-                    sources: vec!["stanza1".to_string(), "stanza2".to_string()],
-                    command: vec!["poemcat stanza1 stanza2".to_string()],
+                poem_rule.clone(),
+                stanza1_rule.clone(),
+                stanza2_rule.clone(),
+            ]),
+            Ok(vec![
+                Node {
+                    targets: vec!["chorus".to_string()],
+                    source_indices: vec![],
+                    command: vec![],
+                    rule_ticket: None
                 },
-                Rule
+                Node
                 {
-                    targets: vec!["stanza2".to_string()],
-                    sources: vec!["verse2".to_string(), "chorus".to_string()],
-                    command: vec!["poemcat verse2 chorus".to_string()],
+                    targets: vec!["verse1".to_string()],
+                    source_indices: vec![],
+                    command: vec![],
+                    rule_ticket: None
                 },
-                Rule
+                Node
+                {
+                    targets: vec!["verse2".to_string()],
+                    source_indices: vec![],
+                    command: vec![],
+                    rule_ticket: None
+                },
+                Node
                 {
                     targets: vec!["stanza1".to_string()],
-                    sources: vec!["verse1".to_string(), "chorus".to_string()],
+                    source_indices: vec![(0, 0), (1, 0)],
                     command: vec!["poemcat verse1 chorus".to_string()],
+                    rule_ticket: Some(stanza1_rule.get_ticket()),
                 },
+                Node
+                {
+                    targets: vec!["stanza2".to_string()],
+                    source_indices: vec![(0, 0), (2, 0)],
+                    command: vec!["poemcat verse2 chorus".to_string()],
+                    rule_ticket: Some(stanza2_rule.get_ticket()),
+                },
+                Node
+                {
+                    targets: vec!["poem".to_string()],
+                    source_indices: vec![(3, 0), (4, 0)],
+                    command: vec!["poemcat stanza1 stanza2".to_string()],
+                    rule_ticket: Some(poem_rule.get_ticket()),
+                }
             ])
-        {
-            Ok(v) =>
-            {
-                assert_eq!(v.len(), 6);
-                assert_eq!(v[0].targets[0], "chorus");
-                assert_eq!(v[1].targets[0], "verse1");
-                assert_eq!(v[2].targets[0], "stanza1");
-                assert_eq!(v[3].targets[0], "verse2");
-                assert_eq!(v[4].targets[0], "stanza2");
-                assert_eq!(v[5].targets[0], "poem");
-
-                assert_eq!(v[0].source_indices.len(), 0);
-                assert_eq!(v[1].source_indices.len(), 0);
-                assert_eq!(v[3].source_indices.len(), 0);
-
-                assert_eq!(v[2].source_indices, [(0, 0), (1, 0)]);
-                assert_eq!(v[4].source_indices, [(0, 0), (3, 0)]);
-                assert_eq!(v[5].source_indices, [(2, 0), (4, 0)]);
-            }
-            Err(why) => panic!("Expected success, got: {}", why),
-        }
+        );
     }
 
     /*  Topological sort a poetry example.  This test is just like the one above but with the
