@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::collections::BTreeSet;
 use std::fmt;
 
 use crate::ticket::Ticket;
@@ -9,7 +10,7 @@ use crate::bundle::
     PathBundle
 };
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Rule
 {
     pub targets : Vec<String>,
@@ -36,6 +37,11 @@ impl Rule
             sources: sources,
             command: command
         }
+    }
+
+    fn get_ticket(self: &Self) -> Ticket
+    {
+        Ticket::from_strings(&self.targets, &self.sources, &self.command)
     }
 }
 
@@ -284,17 +290,13 @@ impl Frame
 {
     fn from_rule_and_index(rule : Rule, index : usize) -> Frame
     {
-        let rule_ticket = Ticket::from_strings(
-            &rule.targets,
-            &rule.sources,
-            &rule.command);
-
+        let ticket = rule.get_ticket();
         Frame
         {
             targets: rule.targets,
             sources: rule.sources,
             command: rule.command,
-            rule_ticket: Some(rule_ticket),
+            rule_ticket: Some(ticket),
             index: index,
             sub_index: 0,
             visited: false,
@@ -382,7 +384,7 @@ fn rules_to_frame_buffer(mut rules : Vec<Rule>)
 
 struct TopologicalSortMachine
 {
-    source_leaves : Vec<String>,
+    source_leaves : BTreeSet<String>,
 
     /*  The "buffer" referred to by variable-names here is
         the buffer of frames (frame_buffer) */
@@ -413,7 +415,7 @@ impl TopologicalSortMachine
     {
         TopologicalSortMachine
         {
-            source_leaves : vec![],
+            source_leaves : BTreeSet::new(),
             frame_buffer : frame_buffer,
             to_buffer_index : to_buffer_index,
             frames_in_order : vec![],
@@ -495,7 +497,7 @@ impl TopologicalSortMachine
                         },
                         None =>
                         {
-                            self.source_leaves.push(source.to_owned());
+                            self.source_leaves.insert(source.to_owned());
                         },
                     }
                 }
@@ -528,18 +530,21 @@ impl TopologicalSortMachine
     /*  Remap the sources of all the nodes to indices in the new result vector. */
     pub fn get_result(mut self) -> Result<Vec<Node>, TopologicalSortError>
     {
-        let mut result = vec![];
-        for leaf in self.source_leaves.drain(..)
+        let mut num_leaves = 0;
+        let mut result = Vec::new();
+        let mut leaf_to_index = HashMap::new();
+
+        for leaf in self.source_leaves
         {
-            result.push(
-                Node
-                {
-                    targets: vec![leaf],
-                    source_indices: vec![],
-                    command: vec![],
-                    rule_ticket: None,
-                }
-            );
+            result.push(Node
+            {
+                targets: vec![leaf.clone()],
+                source_indices: vec![],
+                command: vec![],
+                rule_ticket: None,
+            });
+            leaf_to_index.insert(leaf, num_leaves);
+            num_leaves += 1;
         }
 
         for mut frame in self.frames_in_order.drain(..)
@@ -547,8 +552,19 @@ impl TopologicalSortMachine
             let mut source_indices = vec![];
             for source in frame.sources.drain(..)
             {
-                let (buffer_index, sub_index) = self.to_buffer_index.get(&source).unwrap();
-                source_indices.push((*self.index_bijection.get(buffer_index).unwrap(), *sub_index));
+                match leaf_to_index.get(&source)
+                {
+                    Some(index) =>
+                    {
+                        source_indices.push((*index, 0));
+                    },
+                    None =>
+                    {
+                        let (buffer_index, sub_index) = self.to_buffer_index.get(&source).unwrap();
+                        source_indices.push((*self.index_bijection.get(buffer_index).unwrap() + num_leaves, *sub_index));
+                    }
+                }
+
             }
 
             result.push(
@@ -1307,48 +1323,58 @@ mod tests
     #[test]
     fn topological_sort_all_disconnected_graph()
     {
-        match topological_sort_all(
+        let poem_rule = Rule::new(
+            vec!["poem".to_string()],
+            vec!["stanza1".to_string(), "stanza2".to_string()],
+            vec!["poemcat stanza1 stanza2".to_string()],
+        );
+
+        let stanza1_rule = Rule::new(
+            vec!["stanza1".to_string()],
+            vec!["verse1".to_string(), "chorus".to_string()],
+            vec!["poemcat verse1 chorus".to_string()],
+        );
+
+        let stanza2_rule = Rule::new(
+            vec!["stanza2".to_string()],
+            vec!["verse2".to_string(), "chorus".to_string()],
+            vec!["poemcat verse2 chorus".to_string()],
+        );
+
+        assert_eq!(topological_sort_all(
             vec![
-                Rule
-                {
-                    targets: vec!["poem".to_string()],
-                    sources: vec!["stanza1".to_string(), "stanza2".to_string()],
-                    command: vec!["poemcat stanza1 stanza2".to_string()],
-                },
-                Rule
-                {
-                    targets: vec!["stanza2".to_string()],
-                    sources: vec!["verse2".to_string(), "chorus".to_string()],
-                    command: vec!["poemcat verse2 chorus".to_string()],
-                },
-                Rule
-                {
-                    targets: vec!["stanza1".to_string()],
-                    sources: vec!["verse1".to_string(), "chorus".to_string()],
-                    command: vec!["poemcat verse1 chorus".to_string()],
-                },
-            ])
-        {
-            Ok(v) =>
-            {
-                assert_eq!(v.len(), 6);
-                assert_eq!(v[0].targets[0], "chorus");
-                assert_eq!(v[1].targets[0], "verse1");
-                assert_eq!(v[2].targets[0], "stanza1");
-                assert_eq!(v[3].targets[0], "verse2");
-                assert_eq!(v[4].targets[0], "stanza2");
-                assert_eq!(v[5].targets[0], "poem");
-
-                assert_eq!(v[0].source_indices.len(), 0);
-                assert_eq!(v[1].source_indices.len(), 0);
-                assert_eq!(v[3].source_indices.len(), 0);
-
-                assert_eq!(v[2].source_indices, [(0, 0), (1, 0)]);
-                assert_eq!(v[4].source_indices, [(0, 0), (3, 0)]);
-                assert_eq!(v[5].source_indices, [(2, 0), (4, 0)]);
-            }
-            Err(why) => panic!("Expected success, got: {}", why),
-        }
+                poem_rule.clone(),
+                stanza1_rule.clone(),
+                stanza2_rule.clone(),
+            ]),
+            Ok(
+                vec![
+                    Node { targets: vec!["chorus".to_string()], source_indices: vec![], command: vec![], rule_ticket: None },
+                    Node { targets: vec!["verse1".to_string()], source_indices: vec![], command: vec![], rule_ticket: None },
+                    Node { targets: vec!["verse2".to_string()], source_indices: vec![], command: vec![], rule_ticket: None },
+                    Node
+                    {
+                        targets: vec!["stanza1".to_string()],
+                        source_indices: vec![(0, 0), (1, 0)],
+                        command: vec!["poemcat verse1 chorus".to_string()],
+                        rule_ticket: Some(stanza1_rule.get_ticket())
+                    },
+                    Node
+                    {
+                        targets: vec!["stanza2".to_string()],
+                        source_indices: vec![(0, 0), (2, 0)],
+                        command: vec!["poemcat verse2 chorus".to_string()],
+                        rule_ticket: Some(stanza2_rule.get_ticket())
+                    },
+                    Node
+                    {
+                        targets: vec!["poem".to_string()],
+                        source_indices: vec![(3, 0), (4, 0)],
+                        command: vec!["poemcat stanza1 stanza2".to_string()],
+                        rule_ticket: Some(poem_rule.get_ticket()) }
+                ]
+            )
+        );
     }
 
     /*  Topological sort a dependence graph with a cycle in it.  Check that the error
