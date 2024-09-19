@@ -385,6 +385,7 @@ fn rules_to_frame_buffer(mut rules : Vec<Rule>)
 
 struct TopologicalSortMachine
 {
+    /*  Source paths found in one rule that aren't the targets of another rule */
     source_leaves : BTreeSet<String>,
 
     /*  The "buffer" referred to by variable-names here is
