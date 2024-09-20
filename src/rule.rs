@@ -302,6 +302,20 @@ impl Frame
             visited: false,
         }
     }
+
+    fn visit(self: Self) -> Frame
+    {
+        return Frame
+        {
+            targets: self.targets,
+            sources: self.sources,
+            command: self.command,
+            rule_ticket: self.rule_ticket,
+            index: self.index,
+            sub_index: self.sub_index,
+            visited: true
+        }
+    }
 }
 
 #[derive(PartialEq, Debug)]
@@ -504,19 +518,9 @@ impl TopologicalSortMachine
                     }
                 }
 
-                stack.push(
-                    Frame
-                    {
-                        targets: frame.targets,
-                        sources: frame.sources,
-                        command: frame.command,
-                        rule_ticket: frame.rule_ticket,
-                        index: frame.index,
-                        sub_index: frame.sub_index,
-                        visited: true
-                    }
-                );
-                indices_in_stack.insert(frame.index);
+                let frame_index = frame.index;
+                stack.push(frame.visit());
+                indices_in_stack.insert(frame_index);
 
                 while let Some(f) = reverser.pop()
                 {
