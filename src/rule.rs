@@ -615,10 +615,7 @@ pub fn topological_sort(
             let (index, sub_index) =
             match to_buffer_index.get(goal_target)
             {
-                Some((index, sub_index)) =>
-                {
-                    (*index, *sub_index)
-                },
+                Some((index, sub_index)) => (*index, *sub_index),
                 None => return Err(TopologicalSortError::TargetMissing(goal_target.to_string())),
             };
 
