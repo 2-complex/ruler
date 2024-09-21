@@ -608,8 +608,6 @@ pub fn topological_sort(
     rules : Vec<Rule>,
     goal_target : &str) -> Result<Vec<Node>, TopologicalSortError>
 {
-    /*  Convert Rules to Frames.  Frame has some extra eleements
-        that facilitate the topological sort. */
     let (frame_buffer, to_buffer_index) = rules_to_frame_buffer(rules)?;
     let (index, sub_index) =
     match to_buffer_index.get(goal_target)
@@ -628,29 +626,16 @@ pub fn topological_sort(
 pub fn topological_sort_all(
     rules : Vec<Rule>) -> Result<Vec<Node>, TopologicalSortError>
 {
-    /*  Convert Rules to Frames.  Frame has some extra eleements
-        that facilitate the topological sort. */
-    match rules_to_frame_buffer(rules)
+    let (frame_buffer, to_buffer_index) = rules_to_frame_buffer(rules)?;
+    let frame_buffer_len = frame_buffer.len();
+
+    let mut machine = TopologicalSortMachine::new(frame_buffer, to_buffer_index);
+    for index in 0..frame_buffer_len
     {
-        Err(error) =>
-        {
-            /*  If two rules have the same target, we wind up here. */
-            return Err(error);
-        },
-        Ok((frame_buffer, to_buffer_index)) =>
-        {
-            let frame_buffer_len = frame_buffer.len();
-
-            let mut machine = TopologicalSortMachine::new(frame_buffer, to_buffer_index);
-
-            for index in 0..frame_buffer_len
-            {
-                machine.sort_once(index, 0)?;
-            }
-
-            return machine.get_result();
-        }
+        machine.sort_once(index, 0)?;
     }
+
+    machine.get_result()
 }
 
 
