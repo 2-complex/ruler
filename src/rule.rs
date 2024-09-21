@@ -55,6 +55,7 @@ impl Rule
 pub struct Node
 {
     pub targets: Vec<String>,
+    pub leaf_indices: Vec<usize>,
     pub source_indices: Vec<(usize, usize)>,
     pub command : Vec<String>,
     pub rule_ticket : Option<Ticket>,
@@ -551,6 +552,7 @@ impl TopologicalSortMachine
             result.push(Node
             {
                 targets: vec![leaf.clone()],
+                leaf_indices: vec![],
                 source_indices: vec![],
                 command: vec![],
                 rule_ticket: None,
@@ -583,6 +585,7 @@ impl TopologicalSortMachine
                 Node
                 {
                     targets: frame.targets,
+                    leaf_indices: vec![],
                     source_indices: source_indices,
                     command: frame.command,
                     rule_ticket: frame.rule_ticket,
@@ -880,6 +883,7 @@ mod tests
                 Node
                 {
                     targets: vec!["plant".to_string()],
+                    leaf_indices: vec![],
                     source_indices: vec![],
                     command : vec![],
                     rule_ticket : Some(Ticket::from_strings(
@@ -906,6 +910,7 @@ mod tests
             ]),
             Ok(NodePack::new(vec![Node{
                 targets: vec!["plant".to_string()],
+                leaf_indices: vec![],
                 source_indices: vec![],
                 command: vec![],
                 rule_ticket : Some(Ticket::from_strings(
@@ -940,6 +945,7 @@ mod tests
         Ok(NodePack::new(vec![
             Node{
                 targets: vec!["plant".to_string()],
+                leaf_indices: vec![],
                 source_indices: vec![],
                 command: vec![],
                 rule_ticket : Some(Ticket::from_strings(
@@ -949,6 +955,7 @@ mod tests
             },
             Node{
                 targets: vec!["fruit".to_string()],
+                leaf_indices: vec![],
                 source_indices: vec![(0, 0)],
                 command: vec!["pick occasionally".to_string()],
                 rule_ticket : Some(Ticket::from_strings(
@@ -982,6 +989,7 @@ mod tests
             Ok(NodePack::new(vec![
                 Node{
                     targets: vec!["plant".to_string()],
+                    leaf_indices: vec![],
                     source_indices: vec![],
                     command: vec![],
                     rule_ticket : Some(Ticket::from_strings(
@@ -991,6 +999,7 @@ mod tests
                 },
                 Node{
                     targets: vec!["fruit".to_string()],
+                    leaf_indices: vec![],
                     source_indices: vec![(0, 0)],
                     command: vec!["pick occasionally".to_string()],
                     rule_ticket : Some(Ticket::from_strings(
@@ -1206,6 +1215,7 @@ mod tests
             Ok(NodePack::new(vec![
                 Node {
                     targets: vec!["chorus".to_string()],
+                    leaf_indices: vec![],
                     source_indices: vec![],
                     command: vec![],
                     rule_ticket: None
@@ -1213,6 +1223,7 @@ mod tests
                 Node
                 {
                     targets: vec!["verse1".to_string()],
+                    leaf_indices: vec![],
                     source_indices: vec![],
                     command: vec![],
                     rule_ticket: None
@@ -1220,6 +1231,7 @@ mod tests
                 Node
                 {
                     targets: vec!["verse2".to_string()],
+                    leaf_indices: vec![],
                     source_indices: vec![],
                     command: vec![],
                     rule_ticket: None
@@ -1227,6 +1239,7 @@ mod tests
                 Node
                 {
                     targets: vec!["stanza1".to_string()],
+                    leaf_indices: vec![],
                     source_indices: vec![(0, 0), (1, 0)],
                     command: vec!["poemcat verse1 chorus".to_string()],
                     rule_ticket: Some(stanza1_rule.get_ticket()),
@@ -1234,6 +1247,7 @@ mod tests
                 Node
                 {
                     targets: vec!["stanza2".to_string()],
+                    leaf_indices: vec![],
                     source_indices: vec![(0, 0), (2, 0)],
                     command: vec!["poemcat verse2 chorus".to_string()],
                     rule_ticket: Some(stanza2_rule.get_ticket()),
@@ -1241,6 +1255,7 @@ mod tests
                 Node
                 {
                     targets: vec!["poem".to_string()],
+                    leaf_indices: vec![],
                     source_indices: vec![(3, 0), (4, 0)],
                     command: vec!["poemcat stanza1 stanza2".to_string()],
                     rule_ticket: Some(poem_rule.get_ticket()),
@@ -1281,6 +1296,7 @@ mod tests
             Ok(NodePack::new(vec![
                 Node {
                     targets: vec!["chorus".to_string()],
+                    leaf_indices: vec![],
                     source_indices: vec![],
                     command: vec![],
                     rule_ticket: None
@@ -1288,6 +1304,7 @@ mod tests
                 Node
                 {
                     targets: vec!["verse1".to_string()],
+                    leaf_indices: vec![],
                     source_indices: vec![],
                     command: vec![],
                     rule_ticket: None
@@ -1295,6 +1312,7 @@ mod tests
                 Node
                 {
                     targets: vec!["verse2".to_string()],
+                    leaf_indices: vec![],
                     source_indices: vec![],
                     command: vec![],
                     rule_ticket: None
@@ -1302,6 +1320,7 @@ mod tests
                 Node
                 {
                     targets: vec!["stanza1".to_string()],
+                    leaf_indices: vec![],
                     source_indices: vec![(0, 0), (1, 0)],
                     command: vec!["poemcat verse1 chorus".to_string()],
                     rule_ticket: Some(stanza1_rule.get_ticket()),
@@ -1309,6 +1328,7 @@ mod tests
                 Node
                 {
                     targets: vec!["stanza2".to_string()],
+                    leaf_indices: vec![],
                     source_indices: vec![(0, 0), (2, 0)],
                     command: vec!["poemcat verse2 chorus".to_string()],
                     rule_ticket: Some(stanza2_rule.get_ticket()),
@@ -1316,6 +1336,7 @@ mod tests
                 Node
                 {
                     targets: vec!["poem".to_string()],
+                    leaf_indices: vec![],
                     source_indices: vec![(3, 0), (4, 0)],
                     command: vec!["poemcat stanza1 stanza2".to_string()],
                     rule_ticket: Some(poem_rule.get_ticket()),
@@ -1356,6 +1377,7 @@ mod tests
             Ok(NodePack::new(vec![
                 Node {
                     targets: vec!["chorus".to_string()],
+                    leaf_indices: vec![],
                     source_indices: vec![],
                     command: vec![],
                     rule_ticket: None
@@ -1363,6 +1385,7 @@ mod tests
                 Node
                 {
                     targets: vec!["verse1".to_string()],
+                    leaf_indices: vec![],
                     source_indices: vec![],
                     command: vec![],
                     rule_ticket: None
@@ -1370,6 +1393,7 @@ mod tests
                 Node
                 {
                     targets: vec!["verse2".to_string()],
+                    leaf_indices: vec![],
                     source_indices: vec![],
                     command: vec![],
                     rule_ticket: None
@@ -1377,6 +1401,7 @@ mod tests
                 Node
                 {
                     targets: vec!["stanza1".to_string()],
+                    leaf_indices: vec![],
                     source_indices: vec![(0, 0), (1, 0)],
                     command: vec!["poemcat verse1 chorus".to_string()],
                     rule_ticket: Some(stanza1_rule.get_ticket()),
@@ -1384,6 +1409,7 @@ mod tests
                 Node
                 {
                     targets: vec!["stanza2".to_string()],
+                    leaf_indices: vec![],
                     source_indices: vec![(0, 0), (2, 0)],
                     command: vec!["poemcat verse2 chorus".to_string()],
                     rule_ticket: Some(stanza2_rule.get_ticket()),
@@ -1391,6 +1417,7 @@ mod tests
                 Node
                 {
                     targets: vec!["poem".to_string()],
+                    leaf_indices: vec![],
                     source_indices: vec![(3, 0), (4, 0)],
                     command: vec!["poemcat stanza1 stanza2".to_string()],
                     rule_ticket: Some(poem_rule.get_ticket()),
@@ -1430,12 +1457,34 @@ mod tests
             ]),
             Ok(NodePack::new(
                 vec![
-                    Node { targets: vec!["chorus".to_string()], source_indices: vec![], command: vec![], rule_ticket: None },
-                    Node { targets: vec!["verse1".to_string()], source_indices: vec![], command: vec![], rule_ticket: None },
-                    Node { targets: vec!["verse2".to_string()], source_indices: vec![], command: vec![], rule_ticket: None },
+                    Node
+                    {
+                        targets: vec!["chorus".to_string()],
+                        leaf_indices: vec![],
+                        source_indices: vec![],
+                        command: vec![],
+                        rule_ticket: None
+                    },
+                    Node
+                    {
+                        targets: vec!["verse1".to_string()],
+                        leaf_indices: vec![],
+                        source_indices: vec![],
+                        command: vec![],
+                        rule_ticket: None
+                    },
+                    Node
+                    {
+                        targets: vec!["verse2".to_string()],
+                        leaf_indices: vec![],
+                        source_indices: vec![],
+                        command: vec![],
+                        rule_ticket: None
+                    },
                     Node
                     {
                         targets: vec!["stanza1".to_string()],
+                        leaf_indices: vec![],
                         source_indices: vec![(0, 0), (1, 0)],
                         command: vec!["poemcat verse1 chorus".to_string()],
                         rule_ticket: Some(stanza1_rule.get_ticket())
@@ -1443,6 +1492,7 @@ mod tests
                     Node
                     {
                         targets: vec!["stanza2".to_string()],
+                        leaf_indices: vec![],
                         source_indices: vec![(0, 0), (2, 0)],
                         command: vec!["poemcat verse2 chorus".to_string()],
                         rule_ticket: Some(stanza2_rule.get_ticket())
@@ -1450,6 +1500,7 @@ mod tests
                     Node
                     {
                         targets: vec!["poem".to_string()],
+                        leaf_indices: vec![],
                         source_indices: vec![(3, 0), (4, 0)],
                         command: vec!["poemcat stanza1 stanza2".to_string()],
                         rule_ticket: Some(poem_rule.get_ticket())
