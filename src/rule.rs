@@ -563,6 +563,7 @@ impl TopologicalSortMachine
 
         for mut frame in self.frames_in_order.drain(..)
         {
+            let mut leaf_indices = vec![];
             let mut source_indices = vec![];
             for source in frame.sources.drain(..)
             {
@@ -570,6 +571,7 @@ impl TopologicalSortMachine
                 {
                     Some(index) =>
                     {
+                        leaf_indices.push(*index);
                         source_indices.push((*index, 0));
                     },
                     None =>
@@ -585,7 +587,7 @@ impl TopologicalSortMachine
                 Node
                 {
                     targets: frame.targets,
-                    leaf_indices: vec![],
+                    leaf_indices: leaf_indices,
                     source_indices: source_indices,
                     command: frame.command,
                     rule_ticket: frame.rule_ticket,
@@ -1239,7 +1241,7 @@ mod tests
                 Node
                 {
                     targets: vec!["stanza1".to_string()],
-                    leaf_indices: vec![],
+                    leaf_indices: vec![0, 1],
                     source_indices: vec![(0, 0), (1, 0)],
                     command: vec!["poemcat verse1 chorus".to_string()],
                     rule_ticket: Some(stanza1_rule.get_ticket()),
@@ -1247,7 +1249,7 @@ mod tests
                 Node
                 {
                     targets: vec!["stanza2".to_string()],
-                    leaf_indices: vec![],
+                    leaf_indices: vec![0, 2],
                     source_indices: vec![(0, 0), (2, 0)],
                     command: vec!["poemcat verse2 chorus".to_string()],
                     rule_ticket: Some(stanza2_rule.get_ticket()),
@@ -1320,7 +1322,7 @@ mod tests
                 Node
                 {
                     targets: vec!["stanza1".to_string()],
-                    leaf_indices: vec![],
+                    leaf_indices: vec![0, 1],
                     source_indices: vec![(0, 0), (1, 0)],
                     command: vec!["poemcat verse1 chorus".to_string()],
                     rule_ticket: Some(stanza1_rule.get_ticket()),
@@ -1328,7 +1330,7 @@ mod tests
                 Node
                 {
                     targets: vec!["stanza2".to_string()],
-                    leaf_indices: vec![],
+                    leaf_indices: vec![0, 2],
                     source_indices: vec![(0, 0), (2, 0)],
                     command: vec!["poemcat verse2 chorus".to_string()],
                     rule_ticket: Some(stanza2_rule.get_ticket()),
@@ -1401,7 +1403,7 @@ mod tests
                 Node
                 {
                     targets: vec!["stanza1".to_string()],
-                    leaf_indices: vec![],
+                    leaf_indices: vec![0, 1],
                     source_indices: vec![(0, 0), (1, 0)],
                     command: vec!["poemcat verse1 chorus".to_string()],
                     rule_ticket: Some(stanza1_rule.get_ticket()),
@@ -1409,7 +1411,7 @@ mod tests
                 Node
                 {
                     targets: vec!["stanza2".to_string()],
-                    leaf_indices: vec![],
+                    leaf_indices: vec![0, 2],
                     source_indices: vec![(0, 0), (2, 0)],
                     command: vec!["poemcat verse2 chorus".to_string()],
                     rule_ticket: Some(stanza2_rule.get_ticket()),
@@ -1484,7 +1486,7 @@ mod tests
                     Node
                     {
                         targets: vec!["stanza1".to_string()],
-                        leaf_indices: vec![],
+                        leaf_indices: vec![0, 1],
                         source_indices: vec![(0, 0), (1, 0)],
                         command: vec!["poemcat verse1 chorus".to_string()],
                         rule_ticket: Some(stanza1_rule.get_ticket())
@@ -1492,7 +1494,7 @@ mod tests
                     Node
                     {
                         targets: vec!["stanza2".to_string()],
-                        leaf_indices: vec![],
+                        leaf_indices: vec![0, 2],
                         source_indices: vec![(0, 0), (2, 0)],
                         command: vec!["poemcat verse2 chorus".to_string()],
                         rule_ticket: Some(stanza2_rule.get_ticket())
