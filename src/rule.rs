@@ -620,7 +620,7 @@ pub fn topological_sort(
 
     let mut machine = TopologicalSortMachine::new(frame_buffer, to_buffer_index);
     machine.sort_once(index, sub_index)?;
-    return machine.get_result();
+    machine.get_result()
 }
 
 /*  For building all targets.  This function calls rules_to_frame_buffer to generate frames for the rules,
