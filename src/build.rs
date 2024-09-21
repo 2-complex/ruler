@@ -277,7 +277,7 @@ pub fn get_nodes
             {
                 match topological_sort(rules, &goal_target)
                 {
-                    Ok(nodes) => nodes,
+                    Ok(pack) => pack.nodes,
                     Err(error) => return Err(BuildError::TopologicalSortFailed(error)),
                 }
             },
@@ -285,7 +285,7 @@ pub fn get_nodes
             {
                 match topological_sort_all(rules)
                 {
-                    Ok(nodes) => nodes,
+                    Ok(pack) => pack.nodes,
                     Err(error) => return Err(BuildError::TopologicalSortFailed(error)),
                 }
             }

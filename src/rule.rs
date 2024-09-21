@@ -540,7 +540,7 @@ impl TopologicalSortMachine
     }
 
     /*  Remap the sources of all the nodes to indices in the new result vector. */
-    pub fn get_result(mut self) -> Result<Vec<Node>, TopologicalSortError>
+    pub fn get_result(mut self) -> Result<NodePack, TopologicalSortError>
     {
         let mut num_leaves = 0;
         let mut result = Vec::new();
@@ -590,7 +590,32 @@ impl TopologicalSortMachine
             );
         }
 
-        Ok(result)
+        Ok(NodePack{nodes:result})
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct NodePack
+{
+    pub nodes: Vec<Node>,
+}
+
+impl NodePack
+{
+    fn empty() -> Self
+    {
+        NodePack
+        {
+            nodes: Vec::new(),
+        }
+    }
+
+    fn new(nodes: Vec<Node>) -> Self
+    {
+        NodePack
+        {
+            nodes: nodes,
+        }
     }
 }
 
@@ -604,7 +629,7 @@ impl TopologicalSortMachine
     RuleInfo and an empty list of sources. */
 pub fn topological_sort(
     rules : Vec<Rule>,
-    goal_target : &str) -> Result<Vec<Node>, TopologicalSortError>
+    goal_target : &str) -> Result<NodePack, TopologicalSortError>
 {
     let (frame_buffer, to_buffer_index) = rules_to_frame_buffer(rules)?;
     let (index, sub_index) =
@@ -622,7 +647,7 @@ pub fn topological_sort(
 /*  For building all targets.  This function calls rules_to_frame_buffer to generate frames for the rules,
     then iterates through all the frames */
 pub fn topological_sort_all(
-    rules : Vec<Rule>) -> Result<Vec<Node>, TopologicalSortError>
+    rules : Vec<Rule>) -> Result<NodePack, TopologicalSortError>
 {
     let (frame_buffer, to_buffer_index) = rules_to_frame_buffer(rules)?;
     let frame_buffer_len = frame_buffer.len();
@@ -645,6 +670,7 @@ mod tests
     {
         Rule,
         Node,
+        NodePack,
         rules_to_frame_buffer,
         topological_sort,
         topological_sort_all,
@@ -832,7 +858,7 @@ mod tests
     #[test]
     fn topological_sort_all_empty_is_empty()
     {
-        assert_eq!(topological_sort_all(vec![]), Ok(vec![]));
+        assert_eq!(topological_sort_all(vec![]), Ok(NodePack::empty()));
     }
 
     /*  Topological sort a list of one rule only.  Check the result
@@ -850,7 +876,7 @@ mod tests
                 },
             ],
             "plant"),
-            Ok(vec![
+            Ok(NodePack::new(vec![
                 Node
                 {
                     targets: vec!["plant".to_string()],
@@ -861,7 +887,7 @@ mod tests
                         &vec![],
                         &vec![])),
                 }
-            ]));
+            ])));
     }
 
     /*  Topological sort a list of one rule only.  Check the result
@@ -878,7 +904,7 @@ mod tests
                     command: vec![],
                 },
             ]),
-            Ok(vec![Node{
+            Ok(NodePack::new(vec![Node{
                 targets: vec!["plant".to_string()],
                 source_indices: vec![],
                 command: vec![],
@@ -886,7 +912,7 @@ mod tests
                     &vec!["plant".to_string()],
                     &vec![],
                     &vec![])),
-            }])
+            }]))
         );
     }
 
@@ -911,7 +937,7 @@ mod tests
                 },
             ],
             "fruit"),
-        Ok(vec![
+        Ok(NodePack::new(vec![
             Node{
                 targets: vec!["plant".to_string()],
                 source_indices: vec![],
@@ -930,7 +956,7 @@ mod tests
                     &vec!["plant".to_string()],
                     &vec!["pick occasionally".to_string()])),
             }
-        ]));
+        ])));
     }
 
     /*  Topological sort all of a list of two rules only, one depends on the other as a source, but
@@ -953,7 +979,7 @@ mod tests
                     command: vec![],
                 },
             ]),
-            Ok(vec![
+            Ok(NodePack::new(vec![
                 Node{
                     targets: vec!["plant".to_string()],
                     source_indices: vec![],
@@ -972,7 +998,7 @@ mod tests
                         &vec!["plant".to_string()],
                         &vec!["pick occasionally".to_string()])),
                 }
-            ]));
+            ])));
     }
 
     /*  Topological sort a DAG that is not a tree.  Four nodes math, physics, graphics, game
@@ -1011,20 +1037,20 @@ mod tests
         {
             Ok(v) =>
             {
-                assert_eq!(v.len(), 4);
-                assert_eq!(v[0].targets[0], "math");
-                assert_eq!(v[1].targets[0], "graphics");
-                assert_eq!(v[2].targets[0], "physics");
-                assert_eq!(v[3].targets[0], "game");
+                assert_eq!(v.nodes.len(), 4);
+                assert_eq!(v.nodes[0].targets[0], "math");
+                assert_eq!(v.nodes[1].targets[0], "graphics");
+                assert_eq!(v.nodes[2].targets[0], "physics");
+                assert_eq!(v.nodes[3].targets[0], "game");
 
-                assert_eq!(v[0].source_indices.len(), 0);
-                assert_eq!(v[1].source_indices.len(), 1);
-                assert_eq!(v[1].source_indices[0], (0, 0));
-                assert_eq!(v[2].source_indices.len(), 1);
-                assert_eq!(v[2].source_indices[0], (0, 0));
-                assert_eq!(v[3].source_indices.len(), 2);
-                assert_eq!(v[3].source_indices[0], (1, 0));
-                assert_eq!(v[3].source_indices[1], (2, 0));
+                assert_eq!(v.nodes[0].source_indices.len(), 0);
+                assert_eq!(v.nodes[1].source_indices.len(), 1);
+                assert_eq!(v.nodes[1].source_indices[0], (0, 0));
+                assert_eq!(v.nodes[2].source_indices.len(), 1);
+                assert_eq!(v.nodes[2].source_indices[0], (0, 0));
+                assert_eq!(v.nodes[3].source_indices.len(), 2);
+                assert_eq!(v.nodes[3].source_indices[0], (1, 0));
+                assert_eq!(v.nodes[3].source_indices[1], (2, 0));
             }
             Err(why) => panic!("Expected success, got: {}", why),
         }
@@ -1070,20 +1096,19 @@ mod tests
         {
             Ok(v) =>
             {
-                assert_eq!(v.len(), 4);
-                assert_eq!(v[0].targets[0], "math");
-                assert_eq!(v[1].targets[0], "graphics");
-                assert_eq!(v[2].targets[0], "physics");
-                assert_eq!(v[3].targets[0], "game");
-
-                assert_eq!(v[0].source_indices.len(), 0);
-                assert_eq!(v[1].source_indices.len(), 1);
-                assert_eq!(v[1].source_indices[0], (0, 0));
-                assert_eq!(v[2].source_indices.len(), 1);
-                assert_eq!(v[2].source_indices[0], (0, 0));
-                assert_eq!(v[3].source_indices.len(), 2);
-                assert_eq!(v[3].source_indices[0], (1, 0));
-                assert_eq!(v[3].source_indices[1], (2, 0));
+                assert_eq!(v.nodes.len(), 4);
+                assert_eq!(v.nodes[0].targets[0], "math");
+                assert_eq!(v.nodes[1].targets[0], "graphics");
+                assert_eq!(v.nodes[2].targets[0], "physics");
+                assert_eq!(v.nodes[3].targets[0], "game");
+                assert_eq!(v.nodes[0].source_indices.len(), 0);
+                assert_eq!(v.nodes[1].source_indices.len(), 1);
+                assert_eq!(v.nodes[1].source_indices[0], (0, 0));
+                assert_eq!(v.nodes[2].source_indices.len(), 1);
+                assert_eq!(v.nodes[2].source_indices[0], (0, 0));
+                assert_eq!(v.nodes[3].source_indices.len(), 2);
+                assert_eq!(v.nodes[3].source_indices[0], (1, 0));
+                assert_eq!(v.nodes[3].source_indices[1], (2, 0));
             }
             Err(why) => panic!("Expected success, got: {}", why),
         }
@@ -1127,20 +1152,19 @@ mod tests
         {
             Ok(v) =>
             {
-                assert_eq!(v.len(), 4);
-                assert_eq!(v[0].targets[0], "math");
-                assert_eq!(v[1].targets[0], "graphics");
-                assert_eq!(v[2].targets[0], "physics");
-                assert_eq!(v[3].targets[0], "game");
-
-                assert_eq!(v[0].source_indices.len(), 0);
-                assert_eq!(v[1].source_indices.len(), 1);
-                assert_eq!(v[1].source_indices[0], (0, 0));
-                assert_eq!(v[2].source_indices.len(), 1);
-                assert_eq!(v[2].source_indices[0], (0, 0));
-                assert_eq!(v[3].source_indices.len(), 2);
-                assert_eq!(v[3].source_indices[0], (1, 0));
-                assert_eq!(v[3].source_indices[1], (2, 0));
+                assert_eq!(v.nodes.len(), 4);
+                assert_eq!(v.nodes[0].targets[0], "math");
+                assert_eq!(v.nodes[1].targets[0], "graphics");
+                assert_eq!(v.nodes[2].targets[0], "physics");
+                assert_eq!(v.nodes[3].targets[0], "game");
+                assert_eq!(v.nodes[0].source_indices.len(), 0);
+                assert_eq!(v.nodes[1].source_indices.len(), 1);
+                assert_eq!(v.nodes[1].source_indices[0], (0, 0));
+                assert_eq!(v.nodes[2].source_indices.len(), 1);
+                assert_eq!(v.nodes[2].source_indices[0], (0, 0));
+                assert_eq!(v.nodes[3].source_indices.len(), 2);
+                assert_eq!(v.nodes[3].source_indices[0], (1, 0));
+                assert_eq!(v.nodes[3].source_indices[1], (2, 0));
             }
             Err(why) => panic!("Expected success, got: {}", why),
         }
@@ -1179,7 +1203,7 @@ mod tests
                 stanza2_rule.clone(),
                 poem_rule.clone(),
             ], "poem"),
-            Ok(vec![
+            Ok(NodePack::new(vec![
                 Node {
                     targets: vec!["chorus".to_string()],
                     source_indices: vec![],
@@ -1221,7 +1245,7 @@ mod tests
                     command: vec!["poemcat stanza1 stanza2".to_string()],
                     rule_ticket: Some(poem_rule.get_ticket()),
                 }
-            ])
+            ]))
         );
     }
 
@@ -1254,7 +1278,7 @@ mod tests
                 poem_rule.clone(),
                 stanza1_rule.clone(),
             ], "poem"),
-            Ok(vec![
+            Ok(NodePack::new(vec![
                 Node {
                     targets: vec!["chorus".to_string()],
                     source_indices: vec![],
@@ -1296,7 +1320,7 @@ mod tests
                     command: vec!["poemcat stanza1 stanza2".to_string()],
                     rule_ticket: Some(poem_rule.get_ticket()),
                 }
-            ])
+            ]))
         );
     }
 
@@ -1329,7 +1353,7 @@ mod tests
                 poem_rule.clone(),
                 stanza1_rule.clone(),
             ]),
-            Ok(vec![
+            Ok(NodePack::new(vec![
                 Node {
                     targets: vec!["chorus".to_string()],
                     source_indices: vec![],
@@ -1371,7 +1395,7 @@ mod tests
                     command: vec!["poemcat stanza1 stanza2".to_string()],
                     rule_ticket: Some(poem_rule.get_ticket()),
                 }
-            ])
+            ]))
         );
     }
 
@@ -1404,7 +1428,7 @@ mod tests
                 stanza1_rule.clone(),
                 stanza2_rule.clone(),
             ]),
-            Ok(
+            Ok(NodePack::new(
                 vec![
                     Node { targets: vec!["chorus".to_string()], source_indices: vec![], command: vec![], rule_ticket: None },
                     Node { targets: vec!["verse1".to_string()], source_indices: vec![], command: vec![], rule_ticket: None },
@@ -1428,9 +1452,10 @@ mod tests
                         targets: vec!["poem".to_string()],
                         source_indices: vec![(3, 0), (4, 0)],
                         command: vec!["poemcat stanza1 stanza2".to_string()],
-                        rule_ticket: Some(poem_rule.get_ticket()) }
+                        rule_ticket: Some(poem_rule.get_ticket())
+                    }
                 ]
-            )
+            ))
         );
     }
 
@@ -1529,13 +1554,13 @@ mod tests
         {
             Ok(v) =>
             {
-                assert_eq!(v.len(), 6);
-                assert_eq!(v[0].targets[0], "seed");
-                assert_eq!(v[1].targets[0], "soil");
-                assert_eq!(v[2].targets[0], "sunlight");
-                assert_eq!(v[3].targets[0], "water");
-                assert_eq!(v[4].targets[0], "plant");
-                assert_eq!(v[5].targets[0], "fruit");
+                assert_eq!(v.nodes.len(), 6);
+                assert_eq!(v.nodes[0].targets[0], "seed");
+                assert_eq!(v.nodes[1].targets[0], "soil");
+                assert_eq!(v.nodes[2].targets[0], "sunlight");
+                assert_eq!(v.nodes[3].targets[0], "water");
+                assert_eq!(v.nodes[4].targets[0], "plant");
+                assert_eq!(v.nodes[5].targets[0], "fruit");
             }
             Err(why) => panic!("Expected success, got: {}", why),
         }
