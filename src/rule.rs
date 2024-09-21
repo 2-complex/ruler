@@ -359,7 +359,7 @@ impl fmt::Display for TopologicalSortError
 #[derive(Debug, PartialEq)]
 struct FrameBufferValue
 {
-    // final_index: usize,
+    final_index: usize,
     opt_frame: Option<Frame>,
 }
 
@@ -397,7 +397,11 @@ fn rules_to_frame_buffer(mut rules : Vec<Rule>)
             };
         }
 
-        frame_buffer.push(FrameBufferValue{opt_frame:Some(Frame::from_rule_and_index(rule, current_buffer_index))});
+        frame_buffer.push(FrameBufferValue
+        {
+            final_index: 0,
+            opt_frame: Some(Frame::from_rule_and_index(rule, current_buffer_index))
+        });
         current_buffer_index += 1;
     }
 
@@ -421,9 +425,6 @@ struct TopologicalSortMachine
     /*  Recall frame_buffer is a vector of options.  That's so that
         the frames can be taken from frame_buffer and added to frames_in_order */
     frames_in_order : Vec<Frame>,
-
-    /*  This maps index in frame_buffer to index in frames_in_order */
-    index_bijection : HashMap<usize, usize>,
 }
 
 /*  Holds the state of the topological sort, so that we can either sort from one origin,
@@ -442,7 +443,6 @@ impl TopologicalSortMachine
             frame_buffer : frame_buffer,
             to_buffer_index : to_buffer_index,
             frames_in_order : vec![],
-            index_bijection : HashMap::new(),
         }
     }
 
@@ -478,7 +478,7 @@ impl TopologicalSortMachine
 
             if frame.visited
             {
-                self.index_bijection.insert(frame.index, self.frames_in_order.len());
+                self.frame_buffer[frame.index].final_index = self.frames_in_order.len();
                 self.frames_in_order.push(frame);
             }
             else
@@ -574,7 +574,7 @@ impl TopologicalSortMachine
                     None =>
                     {
                         let (buffer_index, sub_index) = self.to_buffer_index.get(&source).unwrap();
-                        source_indices.push((*self.index_bijection.get(buffer_index).unwrap() + num_leaves, *sub_index));
+                        source_indices.push((self.frame_buffer[*buffer_index].final_index + num_leaves, *sub_index));
                     }
                 }
 
