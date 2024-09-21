@@ -356,6 +356,13 @@ impl fmt::Display for TopologicalSortError
     }
 }
 
+#[derive(Debug, PartialEq)]
+struct FrameBufferValue
+{
+    // final_index: usize,
+    opt_frame: Option<Frame>,
+}
+
 /*  Consume Rules, and in their place, make Nodes.
     In each Node, leave 'source_indices' empty.
 
@@ -368,10 +375,10 @@ impl fmt::Display for TopologicalSortError
             node's target list of the target in question  */
 fn rules_to_frame_buffer(mut rules : Vec<Rule>)
 -> Result<
-    (Vec<Option<Frame>>, HashMap<String, (usize, usize)>),
+    (Vec<FrameBufferValue>, HashMap<String, (usize, usize)>),
     TopologicalSortError>
 {
-    let mut frame_buffer : Vec<Option<Frame>> = Vec::new();
+    let mut frame_buffer : Vec<FrameBufferValue> = Vec::new();
     let mut to_buffer_index : HashMap<String, (usize, usize)> = HashMap::new();
 
     let mut current_buffer_index = 0usize;
@@ -390,7 +397,7 @@ fn rules_to_frame_buffer(mut rules : Vec<Rule>)
             };
         }
 
-        frame_buffer.push(Some(Frame::from_rule_and_index(rule, current_buffer_index)));
+        frame_buffer.push(FrameBufferValue{opt_frame:Some(Frame::from_rule_and_index(rule, current_buffer_index))});
         current_buffer_index += 1;
     }
 
@@ -404,7 +411,7 @@ struct TopologicalSortMachine
 
     /*  The "buffer" referred to by variable-names here is
         the buffer of frames (frame_buffer) */
-    frame_buffer : Vec<Option<Frame>>,
+    frame_buffer : Vec<FrameBufferValue>,
 
     /*  Sends the target name to a pair of indices:
         - index of the rule in which it's a target
@@ -424,10 +431,10 @@ struct TopologicalSortMachine
 impl TopologicalSortMachine
 {
     pub fn new(
-        frame_buffer : Vec<Option<Frame>>,
+        frame_buffer : Vec<FrameBufferValue>,
         to_buffer_index : HashMap<String, (usize, usize)>
     )
-    -> TopologicalSortMachine
+    -> Self
     {
         TopologicalSortMachine
         {
@@ -445,7 +452,7 @@ impl TopologicalSortMachine
     -> Result<(), TopologicalSortError>
     {
         let starting_frame =
-        match self.frame_buffer[index].take()
+        match self.frame_buffer[index].opt_frame.take()
         {
             Some(mut frame) =>
             {
@@ -483,7 +490,7 @@ impl TopologicalSortMachine
                     {
                         Some((buffer_index, sub_index)) =>
                         {
-                            if let Some(mut frame) = self.frame_buffer[*buffer_index].take()
+                            if let Some(mut frame) = self.frame_buffer[*buffer_index].opt_frame.take()
                             {
                                 frame.sub_index = *sub_index;
                                 reverser.push(frame);
@@ -742,7 +749,7 @@ mod tests
                 assert_eq!(*node_index, 0usize);
 
                 /*  Check that there's a node at that index with the right target */
-                match &frame_buffer[*node_index]
+                match &frame_buffer[*node_index].opt_frame
                 {
                     Some(frame) => assert_eq!(frame.targets[*target_index], "plant"),
                     None => panic!("Expected some node with target 'plant' found None"),
@@ -754,14 +761,14 @@ mod tests
                 assert_eq!(*node_index, 0usize);
 
                 /*  Check that there's a node at that index with the right target */
-                match &frame_buffer[*node_index]
+                match &frame_buffer[*node_index].opt_frame
                 {
                     Some(frame) => assert_eq!(frame.targets[*target_index], "tangerine"),
                     None => panic!("Expected some node with target 'tangerine' found None"),
                 }
 
                 /*  Get the frame (at index 0), and check that the sources and command are what was set above. */
-                match &frame_buffer[*node_index]
+                match &frame_buffer[*node_index].opt_frame
                 {
                     Some(frame) =>
                     {
@@ -840,7 +847,6 @@ mod tests
                 },
             ]
         ), Err(TopologicalSortError::TargetInMultipleRules("fruit".to_string())));
-        
     }
 
     /*  Topological sort the empty set of rules, but with a goal-target.  That should error. */
