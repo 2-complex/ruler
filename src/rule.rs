@@ -610,27 +610,17 @@ pub fn topological_sort(
 {
     /*  Convert Rules to Frames.  Frame has some extra eleements
         that facilitate the topological sort. */
-    match rules_to_frame_buffer(rules)
+    let (frame_buffer, to_buffer_index) = rules_to_frame_buffer(rules)?;
+    let (index, sub_index) =
+    match to_buffer_index.get(goal_target)
     {
-        Err(error) =>
-        {
-            /*  If two rules have the same target, we wind up here. */
-            return Err(error);
-        },
-        Ok((frame_buffer, to_buffer_index)) =>
-        {
-            let (index, sub_index) =
-            match to_buffer_index.get(goal_target)
-            {
-                Some((index, sub_index)) => (*index, *sub_index),
-                None => return Err(TopologicalSortError::TargetMissing(goal_target.to_string())),
-            };
+        Some((index, sub_index)) => (*index, *sub_index),
+        None => return Err(TopologicalSortError::TargetMissing(goal_target.to_string())),
+    };
 
-            let mut machine = TopologicalSortMachine::new(frame_buffer, to_buffer_index);
-            machine.sort_once(index, sub_index)?;
-            return machine.get_result();
-        }
-    }
+    let mut machine = TopologicalSortMachine::new(frame_buffer, to_buffer_index);
+    machine.sort_once(index, sub_index)?;
+    return machine.get_result();
 }
 
 /*  For building all targets.  This function calls rules_to_frame_buffer to generate frames for the rules,
