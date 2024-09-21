@@ -60,7 +60,6 @@ pub struct Node
     pub rule_ticket : Option<Ticket>,
 }
 
-
 impl fmt::Display for Rule
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result
@@ -593,7 +592,6 @@ impl TopologicalSortMachine
 
         Ok(result)
     }
-
 }
 
 /*  Takes a vector of Rules and goal_target, goal target is the target in whose rule the
@@ -628,7 +626,6 @@ pub fn topological_sort_all(
 {
     let (frame_buffer, to_buffer_index) = rules_to_frame_buffer(rules)?;
     let frame_buffer_len = frame_buffer.len();
-
     let mut machine = TopologicalSortMachine::new(frame_buffer, to_buffer_index);
     for index in 0..frame_buffer_len
     {
