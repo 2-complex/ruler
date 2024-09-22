@@ -64,7 +64,7 @@ pub struct Node
     pub targets: Vec<String>,
     pub source_indices: Vec<SourceIndex>,
     pub command : Vec<String>,
-    pub rule_ticket : Option<Ticket>,
+    pub rule_ticket : Ticket,
 }
 
 impl fmt::Display for Rule
@@ -94,26 +94,12 @@ impl fmt::Display for Node
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result
     {
-        match &self.rule_ticket
+        write!(f, "\n").unwrap();
+        for t in self.targets.iter()
         {
-            Some(ticket) =>
-            {
-                write!(f, "\n").unwrap();
-                for t in self.targets.iter()
-                {
-                    write!(f, "{}\n", t).unwrap();
-                }
-                write!(f, "{}\n\n", ticket).unwrap();
-            },
-            None =>
-            {
-                for t in self.targets.iter()
-                {
-                    write!(f, "{}\n", t).unwrap();
-                }
-            }
+            write!(f, "{}\n", t).unwrap();
         }
-
+        write!(f, "{}\n\n", self.rule_ticket).unwrap();
         write!(f, "")
     }
 }
@@ -286,7 +272,7 @@ struct Frame
     targets: Vec<String>,
     sources: Vec<String>,
     command: Vec<String>,
-    rule_ticket: Option<Ticket>,
+    rule_ticket: Ticket,
     index: usize,
     sub_index: usize,
     visited: bool,
@@ -302,7 +288,7 @@ impl Frame
             targets: rule.targets,
             sources: rule.sources,
             command: rule.command,
-            rule_ticket: Some(ticket),
+            rule_ticket: ticket,
             index: index,
             sub_index: 0,
             visited: false,
@@ -670,7 +656,6 @@ pub fn topological_sort_all(
 #[cfg(test)]
 mod tests
 {
-    use crate::ticket::Ticket;
     use crate::rule::
     {
         Rule,
@@ -872,16 +857,14 @@ mod tests
     #[test]
     fn topological_sort_one_rule()
     {
-        assert_eq!(topological_sort(
-            vec![
-                Rule
-                {
-                    targets: vec!["plant".to_string()],
-                    sources: vec![],
-                    command: vec![],
-                },
-            ],
-            "plant"),
+        let rule = Rule::new(
+            vec!["plant".to_string()],
+            vec![],
+            vec![],
+        );
+
+        assert_eq!(
+            topological_sort(vec![rule.clone()], "plant"),
             Ok(NodePack::new(
                 vec![],
                 vec![
@@ -890,13 +873,11 @@ mod tests
                         targets: vec!["plant".to_string()],
                         source_indices: vec![],
                         command : vec![],
-                        rule_ticket : Some(Ticket::from_strings(
-                            &vec!["plant".to_string()],
-                            &vec![],
-                            &vec![])),
+                        rule_ticket : rule.get_ticket(),
                     }
                 ]
-            )));
+            ))
+        );
     }
 
     /*  Topological sort a list of one rule only.  Check the result
@@ -904,26 +885,24 @@ mod tests
     #[test]
     fn topological_sort_all_one_rule()
     {
-        assert_eq!(topological_sort_all(
-            vec![
-                Rule
-                {
-                    targets: vec!["plant".to_string()],
-                    sources: vec![],
-                    command: vec![],
-                },
-            ]),
+        let rule = Rule::new(
+            vec!["plant".to_string()],
+            vec![],
+            vec![]
+        );
+
+        assert_eq!(topological_sort_all(vec![rule.clone()]),
             Ok(NodePack::new(
                 vec![],
-                vec![Node{
-                    targets: vec!["plant".to_string()],
-                    source_indices: vec![],
-                    command: vec![],
-                    rule_ticket : Some(Ticket::from_strings(
-                        &vec!["plant".to_string()],
-                        &vec![],
-                        &vec![])),
-                }]
+                vec![
+                    Node
+                    {
+                        targets: vec!["plant".to_string()],
+                        source_indices: vec![],
+                        command: vec![],
+                        rule_ticket : rule.get_ticket(),
+                    }
+                ]
             ))
         );
     }
@@ -933,20 +912,21 @@ mod tests
     #[test]
     fn topological_sort_two_rules()
     {
+        let fruit_rule = Rule::new(
+            vec!["fruit".to_string()],
+            vec!["plant".to_string()],
+            vec!["pick occasionally".to_string()],
+        );
+        let plant_rule = Rule::new(
+            vec!["plant".to_string()],
+            vec![],
+            vec![],
+        );
+
         assert_eq!(topological_sort(
             vec![
-                Rule
-                {
-                    targets: vec!["fruit".to_string()],
-                    sources: vec!["plant".to_string()],
-                    command: vec!["pick occasionally".to_string()],
-                },
-                Rule
-                {
-                    targets: vec!["plant".to_string()],
-                    sources: vec![],
-                    command: vec![],
-                },
+                fruit_rule.clone(),
+                plant_rule.clone(),
             ],
             "fruit"),
         Ok(NodePack::new(
@@ -956,20 +936,14 @@ mod tests
                     targets: vec!["plant".to_string()],
                     source_indices: vec![],
                     command: vec![],
-                    rule_ticket : Some(Ticket::from_strings(
-                        &vec!["plant".to_string()],
-                        &vec![],
-                        &vec![])),
+                    rule_ticket : plant_rule.get_ticket(),
                 },
                 Node{
                     targets: vec!["fruit".to_string()],
                     source_indices: vec![SourceIndex::Pair(0, 0)],
                     command: vec!["pick occasionally".to_string()],
-                    rule_ticket : Some(Ticket::from_strings(
-                        &vec!["fruit".to_string()],
-                        &vec!["plant".to_string()],
-                        &vec!["pick occasionally".to_string()])),
-                }
+                    rule_ticket : fruit_rule.get_ticket(),
+                },
             ])
         ));
     }
@@ -1005,14 +979,14 @@ mod tests
                     {
                         targets: vec!["plant".to_string()],
                         source_indices: vec![],
-                        rule_ticket: Some(plant_rule.get_ticket()),
+                        rule_ticket: plant_rule.get_ticket(),
                         command: vec!["take care of plant".to_string()],
                     },
                     Node
                     {
                         targets: vec!["fruit".to_string()],
                         source_indices: vec![SourceIndex::Pair(0,0)],
-                        rule_ticket: Some(fruit_rule.get_ticket()),
+                        rule_ticket: fruit_rule.get_ticket(),
                         command: vec!["pick occasionally".to_string()],
                     },
                 ]
@@ -1065,28 +1039,28 @@ mod tests
                     {
                         targets: vec!["math".to_string()],
                         source_indices: vec![],
-                        rule_ticket: Some(math_rule.get_ticket()),
+                        rule_ticket: math_rule.get_ticket(),
                         command: vec!["build math".to_string()],
                     },
                     Node
                     {
                         targets: vec!["graphics".to_string()],
                         source_indices: vec![SourceIndex::Pair(0, 0)],
-                        rule_ticket: Some(graphics_rule.get_ticket()),
+                        rule_ticket: graphics_rule.get_ticket(),
                         command: vec!["build graphics".to_string()],
                     },
                     Node
                     {
                         targets: vec!["physics".to_string()],
                         source_indices: vec![SourceIndex::Pair(0, 0)],
-                        rule_ticket: Some(physics_rule.get_ticket()),
+                        rule_ticket: physics_rule.get_ticket(),
                         command: vec!["build physics".to_string()],
                     },
                     Node
                     {
                         targets: vec!["game".to_string()],
                         source_indices: vec![SourceIndex::Pair(1, 0), SourceIndex::Pair(2, 0),],
-                        rule_ticket: Some(game_rule.get_ticket()),
+                        rule_ticket: game_rule.get_ticket(),
                         command: vec!["build game".to_string()],
                     },
                 ]
@@ -1139,28 +1113,28 @@ mod tests
                     {
                         targets: vec!["math".to_string()],
                         source_indices: vec![],
-                        rule_ticket: Some(math_rule.get_ticket()),
+                        rule_ticket: math_rule.get_ticket(),
                         command: vec!["build math".to_string()],
                     },
                     Node
                     {
                         targets: vec!["graphics".to_string()],
                         source_indices: vec![SourceIndex::Pair(0, 0)],
-                        rule_ticket: Some(graphics_rule.get_ticket()),
+                        rule_ticket: graphics_rule.get_ticket(),
                         command: vec!["build graphics".to_string()],
                     },
                     Node
                     {
                         targets: vec!["physics".to_string()],
                         source_indices: vec![SourceIndex::Pair(0, 0)],
-                        rule_ticket: Some(physics_rule.get_ticket()),
+                        rule_ticket: physics_rule.get_ticket(),
                         command: vec!["build physics".to_string()],
                     },
                     Node
                     {
                         targets: vec!["game".to_string()],
                         source_indices: vec![SourceIndex::Pair(1, 0), SourceIndex::Pair(2, 0),],
-                        rule_ticket: Some(game_rule.get_ticket()),
+                        rule_ticket: game_rule.get_ticket(),
                         command: vec!["build game".to_string()],
                     },
                 ]
@@ -1213,21 +1187,21 @@ mod tests
                         targets: vec!["stanza1".to_string()],
                         source_indices: vec![SourceIndex::Leaf(0), SourceIndex::Leaf(1)],
                         command: vec!["poemcat verse1 chorus".to_string()],
-                        rule_ticket: Some(stanza1_rule.get_ticket()),
+                        rule_ticket: stanza1_rule.get_ticket(),
                     },
                     Node
                     {
                         targets: vec!["stanza2".to_string()],
                         source_indices: vec![SourceIndex::Leaf(0), SourceIndex::Leaf(2)],
                         command: vec!["poemcat verse2 chorus".to_string()],
-                        rule_ticket: Some(stanza2_rule.get_ticket()),
+                        rule_ticket: stanza2_rule.get_ticket(),
                     },
                     Node
                     {
                         targets: vec!["poem".to_string()],
                         source_indices: vec![SourceIndex::Pair(0, 0), SourceIndex::Pair(1, 0)],
                         command: vec!["poemcat stanza1 stanza2".to_string()],
-                        rule_ticket: Some(poem_rule.get_ticket()),
+                        rule_ticket: poem_rule.get_ticket(),
                     }
                 ]
             ))
@@ -1275,21 +1249,21 @@ mod tests
                         targets: vec!["stanza1".to_string()],
                         source_indices: vec![SourceIndex::Leaf(0), SourceIndex::Leaf(1)],
                         command: vec!["poemcat verse1 chorus".to_string()],
-                        rule_ticket: Some(stanza1_rule.get_ticket()),
+                        rule_ticket: stanza1_rule.get_ticket(),
                     },
                     Node
                     {
                         targets: vec!["stanza2".to_string()],
                         source_indices: vec![SourceIndex::Leaf(0), SourceIndex::Leaf(2)],
                         command: vec!["poemcat verse2 chorus".to_string()],
-                        rule_ticket: Some(stanza2_rule.get_ticket()),
+                        rule_ticket: stanza2_rule.get_ticket(),
                     },
                     Node
                     {
                         targets: vec!["poem".to_string()],
                         source_indices: vec![SourceIndex::Pair(0, 0), SourceIndex::Pair(1, 0)],
                         command: vec!["poemcat stanza1 stanza2".to_string()],
-                        rule_ticket: Some(poem_rule.get_ticket()),
+                        rule_ticket: poem_rule.get_ticket(),
                     }
                 ]
             ))
@@ -1337,21 +1311,21 @@ mod tests
                         targets: vec!["stanza1".to_string()],
                         source_indices: vec![SourceIndex::Leaf(0), SourceIndex::Leaf(1)],
                         command: vec!["poemcat verse1 chorus".to_string()],
-                        rule_ticket: Some(stanza1_rule.get_ticket()),
+                        rule_ticket: stanza1_rule.get_ticket(),
                     },
                     Node
                     {
                         targets: vec!["stanza2".to_string()],
                         source_indices: vec![SourceIndex::Leaf(0), SourceIndex::Leaf(2)],
                         command: vec!["poemcat verse2 chorus".to_string()],
-                        rule_ticket: Some(stanza2_rule.get_ticket()),
+                        rule_ticket: stanza2_rule.get_ticket(),
                     },
                     Node
                     {
                         targets: vec!["poem".to_string()],
                         source_indices: vec![SourceIndex::Pair(0, 0), SourceIndex::Pair(1, 0)],
                         command: vec!["poemcat stanza1 stanza2".to_string()],
-                        rule_ticket: Some(poem_rule.get_ticket()),
+                        rule_ticket: poem_rule.get_ticket(),
                     }
                 ]
             ))
@@ -1399,21 +1373,21 @@ mod tests
                         targets: vec!["stanza1".to_string()],
                         source_indices: vec![SourceIndex::Leaf(0), SourceIndex::Leaf(1)],
                         command: vec!["poemcat verse1 chorus".to_string()],
-                        rule_ticket: Some(stanza1_rule.get_ticket())
+                        rule_ticket: stanza1_rule.get_ticket(),
                     },
                     Node
                     {
                         targets: vec!["stanza2".to_string()],
                         source_indices: vec![SourceIndex::Leaf(0), SourceIndex::Leaf(2)],
                         command: vec!["poemcat verse2 chorus".to_string()],
-                        rule_ticket: Some(stanza2_rule.get_ticket())
+                        rule_ticket: stanza2_rule.get_ticket(),
                     },
                     Node
                     {
                         targets: vec!["poem".to_string()],
                         source_indices: vec![SourceIndex::Pair(0, 0), SourceIndex::Pair(1, 0)],
                         command: vec!["poemcat stanza1 stanza2".to_string()],
-                        rule_ticket: Some(poem_rule.get_ticket())
+                        rule_ticket: poem_rule.get_ticket(),
                     }
                 ]
             ))
@@ -1533,14 +1507,14 @@ mod tests
                             SourceIndex::Leaf(2),
                             SourceIndex::Leaf(3)
                         ],
-                        rule_ticket: Some(plant_rule.get_ticket()),
+                        rule_ticket: plant_rule.get_ticket(),
                         command: vec!["take care of plant".to_string()],
                     },
                     Node
                     {
                         targets: vec!["fruit".to_string()],
                         source_indices: vec![SourceIndex::Pair(0, 0)],
-                        rule_ticket: Some(fruit_rule.get_ticket()),
+                        rule_ticket: fruit_rule.get_ticket(),
                         command: vec!["pick occasionally".to_string()],
                     },
                 ]

@@ -554,91 +554,81 @@ pub fn build
         let downloader_history = DownloaderHistory::new(downloader_history_urls);
         let system_clone = system.clone();
 
-        match &node.rule_ticket
+        let rule_history = match elements.history.read_rule_history(&node.rule_ticket)
         {
-            None =>
-            {
-                panic!("NODEs should not have None for rule ticket any more.  From how on: nodes and rules 1-1/");
-            },
-            Some(ticket) =>
-            {
-                let rule_history = match elements.history.read_rule_history(&ticket)
-                {
-                    Ok(rule_history) => rule_history,
-                    Err(history_error) => return Err(BuildError::HistoryError(history_error)),
-                };
-
-                let cache_clone = elements.cache.clone();
-                let downloader_cache_clone = downloader_cache.clone();
-                let downloader_rule_history = downloader_history.get_rule_history(&ticket);
-
-                handles.push(
-                    (
-                        Some(ticket.clone()),
-                        thread::spawn(
-                            move || -> Result<WorkResult, BuildError>
-                            {
-                                let mut info = HandleNodeInfo::new(system_clone);
-                                info.blob = blob;
-
-                                let sources_ticket = match wait_for_sources_ticket(receiver_vec)
-                                {
-                                    Ok(sources_ticket) => sources_ticket,
-                                    Err(error) =>
-                                    {
-                                        for (_sub_index, sender) in sender_vec
-                                        {
-                                            match sender.send(Packet::cancel())
-                                            {
-                                                Ok(_) => {},
-                                                Err(error) => return Err(BuildError::SenderError(error)),
-                                            }
-                                        }
-                                        return Err(error);
-                                    }
-                                };
-
-                                match handle_rule_node(info, RuleExt
-                                    {
-                                        sources_ticket : sources_ticket,
-                                        command : node.command,
-                                        rule_history : rule_history,
-                                        cache : cache_clone,
-                                        downloader_cache_opt : Some(downloader_cache_clone),
-                                        downloader_rule_history_opt : Some(downloader_rule_history),
-                                    })
-                                {
-                                    Ok(result) =>
-                                    {
-                                        for (sub_index, sender) in sender_vec
-                                        {
-                                            match sender.send(Packet::from_ticket(result.file_state_vec.get_ticket(sub_index)))
-                                            {
-                                                Ok(_) => {},
-                                                Err(error) => return Err(BuildError::SenderError(error)),
-                                            }
-                                        }
-                                        Ok(result)
-                                    },
-                                    Err(error) =>
-                                    {
-                                        for (_sub_index, sender) in sender_vec
-                                        {
-                                            match sender.send(Packet::cancel())
-                                            {
-                                                Ok(_) => {},
-                                                Err(error) => return Err(BuildError::SenderError(error)),
-                                            }
-                                        }
-                                        Err(BuildError::WorkError(error))
-                                    },
-                                }
-                            }
-                        )
-                    )
-                )
-            }
+            Ok(rule_history) => rule_history,
+            Err(history_error) => return Err(BuildError::HistoryError(history_error)),
         };
+
+        let cache_clone = elements.cache.clone();
+        let downloader_cache_clone = downloader_cache.clone();
+        let downloader_rule_history = downloader_history.get_rule_history(&node.rule_ticket);
+
+        handles.push(
+            (
+                Some(node.rule_ticket.clone()),
+                thread::spawn(
+                    move || -> Result<WorkResult, BuildError>
+                    {
+                        let mut info = HandleNodeInfo::new(system_clone);
+                        info.blob = blob;
+
+                        let sources_ticket = match wait_for_sources_ticket(receiver_vec)
+                        {
+                            Ok(sources_ticket) => sources_ticket,
+                            Err(error) =>
+                            {
+                                for (_sub_index, sender) in sender_vec
+                                {
+                                    match sender.send(Packet::cancel())
+                                    {
+                                        Ok(_) => {},
+                                        Err(error) => return Err(BuildError::SenderError(error)),
+                                    }
+                                }
+                                return Err(error);
+                            }
+                        };
+
+                        match handle_rule_node(info, RuleExt
+                            {
+                                sources_ticket : sources_ticket,
+                                command : node.command,
+                                rule_history : rule_history,
+                                cache : cache_clone,
+                                downloader_cache_opt : Some(downloader_cache_clone),
+                                downloader_rule_history_opt : Some(downloader_rule_history),
+                            })
+                        {
+                            Ok(result) =>
+                            {
+                                for (sub_index, sender) in sender_vec
+                                {
+                                    match sender.send(Packet::from_ticket(result.file_state_vec.get_ticket(sub_index)))
+                                    {
+                                        Ok(_) => {},
+                                        Err(error) => return Err(BuildError::SenderError(error)),
+                                    }
+                                }
+                                Ok(result)
+                            },
+                            Err(error) =>
+                            {
+                                for (_sub_index, sender) in sender_vec
+                                {
+                                    match sender.send(Packet::cancel())
+                                    {
+                                        Ok(_) => {},
+                                        Err(error) => return Err(BuildError::SenderError(error)),
+                                    }
+                                }
+                                Err(BuildError::WorkError(error))
+                            },
+                        }
+                    }
+                )
+            )
+        )
     }
 
     let mut work_errors = Vec::new();
@@ -842,22 +832,17 @@ pub fn clean<SystemType : System + 'static>
         let mut system_clone = system.clone();
         let mut local_cache_clone = elements.cache.clone();
 
-        match node.rule_ticket
-        {
-            Some(_ticket) =>
-                handles.push(
-                    thread::spawn(
-                        move || -> Result<(), WorkError>
-                        {
-                            clean_targets(
-                                blob,
-                                &mut system_clone,
-                                &mut local_cache_clone)
-                        }
-                    )
-                ),
-            None => {},
-        }
+        handles.push(
+            thread::spawn(
+                move || -> Result<(), WorkError>
+                {
+                    clean_targets(
+                        blob,
+                        &mut system_clone,
+                        &mut local_cache_clone)
+                }
+            )
+        );
     }
 
     let mut work_errors : Vec<WorkError> = Vec::new();
