@@ -1,7 +1,3 @@
-extern crate multimap;
-
-use multimap::MultiMap;
-
 use std::thread;
 use std::sync::mpsc::
 {
@@ -29,6 +25,8 @@ use crate::rule::
     parse_all,
     ParseError,
     Node,
+    NodePack,
+    SourceIndex,
     topological_sort,
     topological_sort_all,
     TopologicalSortError,
@@ -87,28 +85,48 @@ use crate::system::util::
     ReadFileToStringError,
 };
 
-/*  Takes a vector of Nodes, iterates through them, and creates two multimaps, one for
-    senders and one for receivers.*/
-fn make_multimaps(nodes : &Vec<Node>)
-    -> (
-        MultiMap<usize, (usize, Sender<Packet>)>,
-        MultiMap<usize, Receiver<Packet>>
-    )
+struct ChannelPack
 {
-    let mut senders : MultiMap<usize, (usize, Sender<Packet>)> = MultiMap::new();
-    let mut receivers : MultiMap<usize, Receiver<Packet>> = MultiMap::new();
+    leaves: Vec<(String, Vec<Sender<Packet>>)>,
+    nodes: Vec<(Node, Vec<(usize, Sender<Packet>)>, Vec<Receiver<Packet>>)>,
+}
 
-    for (target_index, node) in nodes.iter().enumerate()
+impl ChannelPack
+{
+    fn new(node_pack : NodePack) -> Self
     {
-        for (source_index, sub_index) in node.source_indices.iter()
+        let mut leaves : Vec<(String, Vec<Sender<Packet>>)> =
+            node_pack.leaves.into_iter().map(|leaf| {(leaf, vec![])}).collect();
+
+        let mut nodes : Vec<(Node, Vec<(usize, Sender<Packet>)>, Vec<Receiver<Packet>>)> =
+            node_pack.nodes.into_iter().map(|node| {(node, vec![], vec![])}).collect();
+
+        for node_index in 0..nodes.len()
         {
-            let (sender, receiver) : (Sender<Packet>, Receiver<Packet>) = mpsc::channel();
-            senders.insert(*source_index, (*sub_index, sender));
-            receivers.insert(target_index, receiver);
+            let source_indices_len = nodes[node_index].0.source_indices.len();
+
+            for source_indicies_index in 0..source_indices_len
+            {
+                let (sender, receiver) : (Sender<Packet>, Receiver<Packet>) = mpsc::channel();
+                match nodes[node_index].0.source_indices[source_indicies_index]
+                {
+                    SourceIndex::Leaf(i) =>
+                        leaves[i].1.push(sender),
+
+                    SourceIndex::Pair(i, sub_index) =>
+                        nodes[i].1.push((sub_index, sender)),
+                }
+
+                nodes[node_index].2.push(receiver);
+            }
+        }
+
+        ChannelPack
+        {
+            leaves: leaves,
+            nodes: nodes,
         }
     }
-
-    (senders, receivers)
 }
 
 #[derive(Debug)]
@@ -471,26 +489,54 @@ pub fn build
         }
     };
 
-    let mut node_pack = get_nodes(&system, params.rulefile_paths, params.goal_target_opt)?;
-
-    let (mut senders, mut receivers) = make_multimaps(&(node_pack.nodes));
+    let mut channel_pack = ChannelPack::new(get_nodes(&system, params.rulefile_paths, params.goal_target_opt)?);
     let mut handles = Vec::new();
-    let mut index : usize = 0;
 
-    for mut node in nodes.drain(..)
+    for (leaf, sender_vec) in channel_pack.leaves.drain(..)
     {
-        let sender_vec = match senders.remove(&index)
-        {
-            Some(v) => v,
-            None => vec![],
-        };
+        let blob = elements.current_file_states.take_blob(vec![leaf.clone()]);
+        let system_clone = system.clone();
+        handles.push(
+            (
+                None,
+                thread::spawn(
+                    move || -> Result<WorkResult, BuildError>
+                    {
+                        match handle_source_only_node(system_clone, blob)
+                        {
+                            Ok(result) =>
+                            {
+                                for sender in sender_vec
+                                {
+                                    match sender.send(Packet::from_ticket(result.file_state_vec.get_ticket(0)))
+                                    {
+                                        Ok(_) => {},
+                                        Err(error) => return Err(BuildError::SenderError(error)),
+                                    }
+                                }
+                                Ok(result)
+                            },
+                            Err(error) =>
+                            {
+                                for sender in sender_vec
+                                {
+                                    match sender.send(Packet::cancel())
+                                    {
+                                        Ok(_) => {},
+                                        Err(error) => return Err(BuildError::SenderError(error)),
+                                    }
+                                }
+                                Err(BuildError::WorkError(error))
+                            },
+                        }
+                    }
+                )
+            )
+        )
+    }
 
-        let receiver_vec = match receivers.remove(&index)
-        {
-            Some(v) => v,
-            None => vec![],
-        };
-
+    for (mut node, sender_vec, receiver_vec) in channel_pack.nodes.drain(..)
+    {
         let temp_targets = node.targets;
         node.targets = vec![];
         let blob = elements.current_file_states.take_blob(temp_targets);
@@ -512,43 +558,7 @@ pub fn build
         {
             None =>
             {
-                handles.push(
-                    (
-                        None,
-                        thread::spawn(
-                            move || -> Result<WorkResult, BuildError>
-                            {
-                                match handle_source_only_node(system_clone, blob)
-                                {
-                                    Ok(result) =>
-                                    {
-                                        for (sub_index, sender) in sender_vec
-                                        {
-                                            match sender.send(Packet::from_ticket(result.file_state_vec.get_ticket(sub_index)))
-                                            {
-                                                Ok(_) => {},
-                                                Err(error) => return Err(BuildError::SenderError(error)),
-                                            }
-                                        }
-                                        Ok(result)
-                                    },
-                                    Err(error) =>
-                                    {
-                                        for (_sub_index, sender) in sender_vec
-                                        {
-                                            match sender.send(Packet::cancel())
-                                            {
-                                                Ok(_) => {},
-                                                Err(error) => return Err(BuildError::SenderError(error)),
-                                            }
-                                        }
-                                        Err(BuildError::WorkError(error))
-                                    },
-                                }
-                            }
-                        )
-                    )
-                )
+                panic!("NODEs should not have None for rule ticket any more.  From how on: nodes and rules 1-1/");
             },
             Some(ticket) =>
             {
@@ -629,8 +639,6 @@ pub fn build
                 )
             }
         };
-
-        index+=1;
     }
 
     let mut work_errors = Vec::new();
@@ -825,10 +833,10 @@ pub fn clean<SystemType : System + 'static>
         }
     };
 
-    let mut nodes = get_nodes(&mut system, rulefile_paths, goal_target_opt)?;
+    let mut node_pack = get_nodes(&mut system, rulefile_paths, goal_target_opt)?;
 
     let mut handles = Vec::new();
-    for node in nodes.drain(..)
+    for node in node_pack.nodes.drain(..)
     {
         let blob = elements.current_file_states.take_blob(node.targets);
         let mut system_clone = system.clone();

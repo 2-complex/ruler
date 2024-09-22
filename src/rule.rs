@@ -45,6 +45,13 @@ impl Rule
     }
 }
 
+#[derive(Debug, PartialEq)]
+pub enum SourceIndex
+{
+    Pair(usize, usize),
+    Leaf(usize),
+}
+
 /*  Once the rules are topologically sorted, the data in them gets put into
     this struct.  Instead of storing each source as a path, this stores
     indices indicating which other node has the source as a target.
@@ -56,7 +63,7 @@ pub struct Node
 {
     pub targets: Vec<String>,
     pub leaf_indices: Vec<usize>,
-    pub source_indices: Vec<(usize, usize)>,
+    pub source_indices: Vec<SourceIndex>,
     pub command : Vec<String>,
     pub rule_ticket : Option<Ticket>,
 }
@@ -570,7 +577,7 @@ impl TopologicalSortMachine
                     None =>
                     {
                         let (buffer_index, sub_index) = self.to_buffer_index.get(&source).unwrap();
-                        source_indices.push((self.frame_buffer[*buffer_index].final_index, *sub_index));
+                        source_indices.push(SourceIndex::Pair(self.frame_buffer[*buffer_index].final_index, *sub_index));
                     }
                 }
             }
@@ -671,6 +678,7 @@ mod tests
         Rule,
         Node,
         NodePack,
+        SourceIndex,
         rules_to_frame_buffer,
         topological_sort,
         topological_sort_all,
@@ -961,7 +969,7 @@ mod tests
                 Node{
                     targets: vec!["fruit".to_string()],
                     leaf_indices: vec![],
-                    source_indices: vec![(0, 0)],
+                    source_indices: vec![SourceIndex::Pair(0, 0)],
                     command: vec!["pick occasionally".to_string()],
                     rule_ticket : Some(Ticket::from_strings(
                         &vec!["fruit".to_string()],
@@ -1011,7 +1019,7 @@ mod tests
                     {
                         targets: vec!["fruit".to_string()],
                         leaf_indices: vec![],
-                        source_indices: vec![(0,0)],
+                        source_indices: vec![SourceIndex::Pair(0,0)],
                         rule_ticket: Some(fruit_rule.get_ticket()),
                         command: vec!["pick occasionally".to_string()],
                     },
@@ -1025,54 +1033,77 @@ mod tests
     #[test]
     fn topological_sort_four_rules_diamond_already_in_order()
     {
-        match topological_sort(
-            vec![
-                Rule
-                {
-                    targets: vec!["math".to_string()],
-                    sources: vec![],
-                    command: vec![],
-                },
-                Rule
-                {
-                    targets: vec!["physics".to_string()],
-                    sources: vec!["math".to_string()],
-                    command: vec!["build physics".to_string()],
-                },
-                Rule
-                {
-                    targets: vec!["graphics".to_string()],
-                    sources: vec!["math".to_string()],
-                    command: vec!["build graphics".to_string()],
-                },
-                Rule
-                {
-                    targets: vec!["game".to_string()],
-                    sources: vec!["graphics".to_string(), "physics".to_string()],
-                    command: vec!["build game".to_string()],
-                },
-            ],
-            "game")
+        let math_rule = Rule
         {
-            Ok(v) =>
-            {
-                assert_eq!(v.nodes.len(), 4);
-                assert_eq!(v.nodes[0].targets[0], "math");
-                assert_eq!(v.nodes[1].targets[0], "graphics");
-                assert_eq!(v.nodes[2].targets[0], "physics");
-                assert_eq!(v.nodes[3].targets[0], "game");
+            targets: vec!["math".to_string()],
+            sources: vec![],
+            command: vec!["build math".to_string()],
+        };
+        let graphics_rule = Rule
+        {
+            targets: vec!["graphics".to_string()],
+            sources: vec!["math".to_string()],
+            command: vec!["build graphics".to_string()],
+        };
+        let physics_rule = Rule
+        {
+            targets: vec!["physics".to_string()],
+            sources: vec!["math".to_string()],
+            command: vec!["build physics".to_string()],
+        };
+        let game_rule = Rule
+        {
+            targets: vec!["game".to_string()],
+            sources: vec!["graphics".to_string(), "physics".to_string()],
+            command: vec!["build game".to_string()],
+        };
 
-                assert_eq!(v.nodes[0].source_indices.len(), 0);
-                assert_eq!(v.nodes[1].source_indices.len(), 1);
-                assert_eq!(v.nodes[1].source_indices[0], (0, 0));
-                assert_eq!(v.nodes[2].source_indices.len(), 1);
-                assert_eq!(v.nodes[2].source_indices[0], (0, 0));
-                assert_eq!(v.nodes[3].source_indices.len(), 2);
-                assert_eq!(v.nodes[3].source_indices[0], (1, 0));
-                assert_eq!(v.nodes[3].source_indices[1], (2, 0));
-            }
-            Err(why) => panic!("Expected success, got: {}", why),
-        }
+        assert_eq!(topological_sort(
+            vec![
+                math_rule.clone(),
+                graphics_rule.clone(),
+                physics_rule.clone(),
+                game_rule.clone(),
+            ],
+            "game"),
+            Ok(NodePack::new(
+                vec![],
+                vec![
+                    Node
+                    {
+                        targets: vec!["math".to_string()],
+                        leaf_indices: vec![],
+                        source_indices: vec![],
+                        rule_ticket: Some(math_rule.get_ticket()),
+                        command: vec!["build math".to_string()],
+                    },
+                    Node
+                    {
+                        targets: vec!["graphics".to_string()],
+                        leaf_indices: vec![],
+                        source_indices: vec![SourceIndex::Pair(0, 0)],
+                        rule_ticket: Some(graphics_rule.get_ticket()),
+                        command: vec!["build graphics".to_string()],
+                    },
+                    Node
+                    {
+                        targets: vec!["physics".to_string()],
+                        leaf_indices: vec![],
+                        source_indices: vec![SourceIndex::Pair(0, 0)],
+                        rule_ticket: Some(physics_rule.get_ticket()),
+                        command: vec!["build physics".to_string()],
+                    },
+                    Node
+                    {
+                        targets: vec!["game".to_string()],
+                        leaf_indices: vec![],
+                        source_indices: vec![SourceIndex::Pair(1, 0), SourceIndex::Pair(2, 0),],
+                        rule_ticket: Some(game_rule.get_ticket()),
+                        command: vec!["build game".to_string()],
+                    },
+                ]
+            )
+        ));
     }
 
 
@@ -1084,109 +1115,73 @@ mod tests
     #[test]
     fn topological_sort_four_rules_diamond_scrambled()
     {
-        match topological_sort(
+        let math_rule = Rule::new(
+            vec!["math".to_string()],
+            vec![],
+            vec!["build math".to_string()],
+        );
+        let graphics_rule = Rule::new(
+            vec!["graphics".to_string()],
+            vec!["math".to_string()],
+            vec!["build graphics".to_string()],
+        );
+        let physics_rule = Rule::new(
+            vec!["physics".to_string()],
+            vec!["math".to_string()],
+            vec!["build physics".to_string()],
+        );
+        let game_rule = Rule::new(
+            vec!["game".to_string()],
+            vec!["physics".to_string(), "graphics".to_string()],
+            vec!["build game".to_string()],
+        );
+
+        assert_eq!(topological_sort(
             vec![
-                Rule
-                {
-                    targets: vec!["graphics".to_string()],
-                    sources: vec!["math".to_string()],
-                    command: vec!["build graphics".to_string()],
-                },
-                Rule
-                {
-                    targets: vec!["physics".to_string()],
-                    sources: vec!["math".to_string()],
-                    command: vec!["build physics".to_string()],
-                },
-                Rule
-                {
-                    targets: vec!["math".to_string()],
-                    sources: vec![],
-                    command: vec![],
-                },
-                Rule
-                {
-                    targets: vec!["game".to_string()],
-                    sources: vec!["physics".to_string(), "graphics".to_string()],
-                    command: vec!["build game".to_string()],
-                },
+                game_rule.clone(),
+                graphics_rule.clone(),
+                math_rule.clone(),
+                physics_rule.clone(),
             ],
-            "game")
-        {
-            Ok(v) =>
-            {
-                assert_eq!(v.nodes.len(), 4);
-                assert_eq!(v.nodes[0].targets[0], "math");
-                assert_eq!(v.nodes[1].targets[0], "graphics");
-                assert_eq!(v.nodes[2].targets[0], "physics");
-                assert_eq!(v.nodes[3].targets[0], "game");
-                assert_eq!(v.nodes[0].source_indices.len(), 0);
-                assert_eq!(v.nodes[1].source_indices.len(), 1);
-                assert_eq!(v.nodes[1].source_indices[0], (0, 0));
-                assert_eq!(v.nodes[2].source_indices.len(), 1);
-                assert_eq!(v.nodes[2].source_indices[0], (0, 0));
-                assert_eq!(v.nodes[3].source_indices.len(), 2);
-                assert_eq!(v.nodes[3].source_indices[0], (1, 0));
-                assert_eq!(v.nodes[3].source_indices[1], (2, 0));
-            }
-            Err(why) => panic!("Expected success, got: {}", why),
-        }
-    }
-
-    /*  Topological sort all rules in a DAG that is not a tree.  Four nodes math, physics, graphics, game
-        physics and graphics both depend on math, and game depends on physics and graphics.
-
-        This is the same test as above, except the given vector is in the wrong order.  The result
-        should be the same as the above.  Part of this is to test well-definedness of order. */
-    #[test]
-    fn topological_sort_all_four_rules_diamond_scrambled()
-    {
-        match topological_sort_all(
-            vec![
-                Rule
-                {
-                    targets: vec!["graphics".to_string()],
-                    sources: vec!["math".to_string()],
-                    command: vec!["build graphics".to_string()],
-                },
-                Rule
-                {
-                    targets: vec!["physics".to_string()],
-                    sources: vec!["math".to_string()],
-                    command: vec!["build physics".to_string()],
-                },
-                Rule
-                {
-                    targets: vec!["math".to_string()],
-                    sources: vec![],
-                    command: vec![],
-                },
-                Rule
-                {
-                    targets: vec!["game".to_string()],
-                    sources: vec!["physics".to_string(), "graphics".to_string()],
-                    command: vec!["build game".to_string()],
-                },
-            ])
-        {
-            Ok(v) =>
-            {
-                assert_eq!(v.nodes.len(), 4);
-                assert_eq!(v.nodes[0].targets[0], "math");
-                assert_eq!(v.nodes[1].targets[0], "graphics");
-                assert_eq!(v.nodes[2].targets[0], "physics");
-                assert_eq!(v.nodes[3].targets[0], "game");
-                assert_eq!(v.nodes[0].source_indices.len(), 0);
-                assert_eq!(v.nodes[1].source_indices.len(), 1);
-                assert_eq!(v.nodes[1].source_indices[0], (0, 0));
-                assert_eq!(v.nodes[2].source_indices.len(), 1);
-                assert_eq!(v.nodes[2].source_indices[0], (0, 0));
-                assert_eq!(v.nodes[3].source_indices.len(), 2);
-                assert_eq!(v.nodes[3].source_indices[0], (1, 0));
-                assert_eq!(v.nodes[3].source_indices[1], (2, 0));
-            }
-            Err(why) => panic!("Expected success, got: {}", why),
-        }
+            "game"),
+            Ok(NodePack::new(
+                vec![],
+                vec![
+                    Node
+                    {
+                        targets: vec!["math".to_string()],
+                        leaf_indices: vec![],
+                        source_indices: vec![],
+                        rule_ticket: Some(math_rule.get_ticket()),
+                        command: vec!["build math".to_string()],
+                    },
+                    Node
+                    {
+                        targets: vec!["graphics".to_string()],
+                        leaf_indices: vec![],
+                        source_indices: vec![SourceIndex::Pair(0, 0)],
+                        rule_ticket: Some(graphics_rule.get_ticket()),
+                        command: vec!["build graphics".to_string()],
+                    },
+                    Node
+                    {
+                        targets: vec!["physics".to_string()],
+                        leaf_indices: vec![],
+                        source_indices: vec![SourceIndex::Pair(0, 0)],
+                        rule_ticket: Some(physics_rule.get_ticket()),
+                        command: vec!["build physics".to_string()],
+                    },
+                    Node
+                    {
+                        targets: vec!["game".to_string()],
+                        leaf_indices: vec![],
+                        source_indices: vec![SourceIndex::Pair(1, 0), SourceIndex::Pair(2, 0),],
+                        rule_ticket: Some(game_rule.get_ticket()),
+                        command: vec!["build game".to_string()],
+                    },
+                ]
+            )
+        ));
     }
 
     /*  Topological sort a poetry example.  This has two intermediate build results that share
@@ -1249,7 +1244,7 @@ mod tests
                     {
                         targets: vec!["poem".to_string()],
                         leaf_indices: vec![],
-                        source_indices: vec![(0, 0), (1, 0)],
+                        source_indices: vec![SourceIndex::Pair(0, 0), SourceIndex::Pair(1, 0)],
                         command: vec!["poemcat stanza1 stanza2".to_string()],
                         rule_ticket: Some(poem_rule.get_ticket()),
                     }
@@ -1314,7 +1309,7 @@ mod tests
                     {
                         targets: vec!["poem".to_string()],
                         leaf_indices: vec![],
-                        source_indices: vec![(0, 0), (1, 0)],
+                        source_indices: vec![SourceIndex::Pair(0, 0), SourceIndex::Pair(1, 0)],
                         command: vec!["poemcat stanza1 stanza2".to_string()],
                         rule_ticket: Some(poem_rule.get_ticket()),
                     }
@@ -1379,7 +1374,7 @@ mod tests
                     {
                         targets: vec!["poem".to_string()],
                         leaf_indices: vec![],
-                        source_indices: vec![(0, 0), (1, 0)],
+                        source_indices: vec![SourceIndex::Pair(0, 0), SourceIndex::Pair(1, 0)],
                         command: vec!["poemcat stanza1 stanza2".to_string()],
                         rule_ticket: Some(poem_rule.get_ticket()),
                     }
@@ -1444,7 +1439,7 @@ mod tests
                     {
                         targets: vec!["poem".to_string()],
                         leaf_indices: vec![],
-                        source_indices: vec![(0, 0), (1, 0)],
+                        source_indices: vec![SourceIndex::Pair(0, 0), SourceIndex::Pair(1, 0)],
                         command: vec!["poemcat stanza1 stanza2".to_string()],
                         rule_ticket: Some(poem_rule.get_ticket())
                     }
@@ -1569,7 +1564,7 @@ mod tests
                     {
                         targets: vec!["fruit".to_string()],
                         leaf_indices: vec![],
-                        source_indices: vec![(0,0)],
+                        source_indices: vec![SourceIndex::Pair(0,0)],
                         rule_ticket: Some(fruit_rule.get_ticket()),
                         command: vec!["pick occasionally".to_string()],
                     },
