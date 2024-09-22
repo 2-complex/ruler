@@ -544,19 +544,13 @@ impl TopologicalSortMachine
     pub fn get_result(mut self) -> Result<NodePack, TopologicalSortError>
     {
         let mut num_leaves = 0;
-        let mut result = Vec::new();
+        let mut nodes = Vec::new();
+        let mut leaves = Vec::new();
         let mut leaf_to_index = HashMap::new();
 
         for leaf in self.source_leaves
         {
-            result.push(Node
-            {
-                targets: vec![leaf.clone()],
-                leaf_indices: vec![],
-                source_indices: vec![],
-                command: vec![],
-                rule_ticket: None,
-            });
+            leaves.push(leaf.clone());
             leaf_to_index.insert(leaf, num_leaves);
             num_leaves += 1;
         }
@@ -572,18 +566,16 @@ impl TopologicalSortMachine
                     Some(index) =>
                     {
                         leaf_indices.push(*index);
-                        source_indices.push((*index, 0));
                     },
                     None =>
                     {
                         let (buffer_index, sub_index) = self.to_buffer_index.get(&source).unwrap();
-                        source_indices.push((self.frame_buffer[*buffer_index].final_index + num_leaves, *sub_index));
+                        source_indices.push((self.frame_buffer[*buffer_index].final_index, *sub_index));
                     }
                 }
-
             }
 
-            result.push(
+            nodes.push(
                 Node
                 {
                     targets: frame.targets,
@@ -595,13 +587,14 @@ impl TopologicalSortMachine
             );
         }
 
-        Ok(NodePack{nodes:result})
+        Ok(NodePack::new(leaves, nodes))
     }
 }
 
 #[derive(Debug, PartialEq)]
 pub struct NodePack
 {
+    pub leaves: Vec<String>,
     pub nodes: Vec<Node>,
 }
 
@@ -611,14 +604,16 @@ impl NodePack
     {
         NodePack
         {
+            leaves: Vec::new(),
             nodes: Vec::new(),
         }
     }
 
-    fn new(nodes: Vec<Node>) -> Self
+    fn new(leaves: Vec<String>, nodes: Vec<Node>) -> Self
     {
         NodePack
         {
+            leaves: leaves,
             nodes: nodes,
         }
     }
@@ -881,19 +876,22 @@ mod tests
                 },
             ],
             "plant"),
-            Ok(NodePack::new(vec![
-                Node
-                {
-                    targets: vec!["plant".to_string()],
-                    leaf_indices: vec![],
-                    source_indices: vec![],
-                    command : vec![],
-                    rule_ticket : Some(Ticket::from_strings(
-                        &vec!["plant".to_string()],
-                        &vec![],
-                        &vec![])),
-                }
-            ])));
+            Ok(NodePack::new(
+                vec![],
+                vec![
+                    Node
+                    {
+                        targets: vec!["plant".to_string()],
+                        leaf_indices: vec![],
+                        source_indices: vec![],
+                        command : vec![],
+                        rule_ticket : Some(Ticket::from_strings(
+                            &vec!["plant".to_string()],
+                            &vec![],
+                            &vec![])),
+                    }
+                ]
+            )));
     }
 
     /*  Topological sort a list of one rule only.  Check the result
@@ -910,16 +908,19 @@ mod tests
                     command: vec![],
                 },
             ]),
-            Ok(NodePack::new(vec![Node{
-                targets: vec!["plant".to_string()],
-                leaf_indices: vec![],
-                source_indices: vec![],
-                command: vec![],
-                rule_ticket : Some(Ticket::from_strings(
-                    &vec!["plant".to_string()],
-                    &vec![],
-                    &vec![])),
-            }]))
+            Ok(NodePack::new(
+                vec![],
+                vec![Node{
+                    targets: vec!["plant".to_string()],
+                    leaf_indices: vec![],
+                    source_indices: vec![],
+                    command: vec![],
+                    rule_ticket : Some(Ticket::from_strings(
+                        &vec!["plant".to_string()],
+                        &vec![],
+                        &vec![])),
+                }]
+            ))
         );
     }
 
@@ -944,51 +945,9 @@ mod tests
                 },
             ],
             "fruit"),
-        Ok(NodePack::new(vec![
-            Node{
-                targets: vec!["plant".to_string()],
-                leaf_indices: vec![],
-                source_indices: vec![],
-                command: vec![],
-                rule_ticket : Some(Ticket::from_strings(
-                    &vec!["plant".to_string()],
-                    &vec![],
-                    &vec![])),
-            },
-            Node{
-                targets: vec!["fruit".to_string()],
-                leaf_indices: vec![],
-                source_indices: vec![(0, 0)],
-                command: vec!["pick occasionally".to_string()],
-                rule_ticket : Some(Ticket::from_strings(
-                    &vec!["fruit".to_string()],
-                    &vec!["plant".to_string()],
-                    &vec!["pick occasionally".to_string()])),
-            }
-        ])));
-    }
-
-    /*  Topological sort all of a list of two rules only, one depends on the other as a source, but
-        the order in the given list is backwards.  Check that the topological sort reverses the order. */
-    #[test]
-    fn topological_sort_all_two_rules()
-    {
-        assert_eq!(topological_sort_all(
+        Ok(NodePack::new(
+            vec![],
             vec![
-                Rule
-                {
-                    targets: vec!["fruit".to_string()],
-                    sources: vec!["plant".to_string()],
-                    command: vec!["pick occasionally".to_string()],
-                },
-                Rule
-                {
-                    targets: vec!["plant".to_string()],
-                    sources: vec![],
-                    command: vec![],
-                },
-            ]),
-            Ok(NodePack::new(vec![
                 Node{
                     targets: vec!["plant".to_string()],
                     leaf_indices: vec![],
@@ -1009,7 +968,56 @@ mod tests
                         &vec!["plant".to_string()],
                         &vec!["pick occasionally".to_string()])),
                 }
-            ])));
+            ])
+        ));
+    }
+
+    /*  Topological sort all of a list of two rules only, one depends on the other as a source, but
+        the order in the given list is backwards.  Check that the topological sort reverses the order. */
+    #[test]
+    fn topological_sort_all_two_rules()
+    {
+        let fruit_rule = Rule
+        {
+            targets: vec!["fruit".to_string()],
+            sources: vec!["plant".to_string()],
+            command: vec!["pick occasionally".to_string()],
+        };
+
+        let plant_rule = Rule
+        {
+            targets: vec!["plant".to_string()],
+            sources: vec![],
+            command: vec!["take care of plant".to_string()],
+        };
+
+        assert_eq!(topological_sort_all(
+            vec![
+                plant_rule.clone(),
+                fruit_rule.clone(),
+            ]),
+            Ok(NodePack::new(
+                vec![],
+                vec![
+                    Node
+                    {
+                        targets: vec!["plant".to_string()],
+                        leaf_indices: vec![],
+                        source_indices: vec![],
+                        rule_ticket: Some(plant_rule.get_ticket()),
+                        command: vec!["take care of plant".to_string()],
+                    },
+                    Node
+                    {
+                        targets: vec!["fruit".to_string()],
+                        leaf_indices: vec![],
+                        source_indices: vec![(0,0)],
+                        rule_ticket: Some(fruit_rule.get_ticket()),
+                        command: vec!["pick occasionally".to_string()],
+                    },
+                ]
+            ))
+        );
     }
 
     /*  Topological sort a DAG that is not a tree.  Four nodes math, physics, graphics, game
@@ -1188,7 +1196,7 @@ mod tests
         The topologial sort should not only put the nodes in order, but also create nodes for the
         source files not specifically represented as rules. */
     #[test]
-    fn topological_sort_poem()
+    fn topological_sort_poem_stright()
     {
         let poem_rule = Rule::new(
             vec!["poem".to_string()],
@@ -1214,55 +1222,39 @@ mod tests
                 stanza2_rule.clone(),
                 poem_rule.clone(),
             ], "poem"),
-            Ok(NodePack::new(vec![
-                Node {
-                    targets: vec!["chorus".to_string()],
-                    leaf_indices: vec![],
-                    source_indices: vec![],
-                    command: vec![],
-                    rule_ticket: None
-                },
-                Node
-                {
-                    targets: vec!["verse1".to_string()],
-                    leaf_indices: vec![],
-                    source_indices: vec![],
-                    command: vec![],
-                    rule_ticket: None
-                },
-                Node
-                {
-                    targets: vec!["verse2".to_string()],
-                    leaf_indices: vec![],
-                    source_indices: vec![],
-                    command: vec![],
-                    rule_ticket: None
-                },
-                Node
-                {
-                    targets: vec!["stanza1".to_string()],
-                    leaf_indices: vec![0, 1],
-                    source_indices: vec![(0, 0), (1, 0)],
-                    command: vec!["poemcat verse1 chorus".to_string()],
-                    rule_ticket: Some(stanza1_rule.get_ticket()),
-                },
-                Node
-                {
-                    targets: vec!["stanza2".to_string()],
-                    leaf_indices: vec![0, 2],
-                    source_indices: vec![(0, 0), (2, 0)],
-                    command: vec!["poemcat verse2 chorus".to_string()],
-                    rule_ticket: Some(stanza2_rule.get_ticket()),
-                },
-                Node
-                {
-                    targets: vec!["poem".to_string()],
-                    leaf_indices: vec![],
-                    source_indices: vec![(3, 0), (4, 0)],
-                    command: vec!["poemcat stanza1 stanza2".to_string()],
-                    rule_ticket: Some(poem_rule.get_ticket()),
-                }
-            ]))
+            Ok(NodePack::new(
+                vec![
+                    "chorus".to_string(),
+                    "verse1".to_string(),
+                    "verse2".to_string(),
+                ],
+                vec![
+                    Node
+                    {
+                        targets: vec!["stanza1".to_string()],
+                        leaf_indices: vec![0, 1],
+                        source_indices: vec![],
+                        command: vec!["poemcat verse1 chorus".to_string()],
+                        rule_ticket: Some(stanza1_rule.get_ticket()),
+                    },
+                    Node
+                    {
+                        targets: vec!["stanza2".to_string()],
+                        leaf_indices: vec![0, 2],
+                        source_indices: vec![],
+                        command: vec!["poemcat verse2 chorus".to_string()],
+                        rule_ticket: Some(stanza2_rule.get_ticket()),
+                    },
+                    Node
+                    {
+                        targets: vec!["poem".to_string()],
+                        leaf_indices: vec![],
+                        source_indices: vec![(0, 0), (1, 0)],
+                        command: vec!["poemcat stanza1 stanza2".to_string()],
+                        rule_ticket: Some(poem_rule.get_ticket()),
+                    }
+                ]
+            ))
         );
     }
 
@@ -1295,55 +1287,39 @@ mod tests
                 poem_rule.clone(),
                 stanza1_rule.clone(),
             ], "poem"),
-            Ok(NodePack::new(vec![
-                Node {
-                    targets: vec!["chorus".to_string()],
-                    leaf_indices: vec![],
-                    source_indices: vec![],
-                    command: vec![],
-                    rule_ticket: None
-                },
-                Node
-                {
-                    targets: vec!["verse1".to_string()],
-                    leaf_indices: vec![],
-                    source_indices: vec![],
-                    command: vec![],
-                    rule_ticket: None
-                },
-                Node
-                {
-                    targets: vec!["verse2".to_string()],
-                    leaf_indices: vec![],
-                    source_indices: vec![],
-                    command: vec![],
-                    rule_ticket: None
-                },
-                Node
-                {
-                    targets: vec!["stanza1".to_string()],
-                    leaf_indices: vec![0, 1],
-                    source_indices: vec![(0, 0), (1, 0)],
-                    command: vec!["poemcat verse1 chorus".to_string()],
-                    rule_ticket: Some(stanza1_rule.get_ticket()),
-                },
-                Node
-                {
-                    targets: vec!["stanza2".to_string()],
-                    leaf_indices: vec![0, 2],
-                    source_indices: vec![(0, 0), (2, 0)],
-                    command: vec!["poemcat verse2 chorus".to_string()],
-                    rule_ticket: Some(stanza2_rule.get_ticket()),
-                },
-                Node
-                {
-                    targets: vec!["poem".to_string()],
-                    leaf_indices: vec![],
-                    source_indices: vec![(3, 0), (4, 0)],
-                    command: vec!["poemcat stanza1 stanza2".to_string()],
-                    rule_ticket: Some(poem_rule.get_ticket()),
-                }
-            ]))
+            Ok(NodePack::new(
+                vec![
+                    "chorus".to_string(),
+                    "verse1".to_string(),
+                    "verse2".to_string(),
+                ],
+                vec![
+                    Node
+                    {
+                        targets: vec!["stanza1".to_string()],
+                        leaf_indices: vec![0, 1],
+                        source_indices: vec![],
+                        command: vec!["poemcat verse1 chorus".to_string()],
+                        rule_ticket: Some(stanza1_rule.get_ticket()),
+                    },
+                    Node
+                    {
+                        targets: vec!["stanza2".to_string()],
+                        leaf_indices: vec![0, 2],
+                        source_indices: vec![],
+                        command: vec!["poemcat verse2 chorus".to_string()],
+                        rule_ticket: Some(stanza2_rule.get_ticket()),
+                    },
+                    Node
+                    {
+                        targets: vec!["poem".to_string()],
+                        leaf_indices: vec![],
+                        source_indices: vec![(0, 0), (1, 0)],
+                        command: vec!["poemcat stanza1 stanza2".to_string()],
+                        rule_ticket: Some(poem_rule.get_ticket()),
+                    }
+                ]
+            ))
         );
     }
 
@@ -1376,55 +1352,39 @@ mod tests
                 poem_rule.clone(),
                 stanza1_rule.clone(),
             ]),
-            Ok(NodePack::new(vec![
-                Node {
-                    targets: vec!["chorus".to_string()],
-                    leaf_indices: vec![],
-                    source_indices: vec![],
-                    command: vec![],
-                    rule_ticket: None
-                },
-                Node
-                {
-                    targets: vec!["verse1".to_string()],
-                    leaf_indices: vec![],
-                    source_indices: vec![],
-                    command: vec![],
-                    rule_ticket: None
-                },
-                Node
-                {
-                    targets: vec!["verse2".to_string()],
-                    leaf_indices: vec![],
-                    source_indices: vec![],
-                    command: vec![],
-                    rule_ticket: None
-                },
-                Node
-                {
-                    targets: vec!["stanza1".to_string()],
-                    leaf_indices: vec![0, 1],
-                    source_indices: vec![(0, 0), (1, 0)],
-                    command: vec!["poemcat verse1 chorus".to_string()],
-                    rule_ticket: Some(stanza1_rule.get_ticket()),
-                },
-                Node
-                {
-                    targets: vec!["stanza2".to_string()],
-                    leaf_indices: vec![0, 2],
-                    source_indices: vec![(0, 0), (2, 0)],
-                    command: vec!["poemcat verse2 chorus".to_string()],
-                    rule_ticket: Some(stanza2_rule.get_ticket()),
-                },
-                Node
-                {
-                    targets: vec!["poem".to_string()],
-                    leaf_indices: vec![],
-                    source_indices: vec![(3, 0), (4, 0)],
-                    command: vec!["poemcat stanza1 stanza2".to_string()],
-                    rule_ticket: Some(poem_rule.get_ticket()),
-                }
-            ]))
+            Ok(NodePack::new(
+                vec![
+                    "chorus".to_string(),
+                    "verse1".to_string(),
+                    "verse2".to_string(),
+                ],
+                vec![
+                    Node
+                    {
+                        targets: vec!["stanza1".to_string()],
+                        leaf_indices: vec![0, 1],
+                        source_indices: vec![],
+                        command: vec!["poemcat verse1 chorus".to_string()],
+                        rule_ticket: Some(stanza1_rule.get_ticket()),
+                    },
+                    Node
+                    {
+                        targets: vec!["stanza2".to_string()],
+                        leaf_indices: vec![0, 2],
+                        source_indices: vec![],
+                        command: vec!["poemcat verse2 chorus".to_string()],
+                        rule_ticket: Some(stanza2_rule.get_ticket()),
+                    },
+                    Node
+                    {
+                        targets: vec!["poem".to_string()],
+                        leaf_indices: vec![],
+                        source_indices: vec![(0, 0), (1, 0)],
+                        command: vec!["poemcat stanza1 stanza2".to_string()],
+                        rule_ticket: Some(poem_rule.get_ticket()),
+                    }
+                ]
+            ))
         );
     }
 
@@ -1459,35 +1419,16 @@ mod tests
             ]),
             Ok(NodePack::new(
                 vec![
-                    Node
-                    {
-                        targets: vec!["chorus".to_string()],
-                        leaf_indices: vec![],
-                        source_indices: vec![],
-                        command: vec![],
-                        rule_ticket: None
-                    },
-                    Node
-                    {
-                        targets: vec!["verse1".to_string()],
-                        leaf_indices: vec![],
-                        source_indices: vec![],
-                        command: vec![],
-                        rule_ticket: None
-                    },
-                    Node
-                    {
-                        targets: vec!["verse2".to_string()],
-                        leaf_indices: vec![],
-                        source_indices: vec![],
-                        command: vec![],
-                        rule_ticket: None
-                    },
+                    "chorus".to_string(),
+                    "verse1".to_string(),
+                    "verse2".to_string(),
+                ],
+                vec![
                     Node
                     {
                         targets: vec!["stanza1".to_string()],
                         leaf_indices: vec![0, 1],
-                        source_indices: vec![(0, 0), (1, 0)],
+                        source_indices: vec![],
                         command: vec!["poemcat verse1 chorus".to_string()],
                         rule_ticket: Some(stanza1_rule.get_ticket())
                     },
@@ -1495,7 +1436,7 @@ mod tests
                     {
                         targets: vec!["stanza2".to_string()],
                         leaf_indices: vec![0, 2],
-                        source_indices: vec![(0, 0), (2, 0)],
+                        source_indices: vec![],
                         command: vec!["poemcat verse2 chorus".to_string()],
                         rule_ticket: Some(stanza2_rule.get_ticket())
                     },
@@ -1503,7 +1444,7 @@ mod tests
                     {
                         targets: vec!["poem".to_string()],
                         leaf_indices: vec![],
-                        source_indices: vec![(3, 0), (4, 0)],
+                        source_indices: vec![(0, 0), (1, 0)],
                         command: vec!["poemcat stanza1 stanza2".to_string()],
                         rule_ticket: Some(poem_rule.get_ticket())
                     }
@@ -1581,42 +1522,60 @@ mod tests
     /*  Create a rule with a few sources that don't exist as targets of other rules.
         Perform a topological sort and check that the sources are created as nodes. */
     #[test]
-    fn topological_sort_make_nodes_for_sources()
+    fn topological_sort_make_leaves_for_sources()
     {
-        match topological_sort(
-            vec![
-                Rule
-                {
-                    targets: vec!["fruit".to_string()],
-                    sources: vec!["plant".to_string()],
-                    command: vec!["pick occasionally".to_string()],
-                },
-                Rule
-                {
-                    targets: vec!["plant".to_string()],
-                    sources: vec![
-                        "seed".to_string(),
-                        "soil".to_string(),
-                        "sunlight".to_string(),
-                        "water".to_string(),
-                    ],
-                    command: vec!["take care of plant".to_string()],
-                },
-            ],
-            "fruit")
+        let fruit_rule = Rule
         {
-            Ok(v) =>
-            {
-                assert_eq!(v.nodes.len(), 6);
-                assert_eq!(v.nodes[0].targets[0], "seed");
-                assert_eq!(v.nodes[1].targets[0], "soil");
-                assert_eq!(v.nodes[2].targets[0], "sunlight");
-                assert_eq!(v.nodes[3].targets[0], "water");
-                assert_eq!(v.nodes[4].targets[0], "plant");
-                assert_eq!(v.nodes[5].targets[0], "fruit");
-            }
-            Err(why) => panic!("Expected success, got: {}", why),
-        }
+            targets: vec!["fruit".to_string()],
+            sources: vec!["plant".to_string()],
+            command: vec!["pick occasionally".to_string()],
+        };
+
+        let plant_rule = Rule
+        {
+            targets: vec!["plant".to_string()],
+            sources: vec![
+                "seed".to_string(),
+                "soil".to_string(),
+                "sunlight".to_string(),
+                "water".to_string(),
+            ],
+            command: vec!["take care of plant".to_string()],
+        };
+
+        assert_eq!(topological_sort(
+            vec![
+                plant_rule.clone(),
+                fruit_rule.clone(),
+            ],
+            "fruit"),
+            Ok(NodePack::new(
+                vec![
+                    "seed".to_string(),
+                    "soil".to_string(),
+                    "sunlight".to_string(),
+                    "water".to_string(),
+                ],
+                vec![
+                    Node
+                    {
+                        targets: vec!["plant".to_string()],
+                        leaf_indices: vec![0,1,2,3],
+                        source_indices: vec![],
+                        rule_ticket: Some(plant_rule.get_ticket()),
+                        command: vec!["take care of plant".to_string()],
+                    },
+                    Node
+                    {
+                        targets: vec!["fruit".to_string()],
+                        leaf_indices: vec![],
+                        source_indices: vec![(0,0)],
+                        rule_ticket: Some(fruit_rule.get_ticket()),
+                        command: vec!["pick occasionally".to_string()],
+                    },
+                ]
+            ))
+        );
     }
 
     /*  Call parse on an empty string, check that the rule list is empty. */

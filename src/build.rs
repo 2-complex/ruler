@@ -259,7 +259,7 @@ pub fn get_nodes
     rulefile_paths : Vec<String>,
     goal_target_opt: Option<String>
 )
--> Result<Vec<Node>, BuildError>
+-> Result<NodePack, BuildError>
 {
     let all_rule_text = read_all_rules_files_to_strings(system, rulefile_paths)?;
 
@@ -277,7 +277,7 @@ pub fn get_nodes
             {
                 match topological_sort(rules, &goal_target)
                 {
-                    Ok(pack) => pack.nodes,
+                    Ok(pack) => pack,
                     Err(error) => return Err(BuildError::TopologicalSortFailed(error)),
                 }
             },
@@ -285,7 +285,7 @@ pub fn get_nodes
             {
                 match topological_sort_all(rules)
                 {
-                    Ok(pack) => pack.nodes,
+                    Ok(pack) => pack,
                     Err(error) => return Err(BuildError::TopologicalSortFailed(error)),
                 }
             }
@@ -471,9 +471,9 @@ pub fn build
         }
     };
 
-    let mut nodes = get_nodes(&system, params.rulefile_paths, params.goal_target_opt)?;
+    let mut node_pack = get_nodes(&system, params.rulefile_paths, params.goal_target_opt)?;
 
-    let (mut senders, mut receivers) = make_multimaps(&nodes);
+    let (mut senders, mut receivers) = make_multimaps(&(node_pack.nodes));
     let mut handles = Vec::new();
     let mut index : usize = 0;
 
