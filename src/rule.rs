@@ -62,7 +62,6 @@ pub enum SourceIndex
 pub struct Node
 {
     pub targets: Vec<String>,
-    pub leaf_indices: Vec<usize>,
     pub source_indices: Vec<SourceIndex>,
     pub command : Vec<String>,
     pub rule_ticket : Option<Ticket>,
@@ -564,7 +563,6 @@ impl TopologicalSortMachine
 
         for mut frame in self.frames_in_order.drain(..)
         {
-            let mut leaf_indices = vec![];
             let mut source_indices = vec![];
             for source in frame.sources.drain(..)
             {
@@ -572,12 +570,13 @@ impl TopologicalSortMachine
                 {
                     Some(index) =>
                     {
-                        leaf_indices.push(*index);
+                        source_indices.push(SourceIndex::Leaf(*index));
                     },
                     None =>
                     {
                         let (buffer_index, sub_index) = self.to_buffer_index.get(&source).unwrap();
-                        source_indices.push(SourceIndex::Pair(self.frame_buffer[*buffer_index].final_index, *sub_index));
+                        source_indices.push(SourceIndex::Pair(
+                            self.frame_buffer[*buffer_index].final_index, *sub_index));
                     }
                 }
             }
@@ -586,7 +585,6 @@ impl TopologicalSortMachine
                 Node
                 {
                     targets: frame.targets,
-                    leaf_indices: leaf_indices,
                     source_indices: source_indices,
                     command: frame.command,
                     rule_ticket: frame.rule_ticket,
@@ -890,7 +888,6 @@ mod tests
                     Node
                     {
                         targets: vec!["plant".to_string()],
-                        leaf_indices: vec![],
                         source_indices: vec![],
                         command : vec![],
                         rule_ticket : Some(Ticket::from_strings(
@@ -920,7 +917,6 @@ mod tests
                 vec![],
                 vec![Node{
                     targets: vec!["plant".to_string()],
-                    leaf_indices: vec![],
                     source_indices: vec![],
                     command: vec![],
                     rule_ticket : Some(Ticket::from_strings(
@@ -958,7 +954,6 @@ mod tests
             vec![
                 Node{
                     targets: vec!["plant".to_string()],
-                    leaf_indices: vec![],
                     source_indices: vec![],
                     command: vec![],
                     rule_ticket : Some(Ticket::from_strings(
@@ -968,7 +963,6 @@ mod tests
                 },
                 Node{
                     targets: vec!["fruit".to_string()],
-                    leaf_indices: vec![],
                     source_indices: vec![SourceIndex::Pair(0, 0)],
                     command: vec!["pick occasionally".to_string()],
                     rule_ticket : Some(Ticket::from_strings(
@@ -1010,7 +1004,6 @@ mod tests
                     Node
                     {
                         targets: vec!["plant".to_string()],
-                        leaf_indices: vec![],
                         source_indices: vec![],
                         rule_ticket: Some(plant_rule.get_ticket()),
                         command: vec!["take care of plant".to_string()],
@@ -1018,7 +1011,6 @@ mod tests
                     Node
                     {
                         targets: vec!["fruit".to_string()],
-                        leaf_indices: vec![],
                         source_indices: vec![SourceIndex::Pair(0,0)],
                         rule_ticket: Some(fruit_rule.get_ticket()),
                         command: vec!["pick occasionally".to_string()],
@@ -1072,7 +1064,6 @@ mod tests
                     Node
                     {
                         targets: vec!["math".to_string()],
-                        leaf_indices: vec![],
                         source_indices: vec![],
                         rule_ticket: Some(math_rule.get_ticket()),
                         command: vec!["build math".to_string()],
@@ -1080,7 +1071,6 @@ mod tests
                     Node
                     {
                         targets: vec!["graphics".to_string()],
-                        leaf_indices: vec![],
                         source_indices: vec![SourceIndex::Pair(0, 0)],
                         rule_ticket: Some(graphics_rule.get_ticket()),
                         command: vec!["build graphics".to_string()],
@@ -1088,7 +1078,6 @@ mod tests
                     Node
                     {
                         targets: vec!["physics".to_string()],
-                        leaf_indices: vec![],
                         source_indices: vec![SourceIndex::Pair(0, 0)],
                         rule_ticket: Some(physics_rule.get_ticket()),
                         command: vec!["build physics".to_string()],
@@ -1096,7 +1085,6 @@ mod tests
                     Node
                     {
                         targets: vec!["game".to_string()],
-                        leaf_indices: vec![],
                         source_indices: vec![SourceIndex::Pair(1, 0), SourceIndex::Pair(2, 0),],
                         rule_ticket: Some(game_rule.get_ticket()),
                         command: vec!["build game".to_string()],
@@ -1150,7 +1138,6 @@ mod tests
                     Node
                     {
                         targets: vec!["math".to_string()],
-                        leaf_indices: vec![],
                         source_indices: vec![],
                         rule_ticket: Some(math_rule.get_ticket()),
                         command: vec!["build math".to_string()],
@@ -1158,7 +1145,6 @@ mod tests
                     Node
                     {
                         targets: vec!["graphics".to_string()],
-                        leaf_indices: vec![],
                         source_indices: vec![SourceIndex::Pair(0, 0)],
                         rule_ticket: Some(graphics_rule.get_ticket()),
                         command: vec!["build graphics".to_string()],
@@ -1166,7 +1152,6 @@ mod tests
                     Node
                     {
                         targets: vec!["physics".to_string()],
-                        leaf_indices: vec![],
                         source_indices: vec![SourceIndex::Pair(0, 0)],
                         rule_ticket: Some(physics_rule.get_ticket()),
                         command: vec!["build physics".to_string()],
@@ -1174,7 +1159,6 @@ mod tests
                     Node
                     {
                         targets: vec!["game".to_string()],
-                        leaf_indices: vec![],
                         source_indices: vec![SourceIndex::Pair(1, 0), SourceIndex::Pair(2, 0),],
                         rule_ticket: Some(game_rule.get_ticket()),
                         command: vec!["build game".to_string()],
@@ -1227,23 +1211,20 @@ mod tests
                     Node
                     {
                         targets: vec!["stanza1".to_string()],
-                        leaf_indices: vec![0, 1],
-                        source_indices: vec![],
+                        source_indices: vec![SourceIndex::Leaf(0), SourceIndex::Leaf(1)],
                         command: vec!["poemcat verse1 chorus".to_string()],
                         rule_ticket: Some(stanza1_rule.get_ticket()),
                     },
                     Node
                     {
                         targets: vec!["stanza2".to_string()],
-                        leaf_indices: vec![0, 2],
-                        source_indices: vec![],
+                        source_indices: vec![SourceIndex::Leaf(0), SourceIndex::Leaf(2)],
                         command: vec!["poemcat verse2 chorus".to_string()],
                         rule_ticket: Some(stanza2_rule.get_ticket()),
                     },
                     Node
                     {
                         targets: vec!["poem".to_string()],
-                        leaf_indices: vec![],
                         source_indices: vec![SourceIndex::Pair(0, 0), SourceIndex::Pair(1, 0)],
                         command: vec!["poemcat stanza1 stanza2".to_string()],
                         rule_ticket: Some(poem_rule.get_ticket()),
@@ -1292,23 +1273,20 @@ mod tests
                     Node
                     {
                         targets: vec!["stanza1".to_string()],
-                        leaf_indices: vec![0, 1],
-                        source_indices: vec![],
+                        source_indices: vec![SourceIndex::Leaf(0), SourceIndex::Leaf(1)],
                         command: vec!["poemcat verse1 chorus".to_string()],
                         rule_ticket: Some(stanza1_rule.get_ticket()),
                     },
                     Node
                     {
                         targets: vec!["stanza2".to_string()],
-                        leaf_indices: vec![0, 2],
-                        source_indices: vec![],
+                        source_indices: vec![SourceIndex::Leaf(0), SourceIndex::Leaf(2)],
                         command: vec!["poemcat verse2 chorus".to_string()],
                         rule_ticket: Some(stanza2_rule.get_ticket()),
                     },
                     Node
                     {
                         targets: vec!["poem".to_string()],
-                        leaf_indices: vec![],
                         source_indices: vec![SourceIndex::Pair(0, 0), SourceIndex::Pair(1, 0)],
                         command: vec!["poemcat stanza1 stanza2".to_string()],
                         rule_ticket: Some(poem_rule.get_ticket()),
@@ -1357,23 +1335,20 @@ mod tests
                     Node
                     {
                         targets: vec!["stanza1".to_string()],
-                        leaf_indices: vec![0, 1],
-                        source_indices: vec![],
+                        source_indices: vec![SourceIndex::Leaf(0), SourceIndex::Leaf(1)],
                         command: vec!["poemcat verse1 chorus".to_string()],
                         rule_ticket: Some(stanza1_rule.get_ticket()),
                     },
                     Node
                     {
                         targets: vec!["stanza2".to_string()],
-                        leaf_indices: vec![0, 2],
-                        source_indices: vec![],
+                        source_indices: vec![SourceIndex::Leaf(0), SourceIndex::Leaf(2)],
                         command: vec!["poemcat verse2 chorus".to_string()],
                         rule_ticket: Some(stanza2_rule.get_ticket()),
                     },
                     Node
                     {
                         targets: vec!["poem".to_string()],
-                        leaf_indices: vec![],
                         source_indices: vec![SourceIndex::Pair(0, 0), SourceIndex::Pair(1, 0)],
                         command: vec!["poemcat stanza1 stanza2".to_string()],
                         rule_ticket: Some(poem_rule.get_ticket()),
@@ -1422,23 +1397,20 @@ mod tests
                     Node
                     {
                         targets: vec!["stanza1".to_string()],
-                        leaf_indices: vec![0, 1],
-                        source_indices: vec![],
+                        source_indices: vec![SourceIndex::Leaf(0), SourceIndex::Leaf(1)],
                         command: vec!["poemcat verse1 chorus".to_string()],
                         rule_ticket: Some(stanza1_rule.get_ticket())
                     },
                     Node
                     {
                         targets: vec!["stanza2".to_string()],
-                        leaf_indices: vec![0, 2],
-                        source_indices: vec![],
+                        source_indices: vec![SourceIndex::Leaf(0), SourceIndex::Leaf(2)],
                         command: vec!["poemcat verse2 chorus".to_string()],
                         rule_ticket: Some(stanza2_rule.get_ticket())
                     },
                     Node
                     {
                         targets: vec!["poem".to_string()],
-                        leaf_indices: vec![],
                         source_indices: vec![SourceIndex::Pair(0, 0), SourceIndex::Pair(1, 0)],
                         command: vec!["poemcat stanza1 stanza2".to_string()],
                         rule_ticket: Some(poem_rule.get_ticket())
@@ -1555,16 +1527,19 @@ mod tests
                     Node
                     {
                         targets: vec!["plant".to_string()],
-                        leaf_indices: vec![0,1,2,3],
-                        source_indices: vec![],
+                        source_indices: vec![
+                            SourceIndex::Leaf(0),
+                            SourceIndex::Leaf(1),
+                            SourceIndex::Leaf(2),
+                            SourceIndex::Leaf(3)
+                        ],
                         rule_ticket: Some(plant_rule.get_ticket()),
                         command: vec!["take care of plant".to_string()],
                     },
                     Node
                     {
                         targets: vec!["fruit".to_string()],
-                        leaf_indices: vec![],
-                        source_indices: vec![SourceIndex::Pair(0,0)],
+                        source_indices: vec![SourceIndex::Pair(0, 0)],
                         rule_ticket: Some(fruit_rule.get_ticket()),
                         command: vec!["pick occasionally".to_string()],
                     },
