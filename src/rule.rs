@@ -1611,7 +1611,7 @@ mod tests
             vec![
                 ("rulesfile1".to_string(), "a\n:\nb\n:\nc\n:\n".to_string()),
                 ("rulesfile2".to_string(), "d\n:\ne\n:\nf\n:\n".to_string())
-                ])
+            ])
         {
             Ok(v) =>
             {
