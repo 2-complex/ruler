@@ -110,11 +110,8 @@ impl ChannelPack
                 let (sender, receiver) : (Sender<Packet>, Receiver<Packet>) = mpsc::channel();
                 match nodes[node_index].0.source_indices[source_indicies_index]
                 {
-                    SourceIndex::Leaf(i) =>
-                        leaves[i].1.push(sender),
-
-                    SourceIndex::Pair(i, sub_index) =>
-                        nodes[i].1.push((sub_index, sender)),
+                    SourceIndex::Leaf(i) => leaves[i].1.push(sender),
+                    SourceIndex::Pair(i, sub_index) => nodes[i].1.push((sub_index, sender)),
                 }
 
                 nodes[node_index].2.push(receiver);
