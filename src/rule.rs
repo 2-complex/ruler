@@ -59,11 +59,18 @@ impl Rule
     }
 }
 
+/*  When rules are converted into leaves and nodes as part of the topological sort step,
+    This enum gets used to allow each Node to reference its sources either in the vec of nodes.  */
 #[derive(Debug, PartialEq)]
 pub enum SourceIndex
 {
-    Pair(usize, usize),
+    /*  If the source referenced is a leaf, attach the index of that leaf in 'leaves' */
     Leaf(usize),
+
+    /*  If the source referenced is another node in the list, use two indices:
+        .0 = the index in nodes to find the source node S
+        .1 = the index in the target list of S (often named sub_index in code) */
+    Pair(usize, usize),
 }
 
 /*  Once the rules are topologically sorted, the data in them gets put into

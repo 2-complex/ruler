@@ -85,6 +85,12 @@ use crate::system::util::
     ReadFileToStringError,
 };
 
+/*  The topological sort step takes a vector of Rules and converts it to collection with more
+    structure called a NodePack.  A NodePack has leaves corresponding to source files, nodes corresponding
+    to rules, references between them, and sorted structure.  But a NodePack does not know about how _this_ module
+    will dispatch the work of building onto threads, so the first step when receiving a NodePack is to
+    process it and turn it into one of these ChannelPacks which has channel sender/receiver according to the
+    dependencies in the NodePack. */
 struct ChannelPack
 {
     leaves: Vec<(String, Vec<Sender<Packet>>)>,
@@ -93,6 +99,7 @@ struct ChannelPack
 
 impl ChannelPack
 {
+    /*  Consumes a NodePack, returns the same leaves and nodes in a ChannelPack */
     fn new(node_pack : NodePack) -> Self
     {
         let mut leaves : Vec<(String, Vec<Sender<Packet>>)> =
@@ -103,9 +110,7 @@ impl ChannelPack
 
         for node_index in 0..nodes.len()
         {
-            let source_indices_len = nodes[node_index].0.source_indices.len();
-
-            for source_indicies_index in 0..source_indices_len
+            for source_indicies_index in 0..nodes[node_index].0.source_indices.len()
             {
                 let (sender, receiver) : (Sender<Packet>, Receiver<Packet>) = mpsc::channel();
                 match nodes[node_index].0.source_indices[source_indicies_index]
