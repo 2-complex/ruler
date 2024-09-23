@@ -18,6 +18,11 @@ pub struct Rule
     pub command : Vec<String>,
 }
 
+fn is_sorted(data: &Vec<String>) -> bool
+{
+    data.windows(2).all(|w| w[0] <= w[1])
+}
+
 /*  When a rule is first parsed, it goes into this struct, the targets,
     sources and command are simply parsed into vecs.  This is before the
     topological-sort step which puts the data into a list of Nodes and
@@ -25,12 +30,10 @@ pub struct Rule
 impl Rule
 {
     fn new(
-        mut targets : Vec<String>,
-        mut sources : Vec<String>,
+        targets : Vec<String>,
+        sources : Vec<String>,
         command : Vec<String>) -> Rule
     {
-        targets.sort();
-        sources.sort();
         Rule
         {
             targets: targets,
@@ -41,7 +44,18 @@ impl Rule
 
     fn get_ticket(self: &Self) -> Ticket
     {
-        Ticket::from_strings(&self.targets, &self.sources, &self.command)
+        if is_sorted(&self.targets) && is_sorted(&self.sources)
+        {
+            Ticket::from_strings(&self.targets, &self.sources, &self.command)
+        }
+        else
+        {
+            let mut t = self.targets.clone();
+            let mut s = self.sources.clone();
+            t.sort();
+            s.sort();
+            Ticket::from_strings(&t, &s, &self.command)
+        }
     }
 }
 
@@ -88,7 +102,6 @@ impl fmt::Display for Rule
         write!(f, ":\n")
     }
 }
-
 
 impl fmt::Display for Node
 {
@@ -1068,7 +1081,6 @@ mod tests
         ));
     }
 
-
     /*  Topological sort a DAG that is not a tree.  Four nodes math, physics, graphics, game
         physics and graphics both depend on math, and game depends on physics and graphics.
 
@@ -1332,61 +1344,83 @@ mod tests
         );
     }
 
-    /*  Topological sort a poetry example.  This test is just like the one above but with the
-        given list of rules in a different order.  The result should be the same. */
+    /*  Two independent rules alongside each other, depending on disconnected sources */
     #[test]
-    fn topological_sort_all_disconnected_graph()
+    fn topological_sort_all_disconnected_two()
     {
         let poem_rule = Rule::new(
             vec!["poem".to_string()],
-            vec!["stanza1".to_string(), "stanza2".to_string()],
-            vec!["poemcat stanza1 stanza2".to_string()],
+            vec!["imagination".to_string()],
+            vec!["poemcat stanza1".to_string()],
         );
 
-        let stanza1_rule = Rule::new(
-            vec!["stanza1".to_string()],
-            vec!["verse1".to_string(), "chorus".to_string()],
-            vec!["poemcat verse1 chorus".to_string()],
-        );
-
-        let stanza2_rule = Rule::new(
-            vec!["stanza2".to_string()],
-            vec!["verse2".to_string(), "chorus".to_string()],
-            vec!["poemcat verse2 chorus".to_string()],
+        let cookie_rule = Rule::new(
+            vec!["cookies".to_string()],
+            vec!["cookie recipe".to_string()],
+            vec!["bake cookies".to_string()],
         );
 
         assert_eq!(topological_sort_all(
             vec![
                 poem_rule.clone(),
-                stanza1_rule.clone(),
-                stanza2_rule.clone(),
+                cookie_rule.clone(),
             ]),
             Ok(NodePack::new(
                 vec![
-                    "chorus".to_string(),
-                    "verse1".to_string(),
-                    "verse2".to_string(),
+                    "cookie recipe".to_string(),
+                    "imagination".to_string()
                 ],
                 vec![
                     Node
                     {
-                        targets: vec!["stanza1".to_string()],
-                        source_indices: vec![SourceIndex::Leaf(0), SourceIndex::Leaf(1)],
-                        command: vec!["poemcat verse1 chorus".to_string()],
-                        rule_ticket: stanza1_rule.get_ticket(),
-                    },
-                    Node
-                    {
-                        targets: vec!["stanza2".to_string()],
-                        source_indices: vec![SourceIndex::Leaf(0), SourceIndex::Leaf(2)],
-                        command: vec!["poemcat verse2 chorus".to_string()],
-                        rule_ticket: stanza2_rule.get_ticket(),
+                        targets: vec!["cookies".to_string()],
+                        source_indices: vec![SourceIndex::Leaf(0)],
+                        command: vec!["bake cookies".to_string()],
+                        rule_ticket: cookie_rule.get_ticket(),
                     },
                     Node
                     {
                         targets: vec!["poem".to_string()],
-                        source_indices: vec![SourceIndex::Pair(0, 0), SourceIndex::Pair(1, 0)],
-                        command: vec!["poemcat stanza1 stanza2".to_string()],
+                        source_indices: vec![SourceIndex::Leaf(1)],
+                        command: vec!["poemcat stanza1".to_string()],
+                        rule_ticket: poem_rule.get_ticket(),
+                    }
+                ]
+            ))
+        );
+    }
+
+    /*  Two independent rules alongside each other, depending on disconnected sources */
+    #[test]
+    fn topological_sort_disconnected_two()
+    {
+        let poem_rule = Rule::new(
+            vec!["poem".to_string()],
+            vec!["imagination".to_string()],
+            vec!["poemcat stanza1".to_string()],
+        );
+
+        let cookie_rule = Rule::new(
+            vec!["cookies".to_string()],
+            vec!["cookie recipe".to_string()],
+            vec!["bake cookies".to_string()],
+        );
+
+        assert_eq!(topological_sort(
+            vec![
+                poem_rule.clone(),
+                cookie_rule.clone(),
+            ], "poem"),
+            Ok(NodePack::new(
+                vec![
+                    "imagination".to_string()
+                ],
+                vec![
+                    Node
+                    {
+                        targets: vec!["poem".to_string()],
+                        source_indices: vec![SourceIndex::Leaf(0)],
+                        command: vec!["poemcat stanza1".to_string()],
                         rule_ticket: poem_rule.get_ticket(),
                     }
                 ]
@@ -1611,7 +1645,7 @@ mod tests
             vec![
                 ("rulesfile1".to_string(), "a\n:\nb\n:\nc\n:\n".to_string()),
                 ("rulesfile2".to_string(), "d\n:\ne\n:\nf\n:\n".to_string())
-            ])
+                ])
         {
             Ok(v) =>
             {
