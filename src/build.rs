@@ -24,6 +24,9 @@ use crate::rule::
 {
     parse_all,
     ParseError,
+};
+use crate::sort::
+{
     Node,
     NodePack,
     SourceIndex,
