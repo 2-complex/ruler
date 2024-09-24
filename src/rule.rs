@@ -245,10 +245,45 @@ mod tests
 {
     use crate::rule::
     {
+        Rule,
         parse,
         parse_all,
         ParseError,
     };
+
+    #[test]
+    fn rule_tickets_differ()
+    {
+        let z = Rule::new(vec!["".to_string()], vec!["".to_string()], vec!["".to_string()]);
+        let a = Rule::new(vec!["a".to_string()], vec!["".to_string()], vec!["".to_string()]);
+        let b = Rule::new(vec!["".to_string()], vec!["b".to_string()], vec!["".to_string()]);
+        let c = Rule::new(vec!["".to_string()], vec!["".to_string()], vec!["c".to_string()]);
+
+        assert_ne!(z.get_ticket(), a.get_ticket());
+        assert_ne!(z.get_ticket(), b.get_ticket());
+        assert_ne!(z.get_ticket(), c.get_ticket());
+
+        assert_ne!(a.get_ticket(), b.get_ticket());
+        assert_ne!(a.get_ticket(), c.get_ticket());
+
+        assert_ne!(b.get_ticket(), c.get_ticket());
+    }
+
+    #[test]
+    fn rule_target_orders_do_not_affect_ticket()
+    {
+        assert_eq!(
+            Rule::new(
+                vec!["".to_string()],
+                vec!["apples".to_string(), "bananas".to_string()],
+                vec!["".to_string()]).get_ticket(),
+            Rule::new(
+                vec!["".to_string()],
+                vec!["bananas".to_string(), "apples".to_string()],
+                vec!["".to_string()]).get_ticket()
+        );
+
+    }
 
     /*  Call parse on an empty string, check that the rule list is empty. */
     #[test]
