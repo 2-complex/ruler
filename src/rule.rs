@@ -289,7 +289,7 @@ mod tests
     #[test]
     fn parse_empty()
     {
-        assert_eq!(parse("spool.rules".to_string(), "".to_string()).unwrap(), vec![]);
+        assert_eq!(parse("empty.rules".to_string(), "".to_string()).unwrap(), vec![]);
     }
 
     /*  Call parse on a properly formatted rule, check that the targets,
