@@ -182,8 +182,13 @@ pub trait System: Clone + Send + Sync
     fn create_dir(&mut self, path: &str) -> Result<(), SystemError>;
     fn is_dir(&self, path: &str) -> bool;
     fn is_file(&self, path: &str) -> bool;
+
+    #[cfg(test)]
     fn remove_file(&mut self, path: &str) -> Result<(), SystemError>;
+
+    #[cfg(test)]
     fn remove_dir(&mut self, path: &str) -> Result<(), SystemError>;
+
     fn list_dir(&self, path: &str) -> Result<Vec<String>, SystemError>;
     fn rename(&mut self, from: &str, to: &str) -> Result<(), SystemError>;
 
