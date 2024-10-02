@@ -248,10 +248,9 @@ fn get_rules_endpoint<SystemType : System + Clone + Send + 'static>
     .boxed()
 }
 
-async fn process_upload(form: FormData) -> Result<impl Reply, Rejection>
+async fn process_upload<SystemType : System + Clone + Send + 'static>(cache : SysCache<SystemType>, form: FormData) -> Result<impl Reply, Rejection>
 {
     let mut parts = form.into_stream();
-
     loop
     {
         match parts.next().await
@@ -348,6 +347,16 @@ async fn process_upload(form: FormData) -> Result<impl Reply, Rejection>
     Ok("success\n")
 }
 
+fn get_upload_endpoint<SystemType : System + Clone + Send + 'static>
+(cache : SysCache<SystemType>) -> warp::filters::BoxedFilter<(impl warp::Reply,)>
+{
+    warp::path("upload")
+        .and(warp::post())
+        .and(warp::multipart::form().max_length(5_000_000))
+        .and_then(move |form| process_upload(cache.clone(), form))
+    .boxed()
+}
+
 #[tokio::main]
 pub async fn serve
 <
@@ -369,19 +378,15 @@ pub async fn serve
 
     let history_endpoint = get_history_endpoint(elements.history.clone());
     let rule_history_endpoint = get_rule_history_endpoint(elements.history.clone());
-    let files_endpoint = get_files_endpoint(elements.cache);
+    let files_endpoint = get_files_endpoint(elements.cache.clone());
     let rules_endpoint = get_rules_endpoint(elements.history);
-
-    let upload_route = warp::path("upload")
-        .and(warp::post())
-        .and(warp::multipart::form().max_length(5_000_000))
-        .and_then(process_upload);
+    let upload_endpoint = get_upload_endpoint(elements.cache);
 
     let socket_address = SocketAddr::new(IpAddr::V4(address), port);
     println!("Serving on {}", socket_address);
 
     warp::serve(
-        upload_route
+        upload_endpoint
         .or(history_endpoint)
         .or(rule_history_endpoint)
         .or(files_endpoint)
