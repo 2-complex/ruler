@@ -12,6 +12,7 @@ use clap_derive::
 use std::net::Ipv4Addr;
 use crate::system::real::RealSystem;
 use crate::printer::StandardPrinter;
+use crate::ticket::TicketFactory;
 
 mod blob;
 mod bundle;
@@ -69,6 +70,13 @@ struct ListConfig
     path : String,
 }
 
+#[derive(Parser)]
+struct HashConfig
+{
+    #[arg(index=1, value_name = "PATH", help = "A path")]
+    path : String,
+}
+
 #[derive(Subcommand)]
 enum RulerSubcommand
 {
@@ -101,6 +109,10 @@ If a target is specified, cleans only the ancestors of that target.")]
     #[command(about="List directory", long_about =
 "Kinda like ls or dir, this is a temporary feature for use in testing the interanl library's feature")]
     List(ListConfig),
+
+    #[command(about="Hash a file or directory", long_about =
+"Takes a filesystem path and returns the hash of the file or directory at that path.")]
+    Hash(HashConfig),
 }
 
 
@@ -189,10 +201,24 @@ fn main()
         },
         RulerSubcommand::List(list_config) =>
         {
-            let system = RealSystem::new();
-            for l in system.list_dir(&list_config.path).unwrap()
+            match RealSystem::new().list_dir(&list_config.path)
             {
-                println!("{}", l);
+                Ok(list) =>
+                {
+                    for l in list
+                    {
+                        println!("{}", l);
+                    }
+                },
+                Err(error) => eprintln!("{}", error),
+            }
+        },
+        RulerSubcommand::Hash(config) =>
+        {
+            match TicketFactory::from_file(&RealSystem::new(), &config.path)
+            {
+                Ok(mut factory) => println!("{}", factory.result().human_readable()),
+                Err(error) => eprintln!("{}", error),
             }
         }
     }
