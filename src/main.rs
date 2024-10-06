@@ -30,6 +30,7 @@ mod system;
 mod ticket;
 mod work;
 mod downloader;
+mod uploader;
 
 #[derive(Parser)]
 struct BuildConfig
@@ -77,6 +78,13 @@ struct HashConfig
     path : String,
 }
 
+#[derive(Parser)]
+struct UploadConfig
+{
+    #[arg(index=1, value_name = "PATH", help = "A path")]
+    path : String,
+}
+
 #[derive(Subcommand)]
 enum RulerSubcommand
 {
@@ -113,6 +121,10 @@ If a target is specified, cleans only the ancestors of that target.")]
     #[command(about="Hash a file or directory", long_about =
 "Takes a filesystem path and returns the hash of the file or directory at that path.")]
     Hash(HashConfig),
+
+    #[command(about="Uploads a file or directory to the endpoint specified for upload", long_about =
+"Takes a filesystem path and uploads the file or directory at that path to the endpoint specified in settings for upload.")]
+    Upload(UploadConfig),
 }
 
 
@@ -218,6 +230,23 @@ fn main()
             match TicketFactory::from_file(&RealSystem::new(), &config.path)
             {
                 Ok(mut factory) => println!("{}", factory.result().human_readable()),
+                Err(error) => eprintln!("{}", error),
+            }
+        },
+        RulerSubcommand::Upload(config) =>
+        {
+            match TicketFactory::from_file(&RealSystem::new(), &config.path)
+            {
+                Ok(mut factory) => println!("{}", factory.result().human_readable()),
+                Err(error) => eprintln!("{}", error),
+            }
+
+            match uploader::upload_file(&mut RealSystem::new(), "http://127.0.0.1:8080/upload", &config.path)
+            {
+                Ok(_) =>
+                {
+                    println!("oh!  It worked?");
+                },
                 Err(error) => eprintln!("{}", error),
             }
         }

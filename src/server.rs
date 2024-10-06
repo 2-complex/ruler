@@ -248,8 +248,9 @@ fn get_rules_endpoint<SystemType : System + Clone + Send + 'static>
     .boxed()
 }
 
-async fn process_upload<SystemType : System + Clone + Send + 'static>(cache : SysCache<SystemType>, form: FormData) -> Result<impl Reply, Rejection>
+async fn process_upload<SystemType : System + Clone + 'static>(cache : SysCache<SystemType>, form: FormData) -> Result<impl Reply, Rejection>
 {
+    println!("here");
     let mut parts = form.into_stream();
     loop
     {
@@ -302,7 +303,6 @@ async fn process_upload<SystemType : System + Clone + Send + 'static>(cache : Sy
                                     Ok(data_buf) =>
                                     {
                                         println!("{:?}", data_buf.remaining());
-
                                         match fs::File::create(to_path_buf(&target_filename))
                                         {
                                             Ok(mut file) =>
@@ -352,7 +352,7 @@ fn get_upload_endpoint<SystemType : System + Clone + Send + 'static>
 {
     warp::path("upload")
         .and(warp::post())
-        .and(warp::multipart::form().max_length(5_000_000))
+        .and(warp::multipart::form())
         .and_then(move |form| process_upload(cache.clone(), form))
     .boxed()
 }
