@@ -183,7 +183,7 @@ impl fmt::Display for SystemError
     real computer's file-system and command-line, or it can fake it for testing. */
 pub trait System: Clone + Send + Sync
 {
-    type File: io::Read + io::Write + fmt::Debug  + Send;
+    type File: io::Read + io::Write + fmt::Debug + Send;
 
     fn open(&self, path: &str) -> Result<Self::File, SystemError>;
     fn create_file(&mut self, path: &str) -> Result<Self::File, SystemError>;
