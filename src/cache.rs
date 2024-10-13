@@ -181,12 +181,7 @@ impl<SystemType : System> SysCache<SystemType>
         }
 
         let cache_path = format!("{}/inbox/{}", self.path, "somefile");
-        if ! system.is_file(&cache_path)
-        {
-            return Err(OpenError::NotThere);
-        }
-
-        match system.open(&cache_path)
+        match system.create_file(&cache_path)
         {
             Ok(file) => Ok(file),
             Err(system_error) => Err(OpenError::SystemError(system_error)),
@@ -254,6 +249,7 @@ mod test
         read_file_to_string,
         file_to_string,
     };
+    use std::io::Write;
 
     fn make_fake_system_and_cache() -> (FakeSystem, SysCache<FakeSystem>)
     {
@@ -481,17 +477,50 @@ mod test
     #[test]
     fn open_for_writing_with_errant_inbox_file()
     {
-        println!("jojo1");
         let mut system = FakeSystem::new(13);
         system.create_dir("cache-dir").unwrap();
         system.create_file("cache-dir/inbox").unwrap();
 
         let mut cache = SysCache::new(system, "cache-dir");
-        println!("jojo");
         match cache.open_for_writing()
         {
             Err(OpenError::SystemError(_system_error)) => {},
             _=> panic!("unexpected result"),
         }
+    }
+
+    #[test]
+    fn open_for_writing_directory_missing()
+    {
+        let system = FakeSystem::new(14);
+        let mut cache = SysCache::new(system, "cache-dir");
+        match cache.open_for_writing()
+        {
+            Err(OpenError::CacheDirectoryMissing) => {},
+            _ => panic!("unexpected result"),
+        }
+    }
+
+    #[test]
+    fn open_for_writing_and_write()
+    {
+        let mut system = FakeSystem::new(14);
+        system.create_dir("cache-dir").unwrap();
+        let mut cache = SysCache::new(system, "cache-dir");
+        let mut file = cache.open_for_writing().unwrap();
+        assert_eq!(file.write(&[1u8, 2, 3]).unwrap(), 3usize);
+    }
+
+    #[test]
+    fn open_for_writing_write_and_read()
+    {
+        let mut system = FakeSystem::new(14);
+        system.create_dir("cache-dir").unwrap();
+        let mut cache = SysCache::new(system, "cache-dir");
+        let mut writing_file = cache.open_for_writing().unwrap();
+        assert_eq!(writing_file.write("abc".as_bytes()).unwrap(), 3usize);
+        writing_file.flush().unwrap();
+        let mut reading_file = cache.open(&TicketFactory::from_str("abc").result()).unwrap();
+        assert_eq!(file_to_string(&mut reading_file).unwrap(), "abc".to_string());
     }
 }

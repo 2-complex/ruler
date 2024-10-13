@@ -100,6 +100,7 @@ pub fn read_file
     }
 }
 
+#[derive(Debug)]
 pub enum FileToStringError
 {
     IOError(io::Error),

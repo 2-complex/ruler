@@ -1524,7 +1524,6 @@ mod test
         }
     }
 
-
     #[test]
     fn executing_error_gives_error_output()
     {
