@@ -109,6 +109,8 @@ pub enum SystemError
     RenameToNonExistent,
     MetadataNotFound,
     ModifiedNotFound,
+    CreateFileOverExistingDirectory,
+    CreateDirectoryOverExistingFile,
     CommandExecutationFailed(String),
     NotImplemented,
     Weird,
@@ -158,6 +160,12 @@ impl fmt::Display for SystemError
 
             SystemError::MetadataNotFound
                 => write!(formatter, "Attempt to access metadate failed"),
+
+            SystemError::CreateFileOverExistingDirectory
+                => write!(formatter, "Attempt to create a file where a directory already exists"),
+
+            SystemError::CreateDirectoryOverExistingFile
+                => write!(formatter, "Attempt to create a directory where a file already exists"),
 
             SystemError::CommandExecutationFailed(message)
                 => write!(formatter, "{}", message),

@@ -147,25 +147,49 @@ impl<SystemType : System> SysCache<SystemType>
     ) -> Result<impl std::io::Read, OpenError>
     {
         let system = &(*self.system_box);
-        if system.is_dir(&self.path)
+        if ! system.is_dir(&self.path)
         {
-            let cache_path = format!("{}/{}", self.path, ticket.human_readable());
-            if system.is_file(&cache_path)
-            {
-                match system.open(&cache_path)
-                {
-                    Ok(file) => Ok(file),
-                    Err(system_error) => Err(OpenError::SystemError(system_error)),
-                }
-            }
-            else
-            {
-                Err(OpenError::NotThere)
-            }
+            return Err(OpenError::CacheDirectoryMissing);
         }
-        else
+
+        let cache_path = format!("{}/{}", self.path, ticket.human_readable());
+        if ! system.is_file(&cache_path)
         {
-            Err(OpenError::CacheDirectoryMissing)
+            return Err(OpenError::NotThere);
+        }
+
+        match system.open(&cache_path)
+        {
+            Ok(file) => Ok(file),
+            Err(system_error) => Err(OpenError::SystemError(system_error)),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn open_for_writing(&mut self) -> Result<impl std::io::Write, OpenError>
+    {
+        let system = &mut (*self.system_box);
+        if ! system.is_dir(&self.path)
+        {
+            return Err(OpenError::CacheDirectoryMissing);
+        }
+
+        match system.create_dir(&format!("{}/inbox", self.path))
+        {
+            Ok(()) => {},
+            Err(system_error) => return Err(OpenError::SystemError(system_error)),
+        }
+
+        let cache_path = format!("{}/inbox/{}", self.path, "somefile");
+        if ! system.is_file(&cache_path)
+        {
+            return Err(OpenError::NotThere);
+        }
+
+        match system.open(&cache_path)
+        {
+            Ok(file) => Ok(file),
+            Err(system_error) => Err(OpenError::SystemError(system_error)),
         }
     }
 
@@ -438,10 +462,36 @@ mod test
         let cache = SysCache::new(FakeSystem::new(11), "files");
         match cache.open(&TicketFactory::from_str("apples\n").result())
         {
-            Ok(_file) => panic!("File present when no file was expected"),
-            Err(OpenError::NotThere) => panic!("Cache operating as if the directory is there, but directory was never created"),
             Err(OpenError::CacheDirectoryMissing) => {},
-            Err(OpenError::SystemError(error)) => panic!("File error in the middle of legit reopen: {}", error),
+            _=> panic!("unexpected result"),
+        }
+    }
+
+    #[test]
+    fn open_for_writing_with_directory_not_there()
+    {
+        let mut cache = SysCache::new(FakeSystem::new(12), "files");
+        match cache.open_for_writing()
+        {
+            Err(OpenError::CacheDirectoryMissing) => {},
+            _=> panic!("unexpected result"),
+        }
+    }
+
+    #[test]
+    fn open_for_writing_with_errant_inbox_file()
+    {
+        println!("jojo1");
+        let mut system = FakeSystem::new(13);
+        system.create_dir("cache-dir").unwrap();
+        system.create_file("cache-dir/inbox").unwrap();
+
+        let mut cache = SysCache::new(system, "cache-dir");
+        println!("jojo");
+        match cache.open_for_writing()
+        {
+            Err(OpenError::SystemError(_system_error)) => {},
+            _=> panic!("unexpected result"),
         }
     }
 }
