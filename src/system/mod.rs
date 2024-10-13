@@ -93,7 +93,7 @@ impl CommandLineOutput
     system can agree on completely, but in the mean time, disabling the warning.
 */
 #[allow(dead_code)]
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum SystemError
 {
     NotFound,
