@@ -114,7 +114,7 @@ enum Node
     Dir(HashMap<String, Node>)
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum NodeError
 {
     FileInPlaceOfDirectory(String),
@@ -127,6 +127,8 @@ enum NodeError
     RemoveNonExistentDir,
     RenameFromNonExistent,
     RenameToNonExistent,
+    CreateFileOverExistingDirectory,
+    CreateDirectoryOverExistingFile,
     GetModifiedOnDirectory,
     IsExecutableOnDirectory,
     Weird,
@@ -168,6 +170,12 @@ impl fmt::Display for NodeError
 
             NodeError::RenameToNonExistent
                 => write!(formatter, "Attempt to rename a file or directory with non-existent target directory"),
+
+            NodeError::CreateFileOverExistingDirectory
+                => write!(formatter, "Attempt to create a file where a directory already exists"),
+
+            NodeError::CreateDirectoryOverExistingFile
+                => write!(formatter, "Attempt to create a directory where a file already exists"),
 
             NodeError::GetModifiedOnDirectory
                 => write!(formatter, "Attempt to get modified time for a directory (that is not implemented)"),
@@ -313,19 +321,19 @@ impl Node
         }
     }
 
-    fn insert(&mut self, dir_components : Vec<&str>, name : &str, node : Node) -> Result<(), NodeError>
-    {
-        self.get_dir_map_mut(&dir_components)?.insert(name.to_string(), node);
-        Ok(())
-    }
-
     pub fn create_file(&mut self, path: &str, content : Content, timestamp : u64) -> Result<Content, NodeError>
     {
         let (dir_components, name) = get_dir_path_and_name(path)?;
+        let dir_map_mut = self.get_dir_map_mut(&dir_components)?;
 
-        self.insert(dir_components, name, Node::File(FileInfo::new(
-            Metadata::new(timestamp),
-            content.clone())))?;
+        match dir_map_mut.get(name)
+        {
+            Some(Node::Dir(_)) => return Err(NodeError::CreateFileOverExistingDirectory),
+            _ => {},
+        }
+
+        dir_map_mut.insert(name.to_string(), Node::File(
+            FileInfo::new(Metadata::new(timestamp), content.clone())));
 
         Ok(content)
     }
@@ -333,7 +341,15 @@ impl Node
     pub fn create_dir(&mut self, path: &str) -> Result<(), NodeError>
     {
         let (dir_components, name) = get_dir_path_and_name(path)?;
-        self.insert(dir_components, name, Node::Dir(HashMap::new()))?;
+        let dir_map_mut = self.get_dir_map_mut(&dir_components)?;
+
+        match dir_map_mut.get(name)
+        {
+            Some(Node::File(_)) => return Err(NodeError::CreateDirectoryOverExistingFile),
+            _ => {},
+        }
+
+        dir_map_mut.insert(name.to_string(), Node::Dir(HashMap::new()));
         Ok(())
     }
 
@@ -615,6 +631,12 @@ fn convert_node_error_to_system_error(error : NodeError) -> SystemError
 
         NodeError::RenameToNonExistent
             => SystemError::RenameToNonExistent,
+
+        NodeError::CreateFileOverExistingDirectory
+            => SystemError::CreateFileOverExistingDirectory,
+
+        NodeError::CreateDirectoryOverExistingFile
+            => SystemError::CreateDirectoryOverExistingFile,
 
         NodeError::GetModifiedOnDirectory
             => SystemError::NotImplemented,
@@ -1106,6 +1128,19 @@ mod test
     }
 
     #[test]
+    fn create_file_with_directory_already_present()
+    {
+        let mut node = Node::empty_dir();
+        node.create_dir("images").unwrap();
+        node.create_dir("images/more_images").unwrap();
+        match node.create_file("images/more_images", Content::new(b"content".to_vec()), 0)
+        {
+            Err(NodeError::CreateFileOverExistingDirectory) => {},
+            _ => panic!("unexpected result"),
+        }
+    }
+
+    #[test]
     fn add_and_list_dir_file()
     {
         let mut node = Node::empty_dir();
@@ -1488,7 +1523,6 @@ mod test
             Err(error) => panic!("get_modified SystemError: {}", error),
         }
     }
-
 
     #[test]
     fn executing_error_gives_error_output()
