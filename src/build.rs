@@ -1,7 +1,3 @@
-extern crate multimap;
-
-use multimap::MultiMap;
-
 use std::thread;
 use std::sync::mpsc::
 {
@@ -28,7 +24,12 @@ use crate::rule::
 {
     parse_all,
     ParseError,
+};
+use crate::sort::
+{
     Node,
+    NodePack,
+    SourceIndex,
     topological_sort,
     topological_sort_all,
     TopologicalSortError,
@@ -87,28 +88,50 @@ use crate::system::util::
     ReadFileToStringError,
 };
 
-/*  Takes a vector of Nodes, iterates through them, and creates two multimaps, one for
-    senders and one for receivers. */
-fn make_multimaps(nodes : &Vec<Node>)
-    -> (
-        MultiMap<usize, (usize, Sender<Packet>)>,
-        MultiMap<usize, Receiver<Packet>>
-    )
+/*  The topological sort step takes a vector of Rules and converts it to collection with more
+    structure called a NodePack.  A NodePack has leaves corresponding to source files, nodes corresponding
+    to rules, references between them, and sorted structure.  But a NodePack does not know about how _this_ module
+    will dispatch the work of building onto threads, so the first step when receiving a NodePack is to
+    process it and turn it into one of these ChannelPacks which has channel sender/receiver according to the
+    dependencies in the NodePack. */
+struct ChannelPack
 {
-    let mut senders : MultiMap<usize, (usize, Sender<Packet>)> = MultiMap::new();
-    let mut receivers : MultiMap<usize, Receiver<Packet>> = MultiMap::new();
+    leaves: Vec<(String, Vec<Sender<Packet>>)>,
+    nodes: Vec<(Node, Vec<(usize, Sender<Packet>)>, Vec<Receiver<Packet>>)>,
+}
 
-    for (target_index, node) in nodes.iter().enumerate()
+impl ChannelPack
+{
+    /*  Consumes a NodePack, returns the same leaves and nodes in a ChannelPack */
+    fn new(node_pack : NodePack) -> Self
     {
-        for (source_index, sub_index) in node.source_indices.iter()
+        let mut leaves : Vec<(String, Vec<Sender<Packet>>)> =
+            node_pack.leaves.into_iter().map(|leaf| {(leaf, vec![])}).collect();
+
+        let mut nodes : Vec<(Node, Vec<(usize, Sender<Packet>)>, Vec<Receiver<Packet>>)> =
+            node_pack.nodes.into_iter().map(|node| {(node, vec![], vec![])}).collect();
+
+        for node_index in 0..nodes.len()
         {
-            let (sender, receiver) : (Sender<Packet>, Receiver<Packet>) = mpsc::channel();
-            senders.insert(*source_index, (*sub_index, sender));
-            receivers.insert(target_index, receiver);
+            for source_indicies_index in 0..nodes[node_index].0.source_indices.len()
+            {
+                let (sender, receiver) : (Sender<Packet>, Receiver<Packet>) = mpsc::channel();
+                match nodes[node_index].0.source_indices[source_indicies_index]
+                {
+                    SourceIndex::Leaf(i) => leaves[i].1.push(sender),
+                    SourceIndex::Pair(i, sub_index) => nodes[i].1.push((sub_index, sender)),
+                }
+
+                nodes[node_index].2.push(receiver);
+            }
+        }
+
+        ChannelPack
+        {
+            leaves: leaves,
+            nodes: nodes,
         }
     }
-
-    (senders, receivers)
 }
 
 #[derive(Debug)]
@@ -249,7 +272,7 @@ fn read_all_rules_files_to_strings<SystemType : System>
     Ok(result)
 }
 
-/*  Opens the rulefile, parses it, and returns the vector of rule Nodes. */
+/*  Open the rulefile(s), parse, and return the vector of Nodes. */
 pub fn get_nodes
 <
     SystemType : System,
@@ -259,7 +282,7 @@ pub fn get_nodes
     rulefile_paths : Vec<String>,
     goal_target_opt: Option<String>
 )
--> Result<Vec<Node>, BuildError>
+-> Result<NodePack, BuildError>
 {
     let all_rule_text = read_all_rules_files_to_strings(system, rulefile_paths)?;
 
@@ -277,7 +300,7 @@ pub fn get_nodes
             {
                 match topological_sort(rules, &goal_target)
                 {
-                    Ok(nodes) => nodes,
+                    Ok(pack) => pack,
                     Err(error) => return Err(BuildError::TopologicalSortFailed(error)),
                 }
             },
@@ -285,7 +308,7 @@ pub fn get_nodes
             {
                 match topological_sort_all(rules)
                 {
-                    Ok(nodes) => nodes,
+                    Ok(pack) => pack,
                     Err(error) => return Err(BuildError::TopologicalSortFailed(error)),
                 }
             }
@@ -471,26 +494,54 @@ pub fn build
         }
     };
 
-    let mut nodes = get_nodes(&system, params.rulefile_paths, params.goal_target_opt)?;
-
-    let (mut senders, mut receivers) = make_multimaps(&nodes);
+    let mut channel_pack = ChannelPack::new(get_nodes(&system, params.rulefile_paths, params.goal_target_opt)?);
     let mut handles = Vec::new();
-    let mut index : usize = 0;
 
-    for mut node in nodes.drain(..)
+    for (leaf, sender_vec) in channel_pack.leaves.drain(..)
     {
-        let sender_vec = match senders.remove(&index)
-        {
-            Some(v) => v,
-            None => vec![],
-        };
+        let blob = elements.current_file_states.take_blob(vec![leaf.clone()]);
+        let system_clone = system.clone();
+        handles.push(
+            (
+                None,
+                thread::spawn(
+                    move || -> Result<WorkResult, BuildError>
+                    {
+                        match handle_source_only_node(system_clone, blob)
+                        {
+                            Ok(result) =>
+                            {
+                                for sender in sender_vec
+                                {
+                                    match sender.send(Packet::from_ticket(result.file_state_vec.get_ticket(0)))
+                                    {
+                                        Ok(_) => {},
+                                        Err(error) => return Err(BuildError::SenderError(error)),
+                                    }
+                                }
+                                Ok(result)
+                            },
+                            Err(error) =>
+                            {
+                                for sender in sender_vec
+                                {
+                                    match sender.send(Packet::cancel())
+                                    {
+                                        Ok(_) => {},
+                                        Err(error) => return Err(BuildError::SenderError(error)),
+                                    }
+                                }
+                                Err(BuildError::WorkError(error))
+                            },
+                        }
+                    }
+                )
+            )
+        )
+    }
 
-        let receiver_vec = match receivers.remove(&index)
-        {
-            Some(v) => v,
-            None => vec![],
-        };
-
+    for (mut node, sender_vec, receiver_vec) in channel_pack.nodes.drain(..)
+    {
         let temp_targets = node.targets;
         node.targets = vec![];
         let blob = elements.current_file_states.take_blob(temp_targets);
@@ -508,124 +559,81 @@ pub fn build
         let downloader_history = DownloaderHistory::new(downloader_history_urls);
         let system_clone = system.clone();
 
+        let rule_history = match elements.history.read_rule_history(&node.rule_ticket)
+        {
+            Ok(rule_history) => rule_history,
+            Err(history_error) => return Err(BuildError::HistoryError(history_error)),
+        };
+
+        let cache_clone = elements.cache.clone();
+        let downloader_cache_clone = downloader_cache.clone();
+        let downloader_rule_history = downloader_history.get_rule_history(&node.rule_ticket);
+
         handles.push(
             (
-                node.rule_ticket.clone(),
-                match &node.rule_ticket
-                {
-                    None =>
+                Some(node.rule_ticket.clone()),
+                thread::spawn(
+                    move || -> Result<WorkResult, BuildError>
                     {
-                        thread::spawn(
-                            move || -> Result<WorkResult, BuildError>
-                            {
-                                match handle_source_only_node(system_clone, blob)
-                                {
-                                    Ok(result) =>
-                                    {
-                                        for (sub_index, sender) in sender_vec
-                                        {
-                                            match sender.send(Packet::from_ticket(result.file_state_vec.get_ticket(sub_index)))
-                                            {
-                                                Ok(_) => {},
-                                                Err(error) => return Err(BuildError::SenderError(error)),
-                                            }
-                                        }
-                                        Ok(result)
-                                    },
-                                    Err(error) =>
-                                    {
-                                        for (_sub_index, sender) in sender_vec
-                                        {
-                                            match sender.send(Packet::cancel())
-                                            {
-                                                Ok(_) => {},
-                                                Err(error) => return Err(BuildError::SenderError(error)),
-                                            }
-                                        }
-                                        Err(BuildError::WorkError(error))
-                                    },
-                                }
-                            }
-                        )
-                    },
-                    Some(ticket) =>
-                    {
-                        let rule_history = match elements.history.read_rule_history(&ticket)
+                        let mut info = HandleNodeInfo::new(system_clone);
+                        info.blob = blob;
+
+                        let sources_ticket = match wait_for_sources_ticket(receiver_vec)
                         {
-                            Ok(rule_history) => rule_history,
-                            Err(history_error) => return Err(BuildError::HistoryError(history_error)),
+                            Ok(sources_ticket) => sources_ticket,
+                            Err(error) =>
+                            {
+                                for (_sub_index, sender) in sender_vec
+                                {
+                                    match sender.send(Packet::cancel())
+                                    {
+                                        Ok(_) => {},
+                                        Err(error) => return Err(BuildError::SenderError(error)),
+                                    }
+                                }
+                                return Err(error);
+                            }
                         };
 
-                        let cache_clone = elements.cache.clone();
-                        let downloader_cache_clone = downloader_cache.clone();
-                        let downloader_rule_history = downloader_history.get_rule_history(&ticket);
-
-                        thread::spawn(
-                            move || -> Result<WorkResult, BuildError>
+                        match handle_rule_node(info, RuleExt
                             {
-                                let mut info = HandleNodeInfo::new(system_clone);
-                                info.blob = blob;
-
-                                let sources_ticket = match wait_for_sources_ticket(receiver_vec)
+                                sources_ticket : sources_ticket,
+                                command : node.command,
+                                rule_history : rule_history,
+                                cache : cache_clone,
+                                downloader_cache_opt : Some(downloader_cache_clone),
+                                downloader_rule_history_opt : Some(downloader_rule_history),
+                            })
+                        {
+                            Ok(result) =>
+                            {
+                                for (sub_index, sender) in sender_vec
                                 {
-                                    Ok(sources_ticket) => sources_ticket,
-                                    Err(error) =>
+                                    match sender.send(Packet::from_ticket(result.file_state_vec.get_ticket(sub_index)))
                                     {
-                                        for (_sub_index, sender) in sender_vec
-                                        {
-                                            match sender.send(Packet::cancel())
-                                            {
-                                                Ok(_) => {},
-                                                Err(error) => return Err(BuildError::SenderError(error)),
-                                            }
-                                        }
-                                        return Err(error);
+                                        Ok(_) => {},
+                                        Err(error) => return Err(BuildError::SenderError(error)),
                                     }
-                                };
-
-                                match handle_rule_node(info, RuleExt
-                                    {
-                                        sources_ticket : sources_ticket,
-                                        command : node.command,
-                                        rule_history : rule_history,
-                                        cache : cache_clone,
-                                        downloader_cache_opt : Some(downloader_cache_clone),
-                                        downloader_rule_history_opt : Some(downloader_rule_history),
-                                    })
-                                {
-                                    Ok(result) =>
-                                    {
-                                        for (sub_index, sender) in sender_vec
-                                        {
-                                            match sender.send(Packet::from_ticket(result.file_state_vec.get_ticket(sub_index)))
-                                            {
-                                                Ok(_) => {},
-                                                Err(error) => return Err(BuildError::SenderError(error)),
-                                            }
-                                        }
-                                        Ok(result)
-                                    },
-                                    Err(error) =>
-                                    {
-                                        for (_sub_index, sender) in sender_vec
-                                        {
-                                            match sender.send(Packet::cancel())
-                                            {
-                                                Ok(_) => {},
-                                                Err(error) => return Err(BuildError::SenderError(error)),
-                                            }
-                                        }
-                                        Err(BuildError::WorkError(error))
-                                    },
                                 }
-                            }
-                        )
+                                Ok(result)
+                            },
+                            Err(error) =>
+                            {
+                                for (_sub_index, sender) in sender_vec
+                                {
+                                    match sender.send(Packet::cancel())
+                                    {
+                                        Ok(_) => {},
+                                        Err(error) => return Err(BuildError::SenderError(error)),
+                                    }
+                                }
+                                Err(BuildError::WorkError(error))
+                            },
+                        }
                     }
-                }
+                )
             )
-        );
-
-        index+=1;
+        )
     }
 
     let mut work_errors = Vec::new();
@@ -820,31 +828,26 @@ pub fn clean<SystemType : System + 'static>
         }
     };
 
-    let mut nodes = get_nodes(&mut system, rulefile_paths, goal_target_opt)?;
+    let mut node_pack = get_nodes(&mut system, rulefile_paths, goal_target_opt)?;
 
     let mut handles = Vec::new();
-    for node in nodes.drain(..)
+    for node in node_pack.nodes.drain(..)
     {
         let blob = elements.current_file_states.take_blob(node.targets);
         let mut system_clone = system.clone();
         let mut local_cache_clone = elements.cache.clone();
 
-        match node.rule_ticket
-        {
-            Some(_ticket) =>
-                handles.push(
-                    thread::spawn(
-                        move || -> Result<(), WorkError>
-                        {
-                            clean_targets(
-                                blob,
-                                &mut system_clone,
-                                &mut local_cache_clone)
-                        }
-                    )
-                ),
-            None => {},
-        }
+        handles.push(
+            thread::spawn(
+                move || -> Result<(), WorkError>
+                {
+                    clean_targets(
+                        blob,
+                        &mut system_clone,
+                        &mut local_cache_clone)
+                }
+            )
+        );
     }
 
     let mut work_errors : Vec<WorkError> = Vec::new();
@@ -1145,8 +1148,6 @@ poem.txt
             }
 
             write_str_to_file(&mut system, "build.rules", rules).unwrap();
-
-
 
             match build(
                 system.clone(),

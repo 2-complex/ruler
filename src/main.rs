@@ -12,6 +12,7 @@ use clap_derive::
 };
 use crate::system::real::RealSystem;
 use crate::printer::StandardPrinter;
+use crate::ticket::TicketFactory;
 
 mod blob;
 mod bundle;
@@ -24,6 +25,7 @@ mod packet;
 mod printer;
 mod rule;
 mod server;
+mod sort;
 mod system;
 mod ticket;
 mod work;
@@ -54,12 +56,21 @@ struct RunConfig
 #[derive(Parser)]
 struct ServeConfig
 {
+    #[arg(index=1, value_name = "PORT", default_value="build.rules", help = "An HTTP port number on which to serve")]
+    port : u16,
 }
 
 #[derive(Parser)]
 struct ListConfig
 {
-    #[arg(index=1, value_name = "PATH", help = "A path, again this is just a standin command for practical testing")]
+    #[arg(index=1, value_name = "PATH", help = "A path")]
+    path : String,
+}
+
+#[derive(Parser)]
+struct HashConfig
+{
+    #[arg(index=1, value_name = "PATH", help = "A path")]
     path : String,
 }
 
@@ -95,6 +106,10 @@ If a target is specified, cleans only the ancestors of that target.")]
     #[command(about="List directory", long_about =
 "Kinda like ls or dir, this is a temporary feature for use in testing the interanl library's feature")]
     List(ListConfig),
+
+    #[command(about="Hash a file or directory", long_about =
+"Takes a filesystem path and returns the hash of the file or directory at that path.")]
+    Hash(HashConfig),
 }
 
 
@@ -169,11 +184,12 @@ fn main()
                 Err(error) => eprintln!("{}", error),
             }
         },
-        RulerSubcommand::Serve(_serve_config) =>
+        RulerSubcommand::Serve(serve_config) =>
         {
             match server::serve(
                 RealSystem::new(),
-                &command_line.directory)
+                &command_line.directory,
+                serve_config.port)
             {
                 Ok(()) => {},
                 Err(error) => eprintln!("{}", error),
@@ -181,16 +197,23 @@ fn main()
         },
         RulerSubcommand::List(list_config) =>
         {
-            let system = RealSystem::new();
-            match system.list_dir(&list_config.path)
+            match RealSystem::new().list_dir(&list_config.path)
             {
-                Ok(walker) =>
+                Ok(list) =>
                 {
-                    for l in walker
+                    for l in list
                     {
                         println!("{}", l);
                     }
                 },
+                Err(error) => eprintln!("{}", error),
+            }
+        },
+        RulerSubcommand::Hash(config) =>
+        {
+            match TicketFactory::from_file(&RealSystem::new(), &config.path)
+            {
+                Ok(mut factory) => println!("{}", factory.result().human_readable()),
                 Err(error) => eprintln!("{}", error),
             }
         }

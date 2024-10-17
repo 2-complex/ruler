@@ -89,7 +89,7 @@ impl CommandLineOutput
 }
 
 #[allow(dead_code)]
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum SystemError
 {
     NotFound,
@@ -105,6 +105,8 @@ pub enum SystemError
     RenameToNonExistent,
     MetadataNotFound,
     ModifiedNotFound,
+    CreateFileOverExistingDirectory,
+    CreateDirectoryOverExistingFile,
     CommandExecutationFailed(String),
     NotImplemented,
     Weird,
@@ -155,6 +157,12 @@ impl fmt::Display for SystemError
             SystemError::MetadataNotFound
                 => write!(formatter, "Attempt to access metadate failed"),
 
+            SystemError::CreateFileOverExistingDirectory
+                => write!(formatter, "Attempt to create a file where a directory already exists"),
+
+            SystemError::CreateDirectoryOverExistingFile
+                => write!(formatter, "Attempt to create a directory where a file already exists"),
+
             SystemError::CommandExecutationFailed(message)
                 => write!(formatter, "{}", message),
 
@@ -171,15 +179,20 @@ impl fmt::Display for SystemError
     real computer's file-system and command-line, or it can fake it for testing. */
 pub trait System: Clone + Send + Sync
 {
-    type File: io::Read + io::Write + fmt::Debug  + Send;
+    type File: io::Read + io::Write + fmt::Debug + Send;
 
     fn open(&self, path: &str) -> Result<Self::File, SystemError>;
     fn create_file(&mut self, path: &str) -> Result<Self::File, SystemError>;
     fn create_dir(&mut self, path: &str) -> Result<(), SystemError>;
     fn is_dir(&self, path: &str) -> bool;
     fn is_file(&self, path: &str) -> bool;
+
+    #[cfg(test)]
     fn remove_file(&mut self, path: &str) -> Result<(), SystemError>;
+
+    #[cfg(test)]
     fn remove_dir(&mut self, path: &str) -> Result<(), SystemError>;
+
     fn list_dir(&self, path: &str) -> Result<Vec<String>, SystemError>;
     fn rename(&mut self, from: &str, to: &str) -> Result<(), SystemError>;
 
