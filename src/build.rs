@@ -80,7 +80,9 @@ use termcolor::
 use crate::system::
 {
     System,
-    SystemError
+    SystemError,
+    CommandScript,
+    to_command_script
 };
 use crate::system::util::
 {
@@ -793,7 +795,7 @@ pub fn run
     let mut all = vec![format!("./{}", executable)];
     all.append(&mut extra_args);
 
-    match system.execute_command(all)
+    match system.execute_command(to_command_script(all))
     {
         Err(system_error) => Err(RunError::ExecutionError(system_error)),
         Ok(_command_line_output) => Ok(()),

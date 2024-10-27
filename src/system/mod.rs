@@ -40,6 +40,49 @@ impl fmt::Display for ReadWriteError
     }
 }
 
+pub struct CommandScript
+{
+    pub elements : Vec<String>
+}
+
+impl fmt::Display for CommandScript
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
+    {
+        write!(formatter, command_script.elements.join(";\n"))
+    }
+}
+
+fn to_command_script(mut all_lines : Vec<String>) -> CommandScript
+{
+    let mut command_script = CommandScript{elements:vec![]};
+    let mut command_lines : Vec<String> = vec![];
+
+    for line in all_lines.drain(..)
+    {
+        match line.as_ref()
+        {
+            ";" =>
+            {
+                command_script.elements.push(command_lines.join(" "));
+                command_lines = vec![];
+            },
+            _ =>
+            {
+                command_lines.push(line);
+            }
+        }
+    }
+
+    if command_lines.len() != 0
+    {
+        command_script.elements.push(command_lines.join(" "));
+    }
+
+    command_script
+}
+
+
 impl CommandLineOutput
 {
     #[cfg(test)]

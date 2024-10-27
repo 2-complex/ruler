@@ -2,7 +2,8 @@ use crate::system::
 {
     System,
     SystemError,
-    CommandLineOutput
+    CommandScript,
+    CommandLineOutput,
 };
 use std::fs;
 use std::io::ErrorKind;
@@ -229,40 +230,14 @@ impl System for RealSystem
         set_is_executable(path, executable)
     }
 
-    fn execute_command(&mut self, mut all_lines: Vec<String>) ->
+    fn execute_command(&mut self, mut command_script : CommandScript) ->
         Result<CommandLineOutput, SystemError>
     {
-        let mut command_lines = vec![];
         let mut result = Err(SystemError::CommandExecutationFailed("".to_string()));
 
-        for line in all_lines.drain(..)
+        for element in command_script.elements.drain(..)
         {
-            match line.as_ref()
-            {
-                ";" =>
-                {
-                    let mut cmd = execute::shell(command_lines.join(" "));
-                    match cmd.execute_output()
-                    {
-                        Ok(output) =>
-                        {
-                            result = Ok(CommandLineOutput::from_output(output))
-                        },
-
-                        Err(error) => return Err(SystemError::CommandExecutationFailed(format!("{}", error))),
-                    }
-                    command_lines = vec![];
-                }
-                _ =>
-                {
-                    command_lines.push(line);
-                }
-            }
-        }
-
-        if command_lines.len() != 0
-        {
-            let mut cmd = execute::shell(command_lines.join(" "));
+            let mut cmd = execute::shell(element);
             match cmd.execute_output()
             {
                 Ok(output) =>

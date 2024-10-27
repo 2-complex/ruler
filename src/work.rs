@@ -175,7 +175,7 @@ fn rebuild_node<SystemType : System>
 Result<WorkResult, WorkError>
 {
     let command_result =
-    match system.execute_command(command)
+    match system.execute_command(to_command_script(command))
     {
         Ok(command_result) => command_result,
         Err(error) =>

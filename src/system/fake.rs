@@ -2,7 +2,8 @@ use crate::system::
 {
     System,
     SystemError,
-    CommandLineOutput
+    CommandLineOutput,
+    CommandScript
 };
 use crate::system::util::
 {
@@ -797,10 +798,8 @@ impl System for FakeSystem
         }
     }
 
-    fn execute_command(&mut self, command_list: Vec<String>) -> Result<CommandLineOutput, SystemError>
+    fn execute_script_line(command_list : Vec<String>) -> Result<CommandLineOutput, SystemError>
     {
-        self.get_command_log_mut().push( command_list.join(" "));
-
         let n = command_list.len();
         if n <= 0
         {
@@ -913,6 +912,19 @@ impl System for FakeSystem
                 Ok(CommandLineOutput::new())
             },
             _=> Ok(CommandLineOutput::error(format!("Invalid command given: {}", command_list[0])))
+        }
+    }
+
+    fn execute_command(&mut self, command_script : CommandScript) -> Result<CommandLineOutput, SystemError>
+    {
+        self.get_command_log_mut().push(format!("{}", command_script));
+        for line in command_script.elements
+        {
+            match execute_script_line(line)
+            {
+                Err(error) => return error;
+                Ok(
+            }
         }
     }
 }
