@@ -4,6 +4,7 @@ use crate::system::
     SystemError,
     CommandLineOutput
 };
+use std::str::from_utf8;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
@@ -104,6 +105,27 @@ fn to_path_str(path : &Path) -> Result<String, SystemError>
             }
         }
         _ => Err(SystemError::Weird)
+    }
+}
+
+fn from_output(output : std::process::Output) -> CommandLineOutput
+{
+    CommandLineOutput
+    {
+        out : match from_utf8(&output.stdout)
+        {
+            Ok(text) => text,
+            Err(_) => "<non-utf8 data>",
+        }.to_string(),
+
+        err : match from_utf8(&output.stderr)
+        {
+            Ok(text) => text,
+            Err(_) => "<non-utf8 data>",
+        }.to_string(),
+
+        code : output.status.code(),
+        success : output.status.success(),
     }
 }
 
@@ -246,7 +268,7 @@ impl System for RealSystem
                     {
                         Ok(output) =>
                         {
-                            result = Ok(CommandLineOutput::from_output(output))
+                            result = Ok(from_output(output))
                         },
 
                         Err(error) => return Err(SystemError::CommandExecutationFailed(format!("{}", error))),
@@ -267,7 +289,7 @@ impl System for RealSystem
             {
                 Ok(output) =>
                 {
-                    result = Ok(CommandLineOutput::from_output(output))
+                    result = Ok(from_output(output))
                 },
 
                 Err(error) => return Err(SystemError::CommandExecutationFailed(format!("{}", error))),
