@@ -170,6 +170,7 @@ impl System for RealSystem
         Path::new(&to_path_buf(path)).is_dir()
     }
 
+    #[cfg(test)]
     fn remove_file(&mut self, path: &str) -> Result<(), SystemError>
     {
         match fs::remove_file(to_path_buf(path))
@@ -179,6 +180,7 @@ impl System for RealSystem
         }
     }
 
+    #[cfg(test)]
     fn remove_dir(&mut self, path: &str) -> Result<(), SystemError>
     {
         match fs::remove_dir(to_path_buf(path))
