@@ -1,3 +1,5 @@
+use std::str::from_utf8;
+use std::process::Output;
 use std::io;
 use std::fmt;
 use std::time::SystemTime;
@@ -104,6 +106,27 @@ impl CommandLineOutput
             err : message,
             code : Some(1),
             success : false,
+        }
+    }
+
+    pub fn from_output(output : Output) -> CommandLineOutput
+    {
+        CommandLineOutput
+        {
+            out : match from_utf8(&output.stdout)
+            {
+                Ok(text) => text,
+                Err(_) => "<non-utf8 data>",
+            }.to_string(),
+
+            err : match from_utf8(&output.stderr)
+            {
+                Ok(text) => text,
+                Err(_) => "<non-utf8 data>",
+            }.to_string(),
+
+            code : output.status.code(),
+            success : output.status.success(),
         }
     }
 }
