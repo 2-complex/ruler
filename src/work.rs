@@ -6,6 +6,7 @@ use crate::system::
     ReadWriteError,
     System,
     SystemError,
+    to_command_script
 };
 use crate::history::
 {
@@ -60,6 +61,7 @@ pub enum WorkError
     GetCurrentFileInfoError(GetCurrentFileInfoError),
     CommandExecutedButErrored,
     CommandFailedToExecute(SystemError),
+    NoCommandExecuted,
     Contradiction(Vec<String>),
     Weird,
 }
@@ -97,15 +99,18 @@ impl fmt::Display for WorkError
             WorkError::CommandFailedToExecute(error) =>
                 write!(formatter, "Failed to execute command: {}", error),
 
+            WorkError::NoCommandExecuted =>
+                write!(formatter, "No command executed"),
+
             WorkError::Contradiction(contradicting_target_paths) =>
             {
-                let mut message = "The following targets failed to record into history because they contradict an existing target history:\n".to_string();
+                let mut message = "The following targets failed to record into history, because they contradict an existing target history:\n".to_string();
                 for path in contradicting_target_paths
                 {
                     message.push_str(path);
                     message.push_str("\n");
                 }
-                message.push_str("This likely means a real dependence is not reflected in the rule.\n");
+                message.push_str("This might mean a real dependence is not reflected in the rule.\n");
                 write!(formatter, "{}", message)
             },
 
@@ -160,6 +165,28 @@ fn needs_rebuild(resolutions : &Vec<FileResolution>) -> bool
     false
 }
 
+fn to_command_line_input(command_result : Vec<Result<CommandLineOutput, SystemError>>) -> Result<CommandLineOutput, WorkError>
+{
+    let mut result = Err(WorkError::NoCommandExecuted);
+    for res in command_result.into_iter()
+    {
+        match res
+        {
+            Ok(output) =>
+            {
+                if output.code != Some(0)
+                {
+                    return Err(WorkError::CommandExecutedButErrored)
+                }
+                result = Ok(output);
+            },
+            Err(error) => return Err(WorkError::CommandFailedToExecute(error))
+        }
+    }
+
+    result
+}
+
 /*  Handles the case where at least one target is irrecoverable and therefore the command
     needs to execute to rebuild the node.  When successful, returns a WorkResult with option
     indicating that the command executed (WorkResult contains the commandline result) */
@@ -174,20 +201,7 @@ fn rebuild_node<SystemType : System>
 ->
 Result<WorkResult, WorkError>
 {
-    let command_result =
-    match system.execute_command(command)
-    {
-        Ok(command_result) => command_result,
-        Err(error) =>
-        {
-            return Err(WorkError::CommandFailedToExecute(error));
-        },
-    };
-
-    if ! command_result.success
-    {
-        return Err(WorkError::CommandExecutedButErrored);
-    }
+    let command_result = to_command_line_input(system.execute_command(to_command_script(command)))?;
 
     let file_state_vec =
     match blob.update_to_match_system_file_state(system)

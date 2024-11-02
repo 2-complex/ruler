@@ -80,7 +80,8 @@ use termcolor::
 use crate::system::
 {
     System,
-    SystemError
+    SystemError,
+    to_command_script
 };
 use crate::system::util::
 {
@@ -793,11 +794,16 @@ pub fn run
     let mut all = vec![format!("./{}", executable)];
     all.append(&mut extra_args);
 
-    match system.execute_command(all)
+    for result in system.execute_command(to_command_script(all))
     {
-        Err(system_error) => Err(RunError::ExecutionError(system_error)),
-        Ok(_command_line_output) => Ok(()),
+        match result
+        {
+            Ok(_command_line_output) => {},
+            Err(system_error) => return Err(RunError::ExecutionError(system_error)),
+        }
     }
+
+    Ok(())
 }
 
 /*  This is the function that runs when you type "ruler clean" at the command-line.
