@@ -248,4 +248,3 @@ pub trait System: Clone + Send + Sync
     fn set_is_executable(&mut self, path: &str, executable : bool) -> Result<(), SystemError>;
     fn execute_command(&mut self, command_script: CommandScript) -> Vec<Result<CommandLineOutput, SystemError>>;
 }
-
