@@ -61,7 +61,7 @@ pub fn write_str_to_file
             match file.write_all(content.as_bytes())
             {
                 Ok(_) => Ok(()),
-                Err(error) => Err(ReadWriteError::IOError(error)),
+                Err(error) => Err(ReadWriteError::IOError(format!("{}", error))),
             }
         }
         Err(error) => Err(ReadWriteError::SystemError(error))
@@ -93,7 +93,7 @@ pub fn read_file
                 {
                     return Ok(content);
                 }
-                Err(error) => Err(ReadWriteError::IOError(error)),
+                Err(error) => Err(ReadWriteError::IOError(format!("{}", error))),
             }
         }
         Err(error) => Err(ReadWriteError::SystemError(error)),

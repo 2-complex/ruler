@@ -230,25 +230,23 @@ impl System for RealSystem
         set_is_executable(path, executable)
     }
 
-    fn execute_command(&mut self, mut command_script : CommandScript) ->
-        Result<CommandLineOutput, SystemError>
+    fn execute_command(&mut self, command_script : CommandScript) ->
+        Vec<Result<CommandLineOutput, SystemError>>
     {
-        let mut result = Err(SystemError::CommandExecutationFailed("".to_string()));
-
-        for element in command_script.elements.drain(..)
+        let mut result = vec![];
+        for element in command_script.lines.into_iter()
         {
             let mut cmd = execute::shell(element);
             match cmd.execute_output()
             {
-                Ok(output) =>
+                Ok(output) => result.push(Ok(CommandLineOutput::from_output(output))),
+                Err(error) =>
                 {
-                    result = Ok(CommandLineOutput::from_output(output))
+                    result.push(Err(SystemError::CommandExecutationFailed(format!("{}", error))));
+                    return result;
                 },
-
-                Err(error) => return Err(SystemError::CommandExecutationFailed(format!("{}", error))),
             }
         }
-
         result
     }
 }

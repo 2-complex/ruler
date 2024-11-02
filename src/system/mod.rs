@@ -9,7 +9,7 @@ pub mod fake;
 pub mod util;
 pub mod real;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct CommandLineOutput
 {
     pub out : String,
@@ -18,10 +18,10 @@ pub struct CommandLineOutput
     pub success : bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ReadWriteError
 {
-    IOError(io::Error),
+    IOError(String),
     SystemError(SystemError)
 }
 
@@ -31,8 +31,8 @@ impl fmt::Display for ReadWriteError
     {
         match self
         {
-            ReadWriteError::IOError(error)
-                => write!(formatter, "{}", error),
+            ReadWriteError::IOError(io_error_message)
+                => write!(formatter, "{}", io_error_message),
 
             ReadWriteError::SystemError(error)
                 => write!(formatter, "{}", error),
@@ -42,20 +42,20 @@ impl fmt::Display for ReadWriteError
 
 pub struct CommandScript
 {
-    pub elements : Vec<String>
+    pub lines : Vec<String>
 }
 
 impl fmt::Display for CommandScript
 {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
     {
-        write!(formatter, command_script.elements.join(";\n"))
+        write!(formatter, "{}", self.lines.join("; "))
     }
 }
 
-fn to_command_script(mut all_lines : Vec<String>) -> CommandScript
+pub fn to_command_script(mut all_lines : Vec<String>) -> CommandScript
 {
-    let mut command_script = CommandScript{elements:vec![]};
+    let mut command_script = CommandScript{lines:vec![]};
     let mut command_lines : Vec<String> = vec![];
 
     for line in all_lines.drain(..)
@@ -64,7 +64,7 @@ fn to_command_script(mut all_lines : Vec<String>) -> CommandScript
         {
             ";" =>
             {
-                command_script.elements.push(command_lines.join(" "));
+                command_script.lines.push(command_lines.join(" "));
                 command_lines = vec![];
             },
             _ =>
@@ -76,7 +76,7 @@ fn to_command_script(mut all_lines : Vec<String>) -> CommandScript
 
     if command_lines.len() != 0
     {
-        command_script.elements.push(command_lines.join(" "));
+        command_script.lines.push(command_lines.join(" "));
     }
 
     command_script
@@ -241,6 +241,6 @@ pub trait System: Clone + Send + Sync
     fn get_modified(&self, path: &str) -> Result<SystemTime, SystemError>;
     fn is_executable(&self, path: &str) -> Result<bool, SystemError>;
     fn set_is_executable(&mut self, path: &str, executable : bool) -> Result<(), SystemError>;
-    fn execute_command(&mut self, command_list: Vec<String>) -> Result<CommandLineOutput, SystemError>;
+    fn execute_command(&mut self, command_script: CommandScript) -> Vec<Result<CommandLineOutput, SystemError>>;
 }
 
