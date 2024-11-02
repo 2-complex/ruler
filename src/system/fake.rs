@@ -2,7 +2,8 @@ use crate::system::
 {
     System,
     SystemError,
-    CommandLineOutput
+    CommandLineOutput,
+    CommandScript
 };
 use crate::system::util::
 {
@@ -114,7 +115,7 @@ enum Node
     Dir(HashMap<String, Node>)
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum NodeError
 {
     FileInPlaceOfDirectory(String),
@@ -127,6 +128,8 @@ enum NodeError
     RemoveNonExistentDir,
     RenameFromNonExistent,
     RenameToNonExistent,
+    CreateFileOverExistingDirectory,
+    CreateDirectoryOverExistingFile,
     GetModifiedOnDirectory,
     IsExecutableOnDirectory,
     Weird,
@@ -168,6 +171,12 @@ impl fmt::Display for NodeError
 
             NodeError::RenameToNonExistent
                 => write!(formatter, "Attempt to rename a file or directory with non-existent target directory"),
+
+            NodeError::CreateFileOverExistingDirectory
+                => write!(formatter, "Attempt to create a file where a directory already exists"),
+
+            NodeError::CreateDirectoryOverExistingFile
+                => write!(formatter, "Attempt to create a directory where a file already exists"),
 
             NodeError::GetModifiedOnDirectory
                 => write!(formatter, "Attempt to get modified time for a directory (that is not implemented)"),
@@ -313,19 +322,19 @@ impl Node
         }
     }
 
-    fn insert(&mut self, dir_components : Vec<&str>, name : &str, node : Node) -> Result<(), NodeError>
-    {
-        self.get_dir_map_mut(&dir_components)?.insert(name.to_string(), node);
-        Ok(())
-    }
-
     pub fn create_file(&mut self, path: &str, content : Content, timestamp : u64) -> Result<Content, NodeError>
     {
         let (dir_components, name) = get_dir_path_and_name(path)?;
+        let dir_map_mut = self.get_dir_map_mut(&dir_components)?;
 
-        self.insert(dir_components, name, Node::File(FileInfo::new(
-            Metadata::new(timestamp),
-            content.clone())))?;
+        match dir_map_mut.get(name)
+        {
+            Some(Node::Dir(_)) => return Err(NodeError::CreateFileOverExistingDirectory),
+            _ => {},
+        }
+
+        dir_map_mut.insert(name.to_string(), Node::File(
+            FileInfo::new(Metadata::new(timestamp), content.clone())));
 
         Ok(content)
     }
@@ -333,7 +342,15 @@ impl Node
     pub fn create_dir(&mut self, path: &str) -> Result<(), NodeError>
     {
         let (dir_components, name) = get_dir_path_and_name(path)?;
-        self.insert(dir_components, name, Node::Dir(HashMap::new()))?;
+        let dir_map_mut = self.get_dir_map_mut(&dir_components)?;
+
+        match dir_map_mut.get(name)
+        {
+            Some(Node::File(_)) => return Err(NodeError::CreateDirectoryOverExistingFile),
+            _ => {},
+        }
+
+        dir_map_mut.insert(name.to_string(), Node::Dir(HashMap::new()));
         Ok(())
     }
 
@@ -616,6 +633,12 @@ fn convert_node_error_to_system_error(error : NodeError) -> SystemError
         NodeError::RenameToNonExistent
             => SystemError::RenameToNonExistent,
 
+        NodeError::CreateFileOverExistingDirectory
+            => SystemError::CreateFileOverExistingDirectory,
+
+        NodeError::CreateDirectoryOverExistingFile
+            => SystemError::CreateDirectoryOverExistingFile,
+
         NodeError::GetModifiedOnDirectory
             => SystemError::NotImplemented,
 
@@ -666,6 +689,125 @@ impl FakeSystem
     pub fn get_command_log(&self) -> Vec<String>
     {
         self.command_log.lock().unwrap().clone()
+    }
+
+    fn execute_script_line(&mut self, line : String) -> Result<CommandLineOutput, SystemError>
+    {
+        let command_list:Vec<&str> = line.split_whitespace().collect();
+
+        let n = command_list.len();
+        if n <= 0
+        {
+            return Ok(CommandLineOutput::error(format!("Wrong number of arguments")));
+        }
+
+        let mut output = String::new();
+        match command_list[0]
+        {
+            "error" =>
+            {
+                Ok(CommandLineOutput::error("Failed".to_string()))
+            },
+
+            "mycat" =>
+            {
+                for file in command_list[1..(n-1)].iter()
+                {
+                    match read_file(self, file)
+                    {
+                        Ok(content) =>
+                        {
+                            match from_utf8(&content)
+                            {
+                                Ok(content_string) =>
+                                {
+                                    output.push_str(content_string);
+                                }
+                                Err(_) => return Ok(CommandLineOutput::error(format!("File contained non utf8 bytes: {}", file))),
+                            }
+                        }
+                        Err(_) =>
+                        {
+                            return Ok(CommandLineOutput::error(format!("File failed to open: {}", file)));
+                        }
+                    }
+                }
+
+                match write_str_to_file(self, &command_list[n-1], &output)
+                {
+                    Ok(_) => Ok(CommandLineOutput::new()),
+                    Err(why) =>
+                    {
+                        Ok(CommandLineOutput::error(format!("Failed to cat into file: {} : {}", command_list[n-1], why)))
+                    }
+                }
+            },
+
+            /*  Takes source files followed by two targets, concats the sources and puts the result in both the
+                targets.  For instance:
+
+                mycat2 in1.txt in2.txt out1.txt out2.txt
+
+                concatinates in1.txt in2.txt  puts a copy in out1.txt and out2.txt.*/
+            "mycat2" =>
+            {
+                for file in command_list[1..(n-2)].iter()
+                {
+                    match read_file(self, file)
+                    {
+                        Ok(content) =>
+                        {
+                            match from_utf8(&content)
+                            {
+                                Ok(content_string) =>
+                                {
+                                    output.push_str(content_string);
+                                }
+                                Err(_) => return Ok(CommandLineOutput::error(
+                                    format!("mycat2: file contained non utf8 bytes: {}", file))),
+                            }
+                        }
+                        Err(_) =>
+                        {
+                            return Ok(CommandLineOutput::error(
+                                format!("mycat2: file failed to open: {}", file)));
+                        }
+                    }
+                }
+
+                match write_str_to_file(self, &command_list[n-2], &output)
+                {
+                    Ok(_) => {},
+                    Err(why) => return Ok(CommandLineOutput::error(
+                        format!("mycat2: failed to cat into file: {}: {}", command_list[n-2], why)))
+                }
+
+                match write_str_to_file(self, &command_list[n-1], &output)
+                {
+                    Ok(_) => Ok(CommandLineOutput::new()),
+                    Err(why) => return Ok(CommandLineOutput::error(
+                        format!("mycat2: failed to cat into file: {}: {}", command_list[n-1], why)))
+                }
+            },
+
+            "rm" =>
+            {
+                for file in command_list[1..n].iter()
+                {
+                    match self.remove_file(file)
+                    {
+                        Ok(()) => {}
+                        Err(_) =>
+                        {
+                            return Ok(CommandLineOutput::error(format!("File failed to delete: {}", file)));
+                        }
+                    }
+                }
+
+                Ok(CommandLineOutput::new())
+            },
+            _=> Ok(CommandLineOutput::error(format!("Invalid command given: {}", command_list[0])))
+        }
     }
 }
 
@@ -775,123 +917,15 @@ impl System for FakeSystem
         }
     }
 
-    fn execute_command(&mut self, command_list: Vec<String>) -> Result<CommandLineOutput, SystemError>
+    fn execute_command(&mut self, command_script: CommandScript) -> Vec<Result<CommandLineOutput, SystemError>>
     {
-        self.get_command_log_mut().push( command_list.join(" "));
-
-        let n = command_list.len();
-        if n <= 0
+        let mut result = Vec::new();
+        self.get_command_log_mut().push(format!("{}", command_script));
+        for line in command_script.lines
         {
-            return Ok(CommandLineOutput::error(format!("Wrong number of arguments")));
+            result.push(self.execute_script_line(line));
         }
-
-        let mut output = String::new();
-        match command_list[0].as_str()
-        {
-            "error" =>
-            {
-                Ok(CommandLineOutput::error("Failed".to_string()))
-            },
-
-            "mycat" =>
-            {
-                for file in command_list[1..(n-1)].iter()
-                {
-                    match read_file(self, file)
-                    {
-                        Ok(content) =>
-                        {
-                            match from_utf8(&content)
-                            {
-                                Ok(content_string) =>
-                                {
-                                    output.push_str(content_string);
-                                }
-                                Err(_) => return Ok(CommandLineOutput::error(format!("File contained non utf8 bytes: {}", file))),
-                            }
-                        }
-                        Err(_) =>
-                        {
-                            return Ok(CommandLineOutput::error(format!("File failed to open: {}", file)));
-                        }
-                    }
-                }
-
-                match write_str_to_file(self, &command_list[n-1], &output)
-                {
-                    Ok(_) => Ok(CommandLineOutput::new()),
-                    Err(why) =>
-                    {
-                        Ok(CommandLineOutput::error(format!("Failed to cat into file: {} : {}", command_list[n-1], why)))
-                    }
-                }
-            },
-
-            /*  Takes source files followed by two targets, concats the sources and puts the result in both the
-                targets.  For instance:
-
-                mycat2 in1.txt in2.txt out1.txt out2.txt
-
-                concatinates in1.txt in2.txt  puts a copy in out1.txt and out2.txt.*/
-            "mycat2" =>
-            {
-                for file in command_list[1..(n-2)].iter()
-                {
-                    match read_file(self, file)
-                    {
-                        Ok(content) =>
-                        {
-                            match from_utf8(&content)
-                            {
-                                Ok(content_string) =>
-                                {
-                                    output.push_str(content_string);
-                                }
-                                Err(_) => return Ok(CommandLineOutput::error(
-                                    format!("mycat2: file contained non utf8 bytes: {}", file))),
-                            }
-                        }
-                        Err(_) =>
-                        {
-                            return Ok(CommandLineOutput::error(
-                                format!("mycat2: file failed to open: {}", file)));
-                        }
-                    }
-                }
-
-                match write_str_to_file(self, &command_list[n-2], &output)
-                {
-                    Ok(_) => {},
-                    Err(why) => return Ok(CommandLineOutput::error(
-                        format!("mycat2: failed to cat into file: {}: {}", command_list[n-2], why)))
-                }
-
-                match write_str_to_file(self, &command_list[n-1], &output)
-                {
-                    Ok(_) => Ok(CommandLineOutput::new()),
-                    Err(why) => return Ok(CommandLineOutput::error(
-                        format!("mycat2: failed to cat into file: {}: {}", command_list[n-1], why)))
-                }
-            },
-
-            "rm" =>
-            {
-                for file in command_list[1..n].iter()
-                {
-                    match self.remove_file(file)
-                    {
-                        Ok(()) => {}
-                        Err(_) =>
-                        {
-                            return Ok(CommandLineOutput::error(format!("File failed to delete: {}", file)));
-                        }
-                    }
-                }
-
-                Ok(CommandLineOutput::new())
-            },
-            _=> Ok(CommandLineOutput::error(format!("Invalid command given: {}", command_list[0])))
-        }
+        result
     }
 }
 
@@ -901,8 +935,10 @@ mod test
     use crate::system::
     {
         System,
-        ReadWriteError,
+        CommandLineOutput,
+        to_command_script
     };
+
 
     use crate::system::fake::
     {
@@ -1106,6 +1142,19 @@ mod test
     }
 
     #[test]
+    fn create_file_with_directory_already_present()
+    {
+        let mut node = Node::empty_dir();
+        node.create_dir("images").unwrap();
+        node.create_dir("images/more_images").unwrap();
+        match node.create_file("images/more_images", Content::new(b"content".to_vec()), 0)
+        {
+            Err(NodeError::CreateFileOverExistingDirectory) => {},
+            _ => panic!("unexpected result"),
+        }
+    }
+
+    #[test]
     fn add_and_list_dir_file()
     {
         let mut node = Node::empty_dir();
@@ -1258,17 +1307,9 @@ mod test
     fn system_add_remove_dir()
     {
         let mut system = FakeSystem::new(10);
-        match system.create_dir("images")
-        {
-            Ok(_) => {},
-            Err(error) => panic!("create_dir in FakeSystem failed with error: {}", error),
-        }
+        system.create_dir("images").unwrap();
         assert!(system.is_dir("images"));
-        match system.remove_dir("images")
-        {
-            Ok(_) => {},
-            Err(error) => panic!("remove_file in FakeSystem failed with error: {}", error),
-        }
+        system.remove_dir("images").unwrap();
         assert!(!system.is_file("images"));
         assert!(!system.is_dir("images"));
     }
@@ -1277,36 +1318,8 @@ mod test
     fn system_create_file_write_read_round_trip()
     {
         let mut system = FakeSystem::new(10);
-        match write_str_to_file(&mut system, "fruit_file.txt", "cantaloupe")
-        {
-            Ok(_) => {},
-            Err(error) =>
-            {
-                match error
-                {
-                    ReadWriteError::SystemError(error) =>
-                        panic!("SystemError in write: {}", error),
-
-                    ReadWriteError::IOError(error) =>
-                        panic!("IOError in write: {}", error),
-                }
-            }
-        }
-        match read_file(&system, "fruit_file.txt")
-        {
-            Ok(content) => assert_eq!(content, b"cantaloupe"),
-            Err(error) =>
-            {
-                match error
-                {
-                    ReadWriteError::SystemError(error) =>
-                        panic!("SystemError in read: {}", error),
-
-                    ReadWriteError::IOError(error) =>
-                        panic!("IOError in read: {}", error),
-                }
-            }
-        }
+        write_str_to_file(&mut system, "fruit_file.txt", "cantaloupe").unwrap();
+        read_file(&system, "fruit_file.txt").unwrap();
     }
 
     #[test]
@@ -1314,76 +1327,17 @@ mod test
     {
         let mut system1 = FakeSystem::new(10);
         let system2 = system1.clone();
-        match write_str_to_file(&mut system1, "fruit_file.txt", "cantaloupe")
-        {
-            Ok(_) => {},
-            Err(error) =>
-            {
-                match error
-                {
-                    ReadWriteError::SystemError(error) =>
-                        panic!("SystemError in write: {}", error),
-
-                    ReadWriteError::IOError(error) =>
-                        panic!("IOError in write: {}", error),
-                }
-            }
-        }
-
-        match read_file(&system2, "fruit_file.txt")
-        {
-            Ok(content) => assert_eq!(content, b"cantaloupe"),
-            Err(error) =>
-            {
-                match error
-                {
-                    ReadWriteError::SystemError(error) =>
-                        panic!("SystemError in read: {}", error),
-
-                    ReadWriteError::IOError(error) =>
-                        panic!("IOError in read: {}", error),
-                }
-            }
-        }
+        write_str_to_file(&mut system1, "fruit_file.txt", "cantaloupe").unwrap();
+        assert_eq!(read_file(&system2, "fruit_file.txt").unwrap(), b"cantaloupe");
     }
 
     #[test]
     fn system_create_file_write_read_round_trip_read_twice()
     {
         let mut system = FakeSystem::new(10);
-        match write_str_to_file(&mut system, "fruit_file.txt", "cantaloupe")
-        {
-            Ok(_) => {},
-            Err(error) =>
-            {
-                match error
-                {
-                    ReadWriteError::SystemError(error) =>
-                        panic!("SystemError in write: {}", error),
-
-                    ReadWriteError::IOError(error) =>
-                        panic!("IOError in write: {}", error),
-                }
-            }
-        }
-        for _ in 0..2
-        {
-            match read_file(&system, "fruit_file.txt")
-            {
-                Ok(content) => assert_eq!(content, b"cantaloupe"),
-                Err(error) =>
-                {
-                    match error
-                    {
-                        ReadWriteError::SystemError(error) =>
-                            panic!("SystemError in read: {}", error),
-
-                        ReadWriteError::IOError(error) =>
-                            panic!("IOError in read: {}", error),
-                    }
-                }
-            }
-        }
+        write_str_to_file(&mut system, "fruit_file.txt", "cantaloupe").unwrap();
+        assert_eq!(read_file(&system, "fruit_file.txt").unwrap(), b"cantaloupe");
+        assert_eq!(read_file(&system, "fruit_file.txt").unwrap(), b"cantaloupe");
     }
 
     #[test]
@@ -1451,32 +1405,10 @@ mod test
     fn writing_updates_modified_timestamp()
     {
         let mut system = FakeSystem::new(0);
-
         system.time_passes(5);
-
-        match system.create_file("cars.txt")
-        {
-            Ok(_) => {},
-            Err(error) => panic!("create_file SystemError: {}", error),
-        }
-
+        system.create_file("cars.txt").unwrap();
         system.time_passes(6);
-
-        match write_str_to_file(&mut system, "cars.txt", "cantaloupe")
-        {
-            Ok(_) => {},
-            Err(error) =>
-            {
-                match error
-                {
-                    ReadWriteError::SystemError(error) =>
-                        panic!("SystemError in write: {}", error),
-
-                    ReadWriteError::IOError(error) =>
-                        panic!("IOError in write: {}", error),
-                }
-            }
-        }
+        write_str_to_file(&mut system, "cars.txt", "cantaloupe").unwrap();
 
         match system.get_modified("cars.txt")
         {
@@ -1489,74 +1421,51 @@ mod test
         }
     }
 
-
     #[test]
     fn executing_error_gives_error_output()
     {
         let mut system = FakeSystem::new(10);
-        match system.execute_command(vec!["error".to_string()])
-        {
-            Ok(output) =>
-            {
-                assert_eq!(output.out, "".to_string());
-                assert_eq!(output.err, "Failed".to_string());
-                assert_eq!(output.code, Some(1));
-                assert_eq!(output.success, false);
-            },
-            Err(error) => panic!("Excpected successful command invocation got error: {}", error),
-        }
+        assert_eq!(
+            system.execute_command(to_command_script(vec!["error".to_string()])),
+            vec![
+                Ok(CommandLineOutput
+                {
+                    out : "".to_string(),
+                    err : "Failed".to_string(),
+                    code : Some(1),
+                    success : false,
+                })
+            ]
+        );
     }
 
     #[test]
     fn executing_mycat_concatinates()
     {
         let mut system = FakeSystem::new(10);
-        match system.create_file("line1.txt")
-        {
-            Ok(_) => {},
-            Err(error) => panic!("create_file SystemError: {}", error),
-        }
+        system.create_file("line1.txt").unwrap();
+        write_str_to_file(&mut system, "line1.txt", "Ants\n").unwrap();
+        system.create_file("line2.txt").unwrap();
+        write_str_to_file(&mut system, "line2.txt", "Love to dance\n").unwrap();
 
-        match write_str_to_file(&mut system, "line1.txt", "Ants\n")
-        {
-            Ok(_) => {},
-            Err(error) => panic!("Error writing line1.txt: {}", error),
-        }
-
-        match system.create_file("line2.txt")
-        {
-            Ok(_) => {},
-            Err(error) => panic!("create_file SystemError: {}", error),
-        }
-
-        match write_str_to_file(&mut system, "line2.txt", "Love to dance\n")
-        {
-            Ok(_) => {},
-            Err(error) => panic!("Error writing line2.txt: {}", error),
-        }
-
-        match system.execute_command(
-            vec![
+        assert_eq!(
+            system.execute_command(to_command_script(vec![
                 "mycat".to_string(),
                 "line1.txt".to_string(),
                 "line2.txt".to_string(),
-                "poem.txt".to_string()])
-        {
-            Ok(output) =>
-            {
-                assert_eq!(output.out, "".to_string());
-                assert_eq!(output.err, "".to_string());
-                assert_eq!(output.code, Some(0));
-                assert_eq!(output.success, true);
-            },
-            Err(error) => panic!("Excpected successful command invocation got error: {}", error),
-        }
+                "poem.txt".to_string()])),
+            vec![
+                Ok(CommandLineOutput
+                {
+                    out : "".to_string(),
+                    err : "".to_string(),
+                    code : Some(0),
+                    success : true,
+                })
+            ]
+        );
 
-        match read_file(&system, "poem.txt")
-        {
-            Ok(content) => assert_eq!(content, b"Ants\nLove to dance\n"),
-            Err(error) => panic!("{}", error),
-        }
+        assert_eq!(read_file(&system, "poem.txt"), Ok(b"Ants\nLove to dance\n".to_vec()));
     }
 
 
@@ -1588,23 +1497,23 @@ mod test
             Err(error) => panic!("Error writing line2.txt: {}", error),
         }
 
-        match system.execute_command(
-            vec![
+        assert_eq!(system.execute_command(
+            to_command_script(vec![
                 "mycat2".to_string(),
                 "line1.txt".to_string(),
                 "line2.txt".to_string(),
                 "poem.txt".to_string(),
-                "poem-backup.txt".to_string()])
-        {
-            Ok(output) =>
-            {
-                assert_eq!(output.out, "".to_string());
-                assert_eq!(output.err, "".to_string());
-                assert_eq!(output.code, Some(0));
-                assert_eq!(output.success, true);
-            },
-            Err(error) => panic!("Excpected successful command invocation got error: {}", error),
-        }
+                "poem-backup.txt".to_string()])),
+            vec![
+                Ok(CommandLineOutput
+                {
+                    out : "".to_string(),
+                    err : "".to_string(),
+                    code : Some(0),
+                    success : true,
+                })
+            ]
+        );
 
         match read_file(&system, "poem.txt")
         {
@@ -1632,23 +1541,40 @@ mod test
 
         assert!(system.is_file("terrible-file.txt"));
 
-        match system.execute_command(
+        assert_eq!(
+            system.execute_command(
+                to_command_script(vec![
+                    "rm".to_string(),
+                    "terrible-file.txt".to_string()
+                ])),
             vec![
-                "rm".to_string(),
-                "terrible-file.txt".to_string()
-            ])
-        {
-            Ok(output) =>
-            {
-                assert_eq!(output.out, "".to_string());
-                assert_eq!(output.err, "".to_string());
-                assert_eq!(output.code, Some(0));
-                assert_eq!(output.success, true);
-            },
-            Err(error) => panic!("Expected smooth commandline invocation, got error: {}", error),
-        }
+                Ok(CommandLineOutput
+                {
+                    out : "".to_string(),
+                    err : "".to_string(),
+                    code : Some(0),
+                    success : true,
+                })
+            ]
+        );
 
         assert!(!system.is_file("terrible-file.txt"));
 
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
