@@ -337,6 +337,38 @@ mod tests
     }
 
     #[test]
+    fn parse_bundles()
+    {
+        let content = "\
+build
+\tmath.o
+:
+cpp
+\tmath.cpp
+\tmath.h
+:
+c++ -c math.cpp -o build/math.o
+:
+".to_string();
+        assert_eq!(
+            parse("parsnip.rules".to_string(), content),
+            Ok(vec![
+                Rule
+                {
+                    targets: vec!["build/math.o".to_string()],
+                    sources: vec![
+                        "cpp/math.cpp".to_string(),
+                        "cpp/math.h".to_string(),
+                    ],
+                    command: vec![
+                        "c++ -c math.cpp -o build/math.o".to_string()
+                    ]
+                }
+            ])
+        );
+    }
+
+    #[test]
     fn parse_all_empty()
     {
         match parse_all(

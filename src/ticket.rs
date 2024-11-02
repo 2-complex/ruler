@@ -105,7 +105,7 @@ fn encode62(bytes: &[u8; 32]) -> String
     let mut n = BigUint::from_bytes_le(bytes);
 
     // 0-9, a-z, A-Z
-    let alphabet : [u8; 62] = [
+    const ALPHABET : [u8; 62] = [
         48, 49, 50, 51, 52, 53, 54, 55, 56, 57,
         97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122,
         65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90
@@ -115,8 +115,7 @@ fn encode62(bytes: &[u8; 32]) -> String
     let mut i = 0;
     while n > BigUint::zero()
     {
-        buffer[i] = alphabet[
-            (&n % 62u32).to_u32().unwrap() as usize];
+        buffer[i] = ALPHABET[(&n % 62u32).to_u32().unwrap() as usize];
         i+=1;
         n /= 62u32;
     }
@@ -163,6 +162,11 @@ impl TicketFactory
         self.dig.input(input.as_bytes());
     }
 
+    pub fn input_bytes(&mut self, input: &[u8])
+    {
+        self.dig.input(input);
+    }
+
     /*  Create a ticket from the bytes incorporated so far. */
     pub fn result(&mut self) -> Ticket
     {
@@ -201,7 +205,7 @@ impl TicketFactory
                         {
                             dig.input(&buffer[..size]);
                         },
-                        Err(error) => return Err(ReadWriteError::IOError(error)),
+                        Err(error) => return Err(ReadWriteError::IOError(format!("{}", error))),
                     }
                 }
             },

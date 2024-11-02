@@ -41,7 +41,7 @@ fn write_file
             match file.write_all(&content)
             {
                 Ok(_) => return Ok(()),
-                Err(error) => return Err(ReadWriteError::IOError(error)),
+                Err(error) => return Err(ReadWriteError::IOError(format!("{}", error))),
             }
         }
         Err(error) => return Err(ReadWriteError::SystemError(error)),

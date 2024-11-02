@@ -9,7 +9,7 @@ pub mod fake;
 pub mod util;
 pub mod real;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct CommandLineOutput
 {
     pub out : String,
@@ -18,10 +18,10 @@ pub struct CommandLineOutput
     pub success : bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ReadWriteError
 {
-    IOError(io::Error),
+    IOError(String),
     SystemError(SystemError)
 }
 
@@ -31,14 +31,57 @@ impl fmt::Display for ReadWriteError
     {
         match self
         {
-            ReadWriteError::IOError(error)
-                => write!(formatter, "{}", error),
+            ReadWriteError::IOError(io_error_message)
+                => write!(formatter, "{}", io_error_message),
 
             ReadWriteError::SystemError(error)
                 => write!(formatter, "{}", error),
         }
     }
 }
+
+pub struct CommandScript
+{
+    pub lines : Vec<String>
+}
+
+impl fmt::Display for CommandScript
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
+    {
+        write!(formatter, "{}", self.lines.join("; "))
+    }
+}
+
+pub fn to_command_script(mut all_lines : Vec<String>) -> CommandScript
+{
+    let mut command_script = CommandScript{lines:vec![]};
+    let mut command_lines : Vec<String> = vec![];
+
+    for line in all_lines.drain(..)
+    {
+        match line.as_ref()
+        {
+            ";" =>
+            {
+                command_script.lines.push(command_lines.join(" "));
+                command_lines = vec![];
+            },
+            _ =>
+            {
+                command_lines.push(line);
+            }
+        }
+    }
+
+    if command_lines.len() != 0
+    {
+        command_script.lines.push(command_lines.join(" "));
+    }
+
+    command_script
+}
+
 
 impl CommandLineOutput
 {
@@ -88,12 +131,8 @@ impl CommandLineOutput
     }
 }
 
-/*  A lot of these are only contructed by the fake filesystem.
-    In the future, maybe hone the list of errors down to something that real/fake
-    system can agree on completely, but in the mean time, disabling the warning.
-*/
 #[allow(dead_code)]
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum SystemError
 {
     NotFound,
@@ -109,6 +148,8 @@ pub enum SystemError
     RenameToNonExistent,
     MetadataNotFound,
     ModifiedNotFound,
+    CreateFileOverExistingDirectory,
+    CreateDirectoryOverExistingFile,
     CommandExecutationFailed(String),
     NotImplemented,
     Weird,
@@ -139,7 +180,7 @@ impl fmt::Display for SystemError
                 => write!(formatter, "Attempt to remove file, found directory"),
 
             SystemError::ExpectedDirFoundFile
-                => write!(formatter, "Attempt to remove directory, found file"),
+                => write!(formatter, "Attempt to access path as directory, found file"),
 
             SystemError::RemoveNonExistentFile
                 => write!(formatter, "Attempt to remove non-existent file"),
@@ -159,6 +200,12 @@ impl fmt::Display for SystemError
             SystemError::MetadataNotFound
                 => write!(formatter, "Attempt to access metadate failed"),
 
+            SystemError::CreateFileOverExistingDirectory
+                => write!(formatter, "Attempt to create a file where a directory already exists"),
+
+            SystemError::CreateDirectoryOverExistingFile
+                => write!(formatter, "Attempt to create a directory where a file already exists"),
+
             SystemError::CommandExecutationFailed(message)
                 => write!(formatter, "{}", message),
 
@@ -176,7 +223,7 @@ impl fmt::Display for SystemError
 #[allow(dead_code)]
 pub trait System: Clone + Send + Sync
 {
-    type File: io::Read + io::Write + fmt::Debug  + Send;
+    type File: io::Read + io::Write + fmt::Debug + Send;
 
     fn open(&self, path: &str) -> Result<Self::File, SystemError>;
     fn create_file(&mut self, path: &str) -> Result<Self::File, SystemError>;
@@ -196,6 +243,5 @@ pub trait System: Clone + Send + Sync
     fn get_modified(&self, path: &str) -> Result<SystemTime, SystemError>;
     fn is_executable(&self, path: &str) -> Result<bool, SystemError>;
     fn set_is_executable(&mut self, path: &str, executable : bool) -> Result<(), SystemError>;
-    fn execute_command(&mut self, command_list: Vec<String>) -> Result<CommandLineOutput, SystemError>;
+    fn execute_command(&mut self, command_script: CommandScript) -> Vec<Result<CommandLineOutput, SystemError>>;
 }
-

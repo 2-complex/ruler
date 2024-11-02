@@ -2,7 +2,8 @@ use crate::system::
 {
     System,
     SystemError,
-    CommandLineOutput
+    CommandScript,
+    CommandLineOutput,
 };
 use std::fs;
 use std::fs::ReadDir;
@@ -188,14 +189,34 @@ impl System for RealSystem
 
     fn list_dir(&self, path: &str) -> Result<Vec<String>, SystemError>
     {
-        let mut result = vec![];
-        for dir_entry_opt in read_dir_convert_error(path)?
+        let path_buf = to_path_buf(path);
+        if !Path::new(&path_buf).is_dir()
+        {
+            if Path::new(&path_buf).is_file()
+            {
+                return Err(SystemError::ExpectedDirFoundFile)
+            }
+            else
+            {
+                return Err(SystemError::NotFound)
+            }
+        }
+
+        let mut result = Vec::new();
+        for dir_entry_opt in match fs::read_dir(path_buf)
+        {
+            Ok(entries) => entries,
+            Err(error) => return Err(convert_io_error_to_system_error(error))
+        }
         {
             result.push(
                 match dir_entry_opt
                 {
-                    Ok(entry) => to_file_name_str(entry.file_name())?,
-                    Err(error) => return Err(convert_io_error_to_system_error(error)),
+                    Ok(entry) => to_path_str(&entry.path())?,
+                    Err(error) =>
+                    {
+                        return Err(convert_io_error_to_system_error(error));
+                    },
                 }
             );
         }
@@ -239,51 +260,23 @@ impl System for RealSystem
         set_is_executable(path, executable)
     }
 
-    fn execute_command(&mut self, mut all_lines: Vec<String>) ->
-        Result<CommandLineOutput, SystemError>
+    fn execute_command(&mut self, command_script : CommandScript) ->
+        Vec<Result<CommandLineOutput, SystemError>>
     {
-        let mut command_lines = vec![];
-        let mut result = Err(SystemError::CommandExecutationFailed("".to_string()));
-
-        for line in all_lines.drain(..)
+        let mut result = vec![];
+        for element in command_script.lines.into_iter()
         {
-            match line.as_ref()
-            {
-                ";" =>
-                {
-                    let mut cmd = execute::shell(command_lines.join(" "));
-                    match cmd.execute_output()
-                    {
-                        Ok(output) =>
-                        {
-                            result = Ok(CommandLineOutput::from_output(output))
-                        },
-
-                        Err(error) => return Err(SystemError::CommandExecutationFailed(format!("{}", error))),
-                    }
-                    command_lines = vec![];
-                }
-                _ =>
-                {
-                    command_lines.push(line);
-                }
-            }
-        }
-
-        if command_lines.len() != 0
-        {
-            let mut cmd = execute::shell(command_lines.join(" "));
+            let mut cmd = execute::shell(element);
             match cmd.execute_output()
             {
-                Ok(output) =>
+                Ok(output) => result.push(Ok(CommandLineOutput::from_output(output))),
+                Err(error) =>
                 {
-                    result = Ok(CommandLineOutput::from_output(output))
+                    result.push(Err(SystemError::CommandExecutationFailed(format!("{}", error))));
+                    return result;
                 },
-
-                Err(error) => return Err(SystemError::CommandExecutationFailed(format!("{}", error))),
             }
         }
-
         result
     }
 }
