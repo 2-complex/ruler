@@ -2,7 +2,8 @@ use crate::system::
 {
     System,
     SystemError,
-    CommandLineOutput
+    CommandScript,
+    CommandLineOutput,
 };
 use std::str::from_utf8;
 use std::fs;
@@ -253,51 +254,23 @@ impl System for RealSystem
         set_is_executable(path, executable)
     }
 
-    fn execute_command(&mut self, mut all_lines: Vec<String>) ->
-        Result<CommandLineOutput, SystemError>
+    fn execute_command(&mut self, command_script : CommandScript) ->
+        Vec<Result<CommandLineOutput, SystemError>>
     {
-        let mut command_lines = vec![];
-        let mut result = Err(SystemError::CommandExecutationFailed("".to_string()));
-
-        for line in all_lines.drain(..)
+        let mut result = vec![];
+        for element in command_script.lines.into_iter()
         {
-            match line.as_ref()
-            {
-                ";" =>
-                {
-                    let mut cmd = execute::shell(command_lines.join(" "));
-                    match cmd.execute_output()
-                    {
-                        Ok(output) =>
-                        {
-                            result = Ok(from_output(output))
-                        },
-
-                        Err(error) => return Err(SystemError::CommandExecutationFailed(format!("{}", error))),
-                    }
-                    command_lines = vec![];
-                }
-                _ =>
-                {
-                    command_lines.push(line);
-                }
-            }
-        }
-
-        if command_lines.len() != 0
-        {
-            let mut cmd = execute::shell(command_lines.join(" "));
+            let mut cmd = execute::shell(element);
             match cmd.execute_output()
             {
-                Ok(output) =>
+                Ok(output) => result.push(Ok(CommandLineOutput::from_output(output))),
+                Err(error) =>
                 {
-                    result = Ok(from_output(output))
+                    result.push(Err(SystemError::CommandExecutationFailed(format!("{}", error))));
+                    return result;
                 },
-
-                Err(error) => return Err(SystemError::CommandExecutationFailed(format!("{}", error))),
             }
         }
-
         result
     }
 }

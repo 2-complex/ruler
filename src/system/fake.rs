@@ -2,7 +2,8 @@ use crate::system::
 {
     System,
     SystemError,
-    CommandLineOutput
+    CommandLineOutput,
+    CommandScript
 };
 use crate::system::util::
 {
@@ -689,117 +690,10 @@ impl FakeSystem
     {
         self.command_log.lock().unwrap().clone()
     }
-}
 
-impl System for FakeSystem
-{
-    type File = FakeOpenFile;
-
-    fn open(&self, path: &str) -> Result<Self::File, SystemError>
+    fn execute_script_line(&mut self, line : String) -> Result<CommandLineOutput, SystemError>
     {
-        match self.get_root_node().open_file(path)
-        {
-            Ok(content) =>
-                Ok(FakeOpenFile::new(content, AccessMode::Read)),
-
-            Err(error) => Err(convert_node_error_to_system_error(error)),
-        }
-    }
-
-    fn create_file(&mut self, path: &str) -> Result<Self::File, SystemError>
-    {
-        match self.get_root_node_mut().create_file(path, Content::empty(), self.current_timestamp)
-        {
-            Ok(content) => Ok(FakeOpenFile::new(&content, AccessMode::Write)),
-            Err(error) => Err(convert_node_error_to_system_error(error)),
-        }
-    }
-
-    fn create_dir(&mut self, path: &str) -> Result<(), SystemError>
-    {
-        match self.get_root_node_mut().create_dir(path)
-        {
-            Ok(_) => Ok(()),
-            Err(error) => Err(convert_node_error_to_system_error(error)),
-        }
-    }
-
-    fn is_file(&self, path: &str) -> bool
-    {
-        self.get_root_node().is_file(path)
-    }
-
-    fn is_dir(&self, path: &str) -> bool
-    {
-        self.get_root_node().is_dir(path)
-    }
-
-    fn remove_file(&mut self, path: &str) -> Result<(), SystemError>
-    {
-        match self.get_root_node_mut().remove_file(path)
-        {
-            Ok(_) => Ok(()),
-            Err(error) => Err(convert_node_error_to_system_error(error)),
-        }
-    }
-
-    fn remove_dir(&mut self, path: &str) -> Result<(), SystemError>
-    {
-        match self.get_root_node_mut().remove_dir(path)
-        {
-            Ok(_) => Ok(()),
-            Err(error) => Err(convert_node_error_to_system_error(error)),
-        }
-    }
-
-    fn list_dir(&self, path: &str) -> Result<Vec<String>, SystemError>
-    {
-        match self.get_root_node_mut().list_dir(path)
-        {
-            Ok(result) => Ok(result),
-            Err(error) => Err(convert_node_error_to_system_error(error)),
-        }
-    }
-
-    fn rename(&mut self, from: &str, to: &str) -> Result<(), SystemError>
-    {
-        match self.get_root_node_mut().rename(from, to)
-        {
-            Ok(_) => Ok(()),
-            Err(error) => Err(convert_node_error_to_system_error(error)),
-        }
-    }
-
-    fn get_modified(&self, path: &str) -> Result<SystemTime, SystemError>
-    {
-        match self.get_root_node().get_modified(path)
-        {
-            Ok(system_time) => Ok(system_time),
-            Err(error) => Err(convert_node_error_to_system_error(error)),
-        }
-    }
-
-    fn is_executable(&self, path: &str) -> Result<bool, SystemError>
-    {
-        match self.get_root_node().is_executable(path)
-        {
-            Ok(executable) => Ok(executable),
-            Err(error) => Err(convert_node_error_to_system_error(error)),
-        }
-    }
-
-    fn set_is_executable(&mut self, path: &str, executable : bool) -> Result<(), SystemError>
-    {
-        match self.get_root_node_mut().set_is_executable(path, executable)
-        {
-            Ok(()) => Ok(()),
-            Err(error) => Err(convert_node_error_to_system_error(error)),
-        }
-    }
-
-    fn execute_command(&mut self, command_list: Vec<String>) -> Result<CommandLineOutput, SystemError>
-    {
-        self.get_command_log_mut().push( command_list.join(" "));
+        let command_list:Vec<&str> = line.split_whitespace().collect();
 
         let n = command_list.len();
         if n <= 0
@@ -808,7 +702,7 @@ impl System for FakeSystem
         }
 
         let mut output = String::new();
-        match command_list[0].as_str()
+        match command_list[0]
         {
             "error" =>
             {
@@ -917,14 +811,134 @@ impl System for FakeSystem
     }
 }
 
+impl System for FakeSystem
+{
+    type File = FakeOpenFile;
+
+    fn open(&self, path: &str) -> Result<Self::File, SystemError>
+    {
+        match self.get_root_node().open_file(path)
+        {
+            Ok(content) =>
+                Ok(FakeOpenFile::new(content, AccessMode::Read)),
+
+            Err(error) => Err(convert_node_error_to_system_error(error)),
+        }
+    }
+
+    fn create_file(&mut self, path: &str) -> Result<Self::File, SystemError>
+    {
+        match self.get_root_node_mut().create_file(path, Content::empty(), self.current_timestamp)
+        {
+            Ok(content) => Ok(FakeOpenFile::new(&content, AccessMode::Write)),
+            Err(error) => Err(convert_node_error_to_system_error(error)),
+        }
+    }
+
+    fn create_dir(&mut self, path: &str) -> Result<(), SystemError>
+    {
+        match self.get_root_node_mut().create_dir(path)
+        {
+            Ok(_) => Ok(()),
+            Err(error) => Err(convert_node_error_to_system_error(error)),
+        }
+    }
+
+    fn is_file(&self, path: &str) -> bool
+    {
+        self.get_root_node().is_file(path)
+    }
+
+    fn is_dir(&self, path: &str) -> bool
+    {
+        self.get_root_node().is_dir(path)
+    }
+
+    fn remove_file(&mut self, path: &str) -> Result<(), SystemError>
+    {
+        match self.get_root_node_mut().remove_file(path)
+        {
+            Ok(_) => Ok(()),
+            Err(error) => Err(convert_node_error_to_system_error(error)),
+        }
+    }
+
+    fn remove_dir(&mut self, path: &str) -> Result<(), SystemError>
+    {
+        match self.get_root_node_mut().remove_dir(path)
+        {
+            Ok(_) => Ok(()),
+            Err(error) => Err(convert_node_error_to_system_error(error)),
+        }
+    }
+
+    fn list_dir(&self, path: &str) -> Result<Vec<String>, SystemError>
+    {
+        match self.get_root_node_mut().list_dir(path)
+        {
+            Ok(result) => Ok(result),
+            Err(error) => Err(convert_node_error_to_system_error(error)),
+        }
+    }
+
+    fn rename(&mut self, from: &str, to: &str) -> Result<(), SystemError>
+    {
+        match self.get_root_node_mut().rename(from, to)
+        {
+            Ok(_) => Ok(()),
+            Err(error) => Err(convert_node_error_to_system_error(error)),
+        }
+    }
+
+    fn get_modified(&self, path: &str) -> Result<SystemTime, SystemError>
+    {
+        match self.get_root_node().get_modified(path)
+        {
+            Ok(system_time) => Ok(system_time),
+            Err(error) => Err(convert_node_error_to_system_error(error)),
+        }
+    }
+
+    fn is_executable(&self, path: &str) -> Result<bool, SystemError>
+    {
+        match self.get_root_node().is_executable(path)
+        {
+            Ok(executable) => Ok(executable),
+            Err(error) => Err(convert_node_error_to_system_error(error)),
+        }
+    }
+
+    fn set_is_executable(&mut self, path: &str, executable : bool) -> Result<(), SystemError>
+    {
+        match self.get_root_node_mut().set_is_executable(path, executable)
+        {
+            Ok(()) => Ok(()),
+            Err(error) => Err(convert_node_error_to_system_error(error)),
+        }
+    }
+
+    fn execute_command(&mut self, command_script: CommandScript) -> Vec<Result<CommandLineOutput, SystemError>>
+    {
+        let mut result = Vec::new();
+        self.get_command_log_mut().push(format!("{}", command_script));
+        for line in command_script.lines
+        {
+            result.push(self.execute_script_line(line));
+        }
+        result
+    }
+}
+
 #[cfg(test)]
 mod test
 {
     use crate::system::
     {
         System,
-        ReadWriteError,
+        CommandLineOutput,
+        to_command_script
     };
+
 
     use crate::system::fake::
     {
@@ -1293,17 +1307,9 @@ mod test
     fn system_add_remove_dir()
     {
         let mut system = FakeSystem::new(10);
-        match system.create_dir("images")
-        {
-            Ok(_) => {},
-            Err(error) => panic!("create_dir in FakeSystem failed with error: {}", error),
-        }
+        system.create_dir("images").unwrap();
         assert!(system.is_dir("images"));
-        match system.remove_dir("images")
-        {
-            Ok(_) => {},
-            Err(error) => panic!("remove_file in FakeSystem failed with error: {}", error),
-        }
+        system.remove_dir("images").unwrap();
         assert!(!system.is_file("images"));
         assert!(!system.is_dir("images"));
     }
@@ -1312,36 +1318,8 @@ mod test
     fn system_create_file_write_read_round_trip()
     {
         let mut system = FakeSystem::new(10);
-        match write_str_to_file(&mut system, "fruit_file.txt", "cantaloupe")
-        {
-            Ok(_) => {},
-            Err(error) =>
-            {
-                match error
-                {
-                    ReadWriteError::SystemError(error) =>
-                        panic!("SystemError in write: {}", error),
-
-                    ReadWriteError::IOError(error) =>
-                        panic!("IOError in write: {}", error),
-                }
-            }
-        }
-        match read_file(&system, "fruit_file.txt")
-        {
-            Ok(content) => assert_eq!(content, b"cantaloupe"),
-            Err(error) =>
-            {
-                match error
-                {
-                    ReadWriteError::SystemError(error) =>
-                        panic!("SystemError in read: {}", error),
-
-                    ReadWriteError::IOError(error) =>
-                        panic!("IOError in read: {}", error),
-                }
-            }
-        }
+        write_str_to_file(&mut system, "fruit_file.txt", "cantaloupe").unwrap();
+        read_file(&system, "fruit_file.txt").unwrap();
     }
 
     #[test]
@@ -1349,76 +1327,17 @@ mod test
     {
         let mut system1 = FakeSystem::new(10);
         let system2 = system1.clone();
-        match write_str_to_file(&mut system1, "fruit_file.txt", "cantaloupe")
-        {
-            Ok(_) => {},
-            Err(error) =>
-            {
-                match error
-                {
-                    ReadWriteError::SystemError(error) =>
-                        panic!("SystemError in write: {}", error),
-
-                    ReadWriteError::IOError(error) =>
-                        panic!("IOError in write: {}", error),
-                }
-            }
-        }
-
-        match read_file(&system2, "fruit_file.txt")
-        {
-            Ok(content) => assert_eq!(content, b"cantaloupe"),
-            Err(error) =>
-            {
-                match error
-                {
-                    ReadWriteError::SystemError(error) =>
-                        panic!("SystemError in read: {}", error),
-
-                    ReadWriteError::IOError(error) =>
-                        panic!("IOError in read: {}", error),
-                }
-            }
-        }
+        write_str_to_file(&mut system1, "fruit_file.txt", "cantaloupe").unwrap();
+        assert_eq!(read_file(&system2, "fruit_file.txt").unwrap(), b"cantaloupe");
     }
 
     #[test]
     fn system_create_file_write_read_round_trip_read_twice()
     {
         let mut system = FakeSystem::new(10);
-        match write_str_to_file(&mut system, "fruit_file.txt", "cantaloupe")
-        {
-            Ok(_) => {},
-            Err(error) =>
-            {
-                match error
-                {
-                    ReadWriteError::SystemError(error) =>
-                        panic!("SystemError in write: {}", error),
-
-                    ReadWriteError::IOError(error) =>
-                        panic!("IOError in write: {}", error),
-                }
-            }
-        }
-        for _ in 0..2
-        {
-            match read_file(&system, "fruit_file.txt")
-            {
-                Ok(content) => assert_eq!(content, b"cantaloupe"),
-                Err(error) =>
-                {
-                    match error
-                    {
-                        ReadWriteError::SystemError(error) =>
-                            panic!("SystemError in read: {}", error),
-
-                        ReadWriteError::IOError(error) =>
-                            panic!("IOError in read: {}", error),
-                    }
-                }
-            }
-        }
+        write_str_to_file(&mut system, "fruit_file.txt", "cantaloupe").unwrap();
+        assert_eq!(read_file(&system, "fruit_file.txt").unwrap(), b"cantaloupe");
+        assert_eq!(read_file(&system, "fruit_file.txt").unwrap(), b"cantaloupe");
     }
 
     #[test]
@@ -1486,32 +1405,10 @@ mod test
     fn writing_updates_modified_timestamp()
     {
         let mut system = FakeSystem::new(0);
-
         system.time_passes(5);
-
-        match system.create_file("cars.txt")
-        {
-            Ok(_) => {},
-            Err(error) => panic!("create_file SystemError: {}", error),
-        }
-
+        system.create_file("cars.txt").unwrap();
         system.time_passes(6);
-
-        match write_str_to_file(&mut system, "cars.txt", "cantaloupe")
-        {
-            Ok(_) => {},
-            Err(error) =>
-            {
-                match error
-                {
-                    ReadWriteError::SystemError(error) =>
-                        panic!("SystemError in write: {}", error),
-
-                    ReadWriteError::IOError(error) =>
-                        panic!("IOError in write: {}", error),
-                }
-            }
-        }
+        write_str_to_file(&mut system, "cars.txt", "cantaloupe").unwrap();
 
         match system.get_modified("cars.txt")
         {
@@ -1528,69 +1425,47 @@ mod test
     fn executing_error_gives_error_output()
     {
         let mut system = FakeSystem::new(10);
-        match system.execute_command(vec!["error".to_string()])
-        {
-            Ok(output) =>
-            {
-                assert_eq!(output.out, "".to_string());
-                assert_eq!(output.err, "Failed".to_string());
-                assert_eq!(output.code, Some(1));
-                assert_eq!(output.success, false);
-            },
-            Err(error) => panic!("Excpected successful command invocation got error: {}", error),
-        }
+        assert_eq!(
+            system.execute_command(to_command_script(vec!["error".to_string()])),
+            vec![
+                Ok(CommandLineOutput
+                {
+                    out : "".to_string(),
+                    err : "Failed".to_string(),
+                    code : Some(1),
+                    success : false,
+                })
+            ]
+        );
     }
 
     #[test]
     fn executing_mycat_concatinates()
     {
         let mut system = FakeSystem::new(10);
-        match system.create_file("line1.txt")
-        {
-            Ok(_) => {},
-            Err(error) => panic!("create_file SystemError: {}", error),
-        }
+        system.create_file("line1.txt").unwrap();
+        write_str_to_file(&mut system, "line1.txt", "Ants\n").unwrap();
+        system.create_file("line2.txt").unwrap();
+        write_str_to_file(&mut system, "line2.txt", "Love to dance\n").unwrap();
 
-        match write_str_to_file(&mut system, "line1.txt", "Ants\n")
-        {
-            Ok(_) => {},
-            Err(error) => panic!("Error writing line1.txt: {}", error),
-        }
-
-        match system.create_file("line2.txt")
-        {
-            Ok(_) => {},
-            Err(error) => panic!("create_file SystemError: {}", error),
-        }
-
-        match write_str_to_file(&mut system, "line2.txt", "Love to dance\n")
-        {
-            Ok(_) => {},
-            Err(error) => panic!("Error writing line2.txt: {}", error),
-        }
-
-        match system.execute_command(
-            vec![
+        assert_eq!(
+            system.execute_command(to_command_script(vec![
                 "mycat".to_string(),
                 "line1.txt".to_string(),
                 "line2.txt".to_string(),
-                "poem.txt".to_string()])
-        {
-            Ok(output) =>
-            {
-                assert_eq!(output.out, "".to_string());
-                assert_eq!(output.err, "".to_string());
-                assert_eq!(output.code, Some(0));
-                assert_eq!(output.success, true);
-            },
-            Err(error) => panic!("Excpected successful command invocation got error: {}", error),
-        }
+                "poem.txt".to_string()])),
+            vec![
+                Ok(CommandLineOutput
+                {
+                    out : "".to_string(),
+                    err : "".to_string(),
+                    code : Some(0),
+                    success : true,
+                })
+            ]
+        );
 
-        match read_file(&system, "poem.txt")
-        {
-            Ok(content) => assert_eq!(content, b"Ants\nLove to dance\n"),
-            Err(error) => panic!("{}", error),
-        }
+        assert_eq!(read_file(&system, "poem.txt"), Ok(b"Ants\nLove to dance\n".to_vec()));
     }
 
 
@@ -1622,23 +1497,23 @@ mod test
             Err(error) => panic!("Error writing line2.txt: {}", error),
         }
 
-        match system.execute_command(
-            vec![
+        assert_eq!(system.execute_command(
+            to_command_script(vec![
                 "mycat2".to_string(),
                 "line1.txt".to_string(),
                 "line2.txt".to_string(),
                 "poem.txt".to_string(),
-                "poem-backup.txt".to_string()])
-        {
-            Ok(output) =>
-            {
-                assert_eq!(output.out, "".to_string());
-                assert_eq!(output.err, "".to_string());
-                assert_eq!(output.code, Some(0));
-                assert_eq!(output.success, true);
-            },
-            Err(error) => panic!("Excpected successful command invocation got error: {}", error),
-        }
+                "poem-backup.txt".to_string()])),
+            vec![
+                Ok(CommandLineOutput
+                {
+                    out : "".to_string(),
+                    err : "".to_string(),
+                    code : Some(0),
+                    success : true,
+                })
+            ]
+        );
 
         match read_file(&system, "poem.txt")
         {
@@ -1666,23 +1541,40 @@ mod test
 
         assert!(system.is_file("terrible-file.txt"));
 
-        match system.execute_command(
+        assert_eq!(
+            system.execute_command(
+                to_command_script(vec![
+                    "rm".to_string(),
+                    "terrible-file.txt".to_string()
+                ])),
             vec![
-                "rm".to_string(),
-                "terrible-file.txt".to_string()
-            ])
-        {
-            Ok(output) =>
-            {
-                assert_eq!(output.out, "".to_string());
-                assert_eq!(output.err, "".to_string());
-                assert_eq!(output.code, Some(0));
-                assert_eq!(output.success, true);
-            },
-            Err(error) => panic!("Expected smooth commandline invocation, got error: {}", error),
-        }
+                Ok(CommandLineOutput
+                {
+                    out : "".to_string(),
+                    err : "".to_string(),
+                    code : Some(0),
+                    success : true,
+                })
+            ]
+        );
 
         assert!(!system.is_file("terrible-file.txt"));
 
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

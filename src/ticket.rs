@@ -205,7 +205,7 @@ impl TicketFactory
                         {
                             dig.input(&buffer[..size]);
                         },
-                        Err(error) => return Err(ReadWriteError::IOError(error)),
+                        Err(error) => return Err(ReadWriteError::IOError(format!("{}", error))),
                     }
                 }
             },
