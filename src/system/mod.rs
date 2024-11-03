@@ -131,10 +131,6 @@ impl CommandLineOutput
     }
 }
 
-/*  A lot of these are only contructed by the fake filesystem.
-    In the future, maybe hone the list of errors down to something that real/fake
-    system can agree on completely, but in the mean time, disabling the warning.
-*/
 #[allow(dead_code)]
 #[derive(Debug, PartialEq)]
 pub enum SystemError
@@ -184,7 +180,7 @@ impl fmt::Display for SystemError
                 => write!(formatter, "Attempt to remove file, found directory"),
 
             SystemError::ExpectedDirFoundFile
-                => write!(formatter, "Attempt to remove directory, found file"),
+                => write!(formatter, "Attempt to access path as directory, found file"),
 
             SystemError::RemoveNonExistentFile
                 => write!(formatter, "Attempt to remove non-existent file"),
