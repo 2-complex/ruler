@@ -178,6 +178,27 @@ impl TicketFactory
         }
     }
 
+    pub fn from_path<FSType: System>
+    (
+        file_system: &FSType,
+        path : &str
+    )
+    ->
+    Result<TicketFactory, ReadWriteError>
+    {
+        if file_system.is_file(path)
+        {
+            return Self::from_file(file_system, path)
+        }
+
+        if file_system.is_dir(path)
+        {
+            return Self::from_directory(file_system, path)
+        }
+
+        return Err(ReadWriteError::SystemError(SystemError::NotFound));
+    }
+
     /*  Construct a TicketFactory, initialized with the contents of a file from a System. */
     pub fn from_file<FSType: System>
     (

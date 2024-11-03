@@ -227,7 +227,7 @@ fn main()
         },
         RulerSubcommand::Hash(config) =>
         {
-            match TicketFactory::from_file(&RealSystem::new(), &config.path)
+            match TicketFactory::from_path(&RealSystem::new(), &config.path)
             {
                 Ok(mut factory) => println!("{}", factory.result().human_readable()),
                 Err(error) => eprintln!("{}", error),
