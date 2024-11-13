@@ -8,6 +8,7 @@ pub enum UploadError
 {
     UrlInaccessible(String),
     FileInaccessible(String),
+    FileSizeUnavailable(String),
     FileReadDidNotFinish(String),
     HttpError(String),
 }
@@ -23,6 +24,9 @@ impl fmt::Display for UploadError
 
             UploadError::FileInaccessible(path) =>
                 write!(formatter, "Failed to open file at path: {}", path),
+
+            UploadError::FileSizeUnavailable(path) =>
+                write!(formatter, "Unable to determine file size: {}", path),
 
             UploadError::FileReadDidNotFinish(path) =>
                 write!(formatter, "File write did not finish: {}", path),
@@ -53,18 +57,26 @@ pub async fn upload_file
         },
     };
 
+    let size = match file.metadata().await
+    {
+        Ok(md) => md.len(),
+        Err(error) =>
+        {
+            return Err(UploadError::FileSizeUnavailable(path.to_string()));
+        }
+    };
+
     let stream = FramedRead::new(file, BytesCodec::new());
     let file_body = Body::wrap_stream(stream);
 
-    let some_file = match multipart::Part::stream(file_body)
+    let some_file = match multipart::Part::stream_with_length(file_body, size)
         .mime_str("text/plain")
     {
         Ok(fome) => fome,
         Err(_) => return Err(UploadError::FileInaccessible(path.to_string())),
     };
 
-    let form = multipart::Form::new()
-        .part("file", some_file);
+    let form = multipart::Form::new().part("file", some_file);
 
     let response = match client.post(url).multipart(form).send().await
     {
