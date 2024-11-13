@@ -250,7 +250,6 @@ fn get_rules_endpoint<SystemType : System + Clone + Send + 'static>
 
 async fn process_upload<SystemType : System + Clone + 'static>(cache : SysCache<SystemType>, form: FormData) -> Result<impl Reply, Rejection>
 {
-    println!("here");
     let mut parts = form.into_stream();
     loop
     {
