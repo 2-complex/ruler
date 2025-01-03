@@ -1,6 +1,7 @@
 use std::fmt;
 use std::fs;
 use std::io::Read;
+use std::io::Write;
 use std::net::
 {
     SocketAddr,
@@ -248,7 +249,7 @@ fn get_rules_endpoint<SystemType : System + Clone + Send + 'static>
     .boxed()
 }
 
-async fn process_upload<SystemType : System + Clone + 'static>(cache : SysCache<SystemType>, form: FormData) -> Result<impl Reply, Rejection>
+async fn process_upload<SystemType : System + Clone + 'static>(mut cache : SysCache<SystemType>, form: FormData) -> Result<impl Reply, Rejection>
 {
     let mut parts = form.into_stream();
     loop
@@ -266,18 +267,14 @@ async fn process_upload<SystemType : System + Clone + 'static>(cache : SysCache<
                         println!("filename: {:?}", p.filename());
                         println!("content-type: {:?}", p.content_type());
 
-                        let target_filename =
-                        match p.filename()
+                        let mut inbox_file = match cache.open_inbox_file()
                         {
-                            Some(name) =>
+                            Ok(file) => file,
+                            Err(err) =>
                             {
-                                format!(".files/{}", name)
-                            },
-                            None =>
-                            {
-                                println!("Not a file actually");
-                                continue;
-                            },
+                                eprintln!("cache inbox file error: {}", err);
+                                return Err(warp::reject::reject());
+                            }
                         };
 
                         println!("Making sure the .files directory is there...");
@@ -291,8 +288,31 @@ async fn process_upload<SystemType : System + Clone + 'static>(cache : SysCache<
                             }
                         }
 
-                        println!("proceeding with target_filename = {}", target_filename);
+                        let mut data_stream = p.stream();
+                        loop 
+                        {
+                            match data_stream.try_next().await
+                            {
+                                Ok(Some(byte_buf)) =>
+                                {
+                                    std::io::copy(&mut byte_buf.reader(), &mut inbox_file);
+                                },
+                                Ok(None) =>
+                                {
+                                    inbox_file.finish();
+                                    break;
+                                },
+                                Err(err) =>
+                                {
+                                    eprintln!("create directory error: {}", err);
+                                    return Err(warp::reject::reject());
+                                },
+                            }
+                        }
+                    },
 
+                        /*
+                        let mut total = 0;
                         match p.data().await
                         {
                             Some(p_result) =>
@@ -301,21 +321,10 @@ async fn process_upload<SystemType : System + Clone + 'static>(cache : SysCache<
                                 {
                                     Ok(data_buf) =>
                                     {
+                                        total += data_buf.remaining();
                                         println!("{:?}", data_buf.remaining());
-                                        match fs::File::create(to_path_buf(&target_filename))
-                                        {
-                                            Ok(mut file) =>
-                                            {
-                                                println!("AH HA we're here, let's write the file!");
-                                                println!("{:?}", file);
-                                                let _ = std::io::copy(&mut data_buf.reader(), &mut file);
-                                            },
-                                            Err(err) =>
-                                            {
-                                                eprintln!("create file error: {}", err);
-                                                warp::reject::reject();
-                                            }
-                                        }
+                                        println!("AH HA we're here, let's write the file!");
+                                        let _ = std::io::copy(&mut data_buf.reader(), &mut inbox_file);
                                     },
 
                                     Err(err) =>
@@ -328,9 +337,10 @@ async fn process_upload<SystemType : System + Clone + 'static>(cache : SysCache<
                             None =>
                             {
                                 println!("nodata");
+                                break;
                             }
                         };
-                    },
+                        */
 
                     Err(err) =>
                     {

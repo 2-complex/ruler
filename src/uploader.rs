@@ -70,7 +70,7 @@ pub async fn upload_file
     let file_body = Body::wrap_stream(stream);
 
     let some_file = match multipart::Part::stream_with_length(file_body, size)
-        .mime_str("text/plain")
+        .mime_str("application/octet-stream")
     {
         Ok(fome) => fome,
         Err(_) => return Err(UploadError::FileInaccessible(path.to_string())),

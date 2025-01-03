@@ -35,7 +35,9 @@ fn convert_io_error_to_system_error(error : std::io::Error) -> SystemError
         ErrorKind::NotFound
             => SystemError::NotFound,
 
-        _ => SystemError::Weird,
+        _ => {
+            println!("convert_io_error_to_system_error");
+            SystemError::Weird,
     }
 }
 

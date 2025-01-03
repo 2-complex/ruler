@@ -1,7 +1,5 @@
 use std::boxed::Box;
 use std::fmt;
-
-#[cfg(test)]
 use rand::prelude::*;
 
 use crate::ticket::Ticket;
@@ -121,8 +119,7 @@ impl<SystemType : System> std::io::Write for InboxFile<SystemType>
 
 impl<SystemType : System> InboxFile<SystemType>
 {
-    #[cfg(test)]
-    fn finish(mut self) -> Result<(), ReadWriteError>
+    pub fn finish(mut self) -> Result<(), ReadWriteError>
     {
         drop(self.file);
         self.cache.back_up_file_with_ticket(
@@ -138,7 +135,6 @@ pub struct SysCache<SystemType : System>
     path : String,
 }
 
-#[cfg(test)]
 fn random_filename() -> String
 {
     const ALPHABET : [u8; 62] = [
@@ -217,7 +213,6 @@ impl<SystemType : System> SysCache<SystemType>
         }
     }
 
-    #[cfg(test)]
     pub fn open_inbox_file(&mut self) -> Result<InboxFile<SystemType>, OpenError>
     {
         let system = &mut (*self.system_box);
