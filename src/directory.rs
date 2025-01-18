@@ -102,6 +102,7 @@ pub fn init<SystemType : System>
     })
 }
 
+#[derive(Clone)]
 pub struct Elements<SystemType : System>
 {
     pub current_file_states : CurrentFileStates<SystemType>,

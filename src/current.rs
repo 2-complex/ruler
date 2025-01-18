@@ -48,7 +48,7 @@ fn write_file
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub struct CurrentFileStatesInside
 {
     /*  Map target path to target-history */
@@ -57,6 +57,7 @@ pub struct CurrentFileStatesInside
 
 /*  file_states: For a given target (file path) stores the most recently observed hash of that target along
     with the modified timestamp for the file at that time, and whether it is exectuable. */
+#[derive(Clone)]
 pub struct CurrentFileStates<SystemType : System>
 {
     system_box : Box<SystemType>,

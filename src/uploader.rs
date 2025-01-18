@@ -48,10 +48,10 @@ pub async fn upload_file
 {
     let client = reqwest::Client::new();
 
-    let mut file = match File::open(path).await
+    let file = match File::open(path).await
     {
         Ok(file) => file,
-        Err(error) =>
+        Err(_error) =>
         {
             return Err(UploadError::FileInaccessible(path.to_string()));
         },
@@ -60,7 +60,7 @@ pub async fn upload_file
     let size = match file.metadata().await
     {
         Ok(md) => md.len(),
-        Err(error) =>
+        Err(_error) =>
         {
             return Err(UploadError::FileSizeUnavailable(path.to_string()));
         }

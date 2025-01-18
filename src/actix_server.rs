@@ -1,5 +1,4 @@
 use actix_multipart::Multipart;
-use std::ops::Deref;
 use std::path::PathBuf;
 use actix_web::
 {
@@ -22,8 +21,6 @@ use tokio::{fs::File, io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader}};
 use std::fs;
 use std::path::Path;
 use tokio_util::io::ReaderStream;
-use rustls::{ServerConfig, Certificate};
-use rustls_pemfile::{certs, rsa_private_keys, pkcs8_private_keys, ec_private_keys};
 use std::sync::Mutex;
 
 use crate::System;
@@ -73,8 +70,14 @@ async fn download(filename: web::Path<String>) -> impl Responder {
     }
 }
 
+struct AppStateWithCounter
+{
+    counter: Mutex<i32>,
+}
+
 #[get("/")]
-async fn home(data: web::Data<AppStateWithCounter>) -> impl Responder {
+async fn home(data: web::Data<AppStateWithCounter>) -> impl Responder
+{
     let mut counter = data.counter.lock().unwrap();
     *counter += 1; 
 
@@ -83,7 +86,8 @@ async fn home(data: web::Data<AppStateWithCounter>) -> impl Responder {
 }
 
 #[get("/download-chunked/{filename:.*}")]
-async fn chunked_download(path: web::Path<String>) -> impl Responder {
+async fn chunked_download(path: web::Path<String>) -> impl Responder
+{
     let filename = path.into_inner();
     let file_path = PathBuf::from("./").join(filename);
 
@@ -110,60 +114,6 @@ async fn delete(filename: web::Path<String>) -> impl Responder {
     }
 }
 
-struct AppStateWithCounter
-{
-    counter: Mutex<i32>,
-}
-
-#[actix_web::main]
-async fn serve_main() -> std::io::Result<()>
-{
-    // Get the port from the command line arguments
-    let port = "3000";
-    let bind_address = format!("127.0.0.1:{}", port);
-
-    // Create a one-shot channel for shutting down the server
-    let (tx, rx) = tokio::sync::oneshot::channel();
-
-    // Spawn a new task that waits for a line from stdin and then sends a signal to the channel
-    tokio::spawn(async move {
-        let mut reader = BufReader::new(io::stdin());
-        let mut buffer = String::new();
-        reader.read_line(&mut buffer).await.expect("Failed to read line from stdin");
-        tx.send(()).unwrap();
-    });
-
-    let counter = web::Data::new(AppStateWithCounter {
-        counter: Mutex::new(0),
-    });
-
-    // Create a new HTTP server
-    let server = HttpServer::new(move || {
-        App::new()
-            .app_data(counter.clone())
-            .service(upload)
-            .service(download)
-            .service(chunked_download)
-            .service(delete)
-            .service(home)
-    });
-
-    let server = server.bind(bind_address)?;
-    
-    // Run the server
-    let server = server.run();
-
-    // Wait for either the server to finish or a signal from the channel
-    tokio::select! {
-        _ = server => {},
-        _ = rx => {
-            println!("ENTER pressed, shutting down");
-        }
-    }
-
-    Ok(())
-}
-
 #[tokio::main]
 pub async fn serve
 <
@@ -176,6 +126,8 @@ pub async fn serve
     port : u16
 ) -> Result<(), ServerError>
 {
+    println!("just serve");
+
     let elements =
     match directory::init(&mut system, directory_path)
     {
@@ -183,14 +135,12 @@ pub async fn serve
         Err(error) => panic!("Failed to init directory error: {}", error)
     };
 
-    let counter = web::Data::new(AppStateWithCounter {
-        counter: Mutex::new(0),
-    });
+    let app_data = web::Data::new(AppStateWithCounter{counter: 0.into()});
 
     // Create a new HTTP server
     let server = HttpServer::new(move || {
         App::new()
-            .app_data(counter.clone())
+            .app_data(app_data.clone())
             .service(upload)
             .service(download)
             .service(chunked_download)
@@ -218,6 +168,7 @@ pub async fn serve
         tx.send(()).unwrap();
     });
 
+    println!("Serving {} on ENTER to stop", socket_address);
     // Wait for either the server to finish or a signal from the channel
     tokio::select!
     {
