@@ -31,6 +31,7 @@ mod ticket;
 mod work;
 mod downloader;
 mod uploader;
+mod actix_server;
 
 #[derive(Parser)]
 struct BuildConfig
@@ -201,7 +202,7 @@ fn main()
         },
         RulerSubcommand::Serve(serve_config) =>
         {
-            match server::serve(
+            match actix_server::serve(
                 RealSystem::new(),
                 &command_line.directory,
                 serve_config.address,
