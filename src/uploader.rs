@@ -46,6 +46,8 @@ pub async fn upload_file
     url : &str,
     path : &str) -> Result<(), UploadError>
 {
+    println!("url = {}", url);
+
     let client = reqwest::Client::new();
 
     let file = match File::open(path).await

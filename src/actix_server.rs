@@ -23,9 +23,10 @@ use std::path::Path;
 use tokio_util::io::ReaderStream;
 use std::sync::Mutex;
 
-use crate::System;
+use crate::system::real::RealSystem;
 use crate::server::ServerError;
 use crate::directory;
+use crate::directory::Elements;
 
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
@@ -34,26 +35,42 @@ use std::net::SocketAddr;
 #[post("/upload")]
 async fn upload(mut payload: Multipart) -> impl Responder
 {
+    println!("upload received");
     while let Ok(Some(mut field)) = payload.try_next().await
     {
+        println!("field received");
         let content_disposition = field.content_disposition();
-        let filename = content_disposition.get_filename().unwrap_or_default();
-        if filename.is_empty()
+        match content_disposition.get_filename()
         {
-            return HttpResponse::BadRequest().body("Invalid filename");
+            Ok(filename) =>
+            {
+                if filename.is_empty()
+                {
+                    println!("filename empty");
+                }
+                else
+                {
+                    println!("filename received");
+                }
+            },
+            Err(_error) =>
+            {
+                eprintln!("get filename failed, ignoring");
+            },
         }
-        let filepath = format!("./{}", filename);
-        if Path::new(&filepath).exists()
-        {
-            return HttpResponse::Conflict().body("File already exists");
-        }
-        let mut f = File::create(&filepath).await.unwrap();
+
+        let filepath = "TEMPAPPLES.txt";
+
+        let mut f = File::create(filepath).await.unwrap();
         while let Some(chunk) = field.next().await
         {
+            println!("nested while");
             let data = chunk.unwrap();
             f.write_all(&data).await.unwrap();
         }
     }
+
+    println!("upload 3");
     HttpResponse::Ok().body("File uploaded successfully")
 }
 
@@ -72,7 +89,8 @@ async fn download(filename: web::Path<String>) -> impl Responder {
 
 struct AppStateWithCounter
 {
-    counter: Mutex<i32>,
+    counter : Mutex<i32>,
+    elements : Elements<RealSystem>
 }
 
 #[get("/")]
@@ -116,18 +134,13 @@ async fn delete(filename: web::Path<String>) -> impl Responder {
 
 #[tokio::main]
 pub async fn serve
-<
-    SystemType : System + Clone + Send + 'static,
->
 (
-    mut system : SystemType,
+    mut system : RealSystem,
     directory_path : &str,
     address : Ipv4Addr,
     port : u16
 ) -> Result<(), ServerError>
 {
-    println!("just serve");
-
     let elements =
     match directory::init(&mut system, directory_path)
     {
@@ -135,7 +148,11 @@ pub async fn serve
         Err(error) => panic!("Failed to init directory error: {}", error)
     };
 
-    let app_data = web::Data::new(AppStateWithCounter{counter: 0.into()});
+    let app_data = web::Data::new(AppStateWithCounter
+    {
+        counter: 0.into(),
+        elements: elements,
+    });
 
     // Create a new HTTP server
     let server = HttpServer::new(move || {
