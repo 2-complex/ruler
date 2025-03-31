@@ -34,11 +34,18 @@ use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 
 use std::io::Read;
+use std::io::Write;
 
 #[post("/upload")]
-async fn upload(mut payload: Multipart) -> impl Responder
+async fn upload(data: web::Data<AppStateWithCounter>, mut payload: Multipart) -> impl Responder
 {
-    println!("upload received");
+    let mut inbox_file = match data.elements.cache.clone().open_inbox_file()
+    {
+        Ok(inbox_file) => inbox_file,
+        Err(_) =>
+            return HttpResponse::InternalServerError().body("Inbox Start Error"),
+    };
+
     while let Ok(Some(mut field)) = payload.try_next().await
     {
         println!("field received");
@@ -62,19 +69,26 @@ async fn upload(mut payload: Multipart) -> impl Responder
             },
         }
 
-        let filepath = "TEMPAPPLES.txt";
-
-        let mut f = File::create(filepath).await.unwrap();
         while let Some(chunk) = field.next().await
         {
-            println!("nested while");
             let data = chunk.unwrap();
-            f.write_all(&data).await.unwrap();
+            match inbox_file.write(&data)
+            {
+                Ok(_) => {},
+                Err(_) =>
+                    return HttpResponse::InternalServerError().body("Inbox Write Error"),
+            }
         }
     }
 
-    println!("upload 3");
-    HttpResponse::Ok().body("File uploaded successfully")
+    let ticket = match inbox_file.finish()
+    {
+        Ok(ticket) => ticket,
+        Err(_) =>
+            return HttpResponse::InternalServerError().body("Inbox Finish Error"),
+    };
+    println!("finished");
+    HttpResponse::Ok().body(format!("{}", ticket))
 }
 
 #[get("/download/{filename}")]
@@ -82,10 +96,13 @@ async fn download(filename: web::Path<String>) -> impl Responder {
     let filename = filename.into_inner();
     let filepath = format!("./{}", filename);
 
-    if Path::new(&filepath).exists() {
+    if Path::new(&filepath).exists()
+    {
         let data = fs::read(filepath).unwrap();
         HttpResponse::Ok().body(data)
-    } else {
+    }
+    else
+    {
         HttpResponse::NotFound().body("File not found")
     }
 }
