@@ -282,17 +282,12 @@ impl<SystemType : System> SysCache<SystemType>
         target_path : &str
     )
     ->
-    Result<(), ReadWriteError>
+    Result<Ticket, ReadWriteError>
     {
         let system = &mut (*self.system_box);
-        match TicketFactory::from_file(system, target_path)
-        {
-            Ok(mut factory) =>
-            {
-                self.back_up_file_with_ticket(&mut factory.result(), target_path)
-            }
-            Err(error) => Err(error)
-        }
+        let ticket = TicketFactory::from_file(system, target_path)?.result();
+        self.back_up_file_with_ticket(&ticket, target_path)?;
+        Ok(ticket)
     }
 }
 

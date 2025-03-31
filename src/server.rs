@@ -34,6 +34,7 @@ fn to_path_buf(path: &str) -> PathBuf
 pub enum ServerError
 {
     Weird,
+    BindFailed(String)
 }
 
 impl fmt::Display for ServerError
@@ -44,6 +45,9 @@ impl fmt::Display for ServerError
         {
             ServerError::Weird =>
                 write!(formatter, "Weird Server Error"),
+
+            ServerError::BindFailed(message) =>
+                write!(formatter, "Bind failed: {}", message),
         }
     }
 }

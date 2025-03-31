@@ -27,10 +27,13 @@ use crate::system::real::RealSystem;
 use crate::server::ServerError;
 use crate::directory;
 use crate::directory::Elements;
+use crate::ticket::Ticket;
 
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
+
+use std::io::Read;
 
 #[post("/upload")]
 async fn upload(mut payload: Multipart) -> impl Responder
@@ -42,7 +45,7 @@ async fn upload(mut payload: Multipart) -> impl Responder
         let content_disposition = field.content_disposition();
         match content_disposition.get_filename()
         {
-            Ok(filename) =>
+            Some(filename) =>
             {
                 if filename.is_empty()
                 {
@@ -53,7 +56,7 @@ async fn upload(mut payload: Multipart) -> impl Responder
                     println!("filename received");
                 }
             },
-            Err(_error) =>
+            None =>
             {
                 eprintln!("get filename failed, ignoring");
             },
@@ -97,10 +100,39 @@ struct AppStateWithCounter
 async fn home(data: web::Data<AppStateWithCounter>) -> impl Responder
 {
     let mut counter = data.counter.lock().unwrap();
-    *counter += 1; 
+    *counter += 1;
+    let body_string = format!("WOW!  Text! {:?}", *counter);
+    HttpResponse::Ok().body(body_string)
+}
 
-    let data = format!("WOW!  Text! {}", counter);
-    HttpResponse::Ok().body(data)
+#[get("/files/{hash}")]
+async fn files(data: web::Data<AppStateWithCounter>, hash: web::Path<String>) -> impl Responder
+{
+    let mut counter = data.counter.lock().unwrap();
+    *counter += 1;
+    let hash_str = hash.to_string();
+
+    let ticket = match Ticket::from_human_readable(&hash_str)
+    {
+        Err(error) => return HttpResponse::NotFound().body(format!("Error: {}", error)),
+        Ok(ticket) => ticket,
+    };
+
+    let mut file = match data.elements.cache.open(&ticket)
+    {
+        Err(error) => return HttpResponse::NotFound().body(format!("Error opening file: {} {}", hash_str, error)),
+        Ok(mut file) => file,
+    };
+
+    let mut buffer = vec![];
+    match file.read_to_end(&mut buffer)
+    {
+        Err(error) => return HttpResponse::InternalServerError().body(
+            format!("Error while reading file: {} {}", hash_str, error)),
+        Ok(size) => {},
+    }
+
+    HttpResponse::Ok().body(buffer)
 }
 
 #[get("/download-chunked/{filename:.*}")]
@@ -120,14 +152,18 @@ async fn chunked_download(path: web::Path<String>) -> impl Responder
 }
 
 #[delete("/{filename}")]
-async fn delete(filename: web::Path<String>) -> impl Responder {
+async fn delete(filename: web::Path<String>) -> impl Responder
+{
     let filename = filename.into_inner();
     let filepath = format!("./{}", filename);
 
-    if Path::new(&filepath).exists() {
+    if Path::new(&filepath).exists()
+    {
         fs::remove_file(filepath).unwrap();
         HttpResponse::Ok().body("File deleted successfully")
-    } else {
+    }
+    else
+    {
         HttpResponse::NotFound().body("File not found")
     }
 }
@@ -163,12 +199,13 @@ pub async fn serve
             .service(chunked_download)
             .service(delete)
             .service(home)
+            .service(files)
     });
 
     let socket_address = SocketAddr::new(IpAddr::V4(address), port);
     let server = match server.bind(socket_address)
     {
-        Err(_) => {return Err(ServerError::Weird)},
+        Err(error) => return Err(ServerError::BindFailed(error.to_string())),
         Ok(server) => server,
     };
 

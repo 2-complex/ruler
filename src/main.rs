@@ -80,6 +80,13 @@ struct HashConfig
 }
 
 #[derive(Parser)]
+struct CacheConfig
+{
+    #[arg(index=1, value_name = "PATH", help = "A path")]
+    path : String,
+}
+
+#[derive(Parser)]
 struct UploadConfig
 {
     #[arg(index=1, value_name = "PATH", help = "A path")]
@@ -123,6 +130,10 @@ If a target is specified, cleans only the ancestors of that target.")]
 "Takes a filesystem path and returns the hash of the file or directory at that path.")]
     Hash(HashConfig),
 
+    #[command(about="Move a file to the cache, display the hash of the file for retrieval", long_about =
+"Takes a filesystem path, moves the file or directory at that location to the cache renaming it")]
+    Cache(CacheConfig),
+
     #[command(about="Uploads a file or directory to the endpoint specified for upload", long_about =
 "Takes a filesystem path and uploads the file or directory at that path to the endpoint specified in settings for upload.")]
     Upload(UploadConfig),
@@ -150,6 +161,39 @@ about the current filesystem state.")]
 
 use crate::system::System;
 
+/*  This is the function that runs when you type "ruler cache" at the command-line.
+    It takes a path to a single file or directory  */
+fn cache_path<SystemType : System>
+(
+    mut system : SystemType,
+    directory_path : &str,
+    path : String
+)
+{
+    let mut elements =
+    match directory::init(&mut system, directory_path)
+    {
+        Ok(elements) => elements,
+        Err(error) =>
+        {
+            eprintln!("{}", error);
+            return;
+        },
+    };
+
+    let ticket =
+    match elements.cache.back_up_file(&path)
+    {
+        Ok(ticket)=>ticket,
+        Err(error)=>
+        {
+            eprintln!("{}", error);
+            return;
+        },
+    };
+
+    println!("{}", ticket);
+}
 
 fn main()
 {
@@ -233,6 +277,13 @@ fn main()
                 Ok(mut factory) => println!("{}", factory.result().human_readable()),
                 Err(error) => eprintln!("{}", error),
             }
+        },
+        RulerSubcommand::Cache(config) =>
+        {
+            cache_path(
+                RealSystem::new(),
+                &command_line.directory,
+                config.path);
         },
         RulerSubcommand::Upload(config) =>
         {
