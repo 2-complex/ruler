@@ -48,27 +48,6 @@ async fn upload(data: web::Data<AppStateWithCounter>, mut payload: Multipart) ->
 
     while let Ok(Some(mut field)) = payload.try_next().await
     {
-        println!("field received");
-        let content_disposition = field.content_disposition();
-        match content_disposition.get_filename()
-        {
-            Some(filename) =>
-            {
-                if filename.is_empty()
-                {
-                    println!("filename empty");
-                }
-                else
-                {
-                    println!("filename received");
-                }
-            },
-            None =>
-            {
-                eprintln!("get filename failed, ignoring");
-            },
-        }
-
         while let Some(chunk) = field.next().await
         {
             let data = chunk.unwrap();
@@ -87,24 +66,8 @@ async fn upload(data: web::Data<AppStateWithCounter>, mut payload: Multipart) ->
         Err(_) =>
             return HttpResponse::InternalServerError().body("Inbox Finish Error"),
     };
-    println!("finished");
+
     HttpResponse::Ok().body(format!("{}", ticket))
-}
-
-#[get("/download/{filename}")]
-async fn download(filename: web::Path<String>) -> impl Responder {
-    let filename = filename.into_inner();
-    let filepath = format!("./{}", filename);
-
-    if Path::new(&filepath).exists()
-    {
-        let data = fs::read(filepath).unwrap();
-        HttpResponse::Ok().body(data)
-    }
-    else
-    {
-        HttpResponse::NotFound().body("File not found")
-    }
 }
 
 struct AppStateWithCounter
@@ -152,22 +115,6 @@ async fn files(data: web::Data<AppStateWithCounter>, hash: web::Path<String>) ->
     HttpResponse::Ok().body(buffer)
 }
 
-#[get("/download-chunked/{filename:.*}")]
-async fn chunked_download(path: web::Path<String>) -> impl Responder
-{
-    let filename = path.into_inner();
-    let file_path = PathBuf::from("./").join(filename);
-
-    if file_path.exists() {
-        match File::open(&file_path).await {
-            Ok(file) => HttpResponse::Ok().streaming(ReaderStream::new(file)),
-            Err(_) => HttpResponse::InternalServerError().body("Could not read file"),
-        }
-    } else {
-        HttpResponse::NotFound().body("File not found")
-    }
-}
-
 #[delete("/{filename}")]
 async fn delete(filename: web::Path<String>) -> impl Responder
 {
@@ -212,8 +159,6 @@ pub async fn serve
         App::new()
             .app_data(app_data.clone())
             .service(upload)
-            .service(download)
-            .service(chunked_download)
             .service(delete)
             .service(home)
             .service(files)
