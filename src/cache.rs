@@ -253,6 +253,21 @@ impl<SystemType : System> SysCache<SystemType>
         })
     }
 
+    pub fn list(&self, _start:usize, _length:usize) -> Result<Vec<String>, OpenError>
+    {
+        let system = &(*self.system_box);
+        if ! system.is_dir(&self.path)
+        {
+            return Err(OpenError::CacheDirectoryMissing);
+        }
+
+        match system.list_dir(&self.path)
+        {
+            Ok(list) => Ok(list),
+            Err(error) => Err(OpenError::SystemError(error)),
+        }
+    }
+
     /*  Creates a file with the given ticket (convertd to human_readable) as a name, and
         moves the file into that place. */
     pub fn back_up_file_with_ticket
@@ -328,7 +343,10 @@ mod test
 
         match cache.back_up_file("apples.txt")
         {
-            Ok(()) => {},
+            Ok(ticket) =>
+            {
+                assert_eq!(ticket, TicketFactory::from_str("apples\n").result());
+            },
             Err(error) => panic!("Backup failed unexpectedly: {}", error),
         }
 
@@ -350,7 +368,7 @@ mod test
 
         match cache.back_up_file("apples.txt")
         {
-            Ok(()) => panic!("Unexpected successful backup when file not present"),
+            Ok(_) => panic!("Unexpected successful backup when file not present"),
             Err(_error) => {},
         }
     }
@@ -370,7 +388,10 @@ mod test
 
         match cache.back_up_file("apples.txt")
         {
-            Ok(()) => {},
+            Ok(ticket) =>
+            {
+                assert_eq!(ticket, TicketFactory::from_str("wrong content\n").result());
+            },
             Err(error) => panic!("Backup failed unexpectedly: {}", error),
         }
 
@@ -402,7 +423,10 @@ mod test
 
         match cache.back_up_file("apples.txt")
         {
-            Ok(()) => {},
+            Ok(ticket) =>
+            {
+                assert_eq!(ticket, TicketFactory::from_str("apples\n").result());
+            },
             Err(error) => panic!("Backup failed unexpectedly: {}", error),
         }
 
@@ -418,7 +442,10 @@ mod test
 
         match cache.back_up_file("apples.txt")
         {
-            Ok(()) => {},
+            Ok(ticket) =>
+            {
+                assert_eq!(ticket, TicketFactory::from_str("apples\n").result());
+            },
             Err(error) => panic!("Backup failed unexpectedly: {}", error),
         }
 
@@ -456,7 +483,10 @@ mod test
 
         match cache.back_up_file("apples.txt")
         {
-            Ok(()) => {},
+            Ok(ticket) =>
+            {
+                assert_eq!(ticket, TicketFactory::from_str("apples\n").result());
+            },
             Err(error) => panic!("Backup failed unexpectedly: {}", error),
         }
 

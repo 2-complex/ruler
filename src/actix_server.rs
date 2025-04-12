@@ -1,5 +1,4 @@
 use actix_multipart::Multipart;
-use std::path::PathBuf;
 use actix_web::
 {
     delete,
@@ -17,10 +16,9 @@ use futures::
     TryStreamExt
 };
 
-use tokio::{fs::File, io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader}};
+use tokio::{io::{self, AsyncBufReadExt, BufReader}};
 use std::fs;
 use std::path::Path;
-use tokio_util::io::ReaderStream;
 use std::sync::Mutex;
 
 use crate::system::real::RealSystem;
@@ -85,8 +83,14 @@ async fn home(data: web::Data<AppStateWithCounter>) -> impl Responder
     HttpResponse::Ok().body(body_string)
 }
 
+#[get("/files")]
+async fn files(_data: web::Data<AppStateWithCounter>) -> impl Responder
+{
+    HttpResponse::Ok().body("Files!")
+}
+
 #[get("/files/{hash}")]
-async fn files(data: web::Data<AppStateWithCounter>, hash: web::Path<String>) -> impl Responder
+async fn files_hash(data: web::Data<AppStateWithCounter>, hash: web::Path<String>) -> impl Responder
 {
     let mut counter = data.counter.lock().unwrap();
     *counter += 1;
@@ -101,7 +105,7 @@ async fn files(data: web::Data<AppStateWithCounter>, hash: web::Path<String>) ->
     let mut file = match data.elements.cache.open(&ticket)
     {
         Err(error) => return HttpResponse::NotFound().body(format!("Error opening file: {} {}", hash_str, error)),
-        Ok(mut file) => file,
+        Ok(file) => file,
     };
 
     let mut buffer = vec![];
@@ -109,7 +113,7 @@ async fn files(data: web::Data<AppStateWithCounter>, hash: web::Path<String>) ->
     {
         Err(error) => return HttpResponse::InternalServerError().body(
             format!("Error while reading file: {} {}", hash_str, error)),
-        Ok(size) => {},
+        Ok(_size) => {},
     }
 
     HttpResponse::Ok().body(buffer)
@@ -162,6 +166,7 @@ pub async fn serve
             .service(delete)
             .service(home)
             .service(files)
+            .service(files_hash)
     });
 
     let socket_address = SocketAddr::new(IpAddr::V4(address), port);
