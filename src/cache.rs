@@ -99,7 +99,10 @@ impl DownloaderCache
 
 pub struct InboxFile<SystemType : System>
 {
+    #[cfg(test)]
     pub cache : SysCache<SystemType>,
+
+    #[cfg(test)]
     pub inbox_file_path : String,
     pub file : SystemType::File,
     pub ticket_factory : TicketFactory,
