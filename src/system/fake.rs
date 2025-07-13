@@ -112,7 +112,8 @@ impl FileInfo
 enum Node
 {
     File(FileInfo),
-    Dir(HashMap<String, Node>)
+    Dir(HashMap<String, Node>),
+    Error(SystemError),
 }
 
 #[derive(Debug, PartialEq)]
@@ -128,10 +129,10 @@ enum NodeError
     RemoveNonExistentDir,
     RenameFromNonExistent,
     RenameToNonExistent,
-    CreateFileOverExistingDirectory,
-    CreateDirectoryOverExistingFile,
+    CreateOverExisting,
     GetModifiedOnDirectory,
     IsExecutableOnDirectory,
+    Error(SystemError),
     Weird,
 }
 
@@ -172,17 +173,17 @@ impl fmt::Display for NodeError
             NodeError::RenameToNonExistent
                 => write!(formatter, "Attempt to rename a file or directory with non-existent target directory"),
 
-            NodeError::CreateFileOverExistingDirectory
-                => write!(formatter, "Attempt to create a file where a directory already exists"),
-
-            NodeError::CreateDirectoryOverExistingFile
-                => write!(formatter, "Attempt to create a directory where a file already exists"),
+            NodeError::CreateOverExisting
+                => write!(formatter, "Attempt to create a filesystem entity where another already exists with different type"),
 
             NodeError::GetModifiedOnDirectory
                 => write!(formatter, "Attempt to get modified time for a directory (that is not implemented)"),
 
             NodeError::IsExecutableOnDirectory
                 => write!(formatter, "Attempt to ask whether a directory is an executable"),
+
+            NodeError::Error(error)
+                => write!(formatter, "Node error representing system error: {}", error),
 
             NodeError::Weird
                 => write!(formatter, "Weird error, this happens when internal logic fails in a way the programmer didn't think was possible"),
@@ -235,6 +236,7 @@ impl Node
                 {
                     Node::Dir(_) => false,
                     Node::File(_) => true,
+                    Node::Error(_) => false,
                 }
             },
             Err(_) =>
@@ -252,6 +254,7 @@ impl Node
                 {
                     Node::Dir(_) => true,
                     Node::File(_) => false,
+                    Node::Error(_) => false,
                 }
             },
             Err(_) => false
@@ -275,6 +278,10 @@ impl Node
                         Some(n) => n,
                         None => return Err(NodeError::DirectoryNotFound(component.to_string())),
                     }
+                },
+                Node::Error(error) =>
+                {
+                    return Err(NodeError::Error(error.clone()));
                 }
             }
         }
@@ -297,6 +304,10 @@ impl Node
                         Some(n) => n,
                         None => return Err(NodeError::DirectoryNotFound(component.to_string())),
                     }
+                },
+                Node::Error(error) =>
+                {
+                    return Err(NodeError::Error(error.clone()));
                 }
             }
         }
@@ -310,6 +321,7 @@ impl Node
         {
             Node::File(_) => Err(NodeError::Weird),
             Node::Dir(name_to_node) => Ok(name_to_node),
+            Node::Error(_) => Err(NodeError::Weird),
         }
     }
 
@@ -319,6 +331,7 @@ impl Node
         {
             Node::File(_) => Err(NodeError::Weird),
             Node::Dir(name_to_node) => Ok(name_to_node),
+            Node::Error(_) => Err(NodeError::Weird),
         }
     }
 
@@ -329,8 +342,9 @@ impl Node
 
         match dir_map_mut.get(name)
         {
-            Some(Node::Dir(_)) => return Err(NodeError::CreateFileOverExistingDirectory),
-            _ => {},
+            None => {},
+            Some(Node::File(_)) => {},
+            _ => return Err(NodeError::CreateOverExisting),
         }
 
         dir_map_mut.insert(name.to_string(), Node::File(
@@ -346,11 +360,28 @@ impl Node
 
         match dir_map_mut.get(name)
         {
-            Some(Node::File(_)) => return Err(NodeError::CreateDirectoryOverExistingFile),
-            _ => {},
+            None => {},
+            Some(Node::Dir(_)) => {},
+            _ => return Err(NodeError::CreateOverExisting),
         }
 
         dir_map_mut.insert(name.to_string(), Node::Dir(HashMap::new()));
+        Ok(())
+    }
+
+    pub fn create_error(&mut self, path: &str, error: SystemError) -> Result<(), NodeError>
+    {
+        let (dir_components, name) = get_dir_path_and_name(path)?;
+        let dir_map_mut = self.get_dir_map_mut(&dir_components)?;
+
+        match dir_map_mut.get(name)
+        {
+            None => {},
+            Some(Node::Error(_)) => {},
+            _ => return Err(NodeError::CreateOverExisting),
+        }
+
+        dir_map_mut.insert(name.to_string(), Node::Error(error));
         Ok(())
     }
 
@@ -374,10 +405,12 @@ impl Node
                     {
                         name_to_node.insert(name.to_string(), node);
                         Err(NodeError::RemoveFileFoundDir)
-                    }
+                    },
+                    Node::Error(error) => Err(NodeError::Error(error.clone()))
                 },
                 None => Err(NodeError::RemoveNonExistentFile)
-            }
+            },
+            Node::Error(error) => Err(NodeError::Error(error.clone()))
         }
     }
 
@@ -396,6 +429,7 @@ impl Node
                     Err(NodeError::ExpectedDirFoundFile)
                 }
                 Node::Dir(_) => Ok(()),
+                Node::Error(error) => Err(NodeError::Error(error.clone())),
             },
             None => Err(NodeError::RemoveNonExistentDir)
         }
@@ -457,7 +491,8 @@ impl Node
                     None =>
                         return Err(NodeError::PathEmpty)
                 }
-            }
+            },
+            Node::Error(error) => Err(NodeError::Error(error.clone())),
         }
     }
 
@@ -468,6 +503,7 @@ impl Node
         {
             Node::File(info) => Ok(info.metadata.modified.clone()),
             Node::Dir(_) => Err(NodeError::GetModifiedOnDirectory),
+            Node::Error(error) => Err(NodeError::Error(error.clone())),
         }
     }
 
@@ -478,6 +514,7 @@ impl Node
         {
             Node::File(info) => Ok(info.metadata.executable),
             Node::Dir(_) => Err(NodeError::IsExecutableOnDirectory),
+            Node::Error(error) => Err(NodeError::Error(error.clone())),
         }
     }
 
@@ -492,6 +529,7 @@ impl Node
                 Ok(())
             },
             Node::Dir(_) => Err(NodeError::IsExecutableOnDirectory),
+            Node::Error(error) => Err(NodeError::Error(error.clone())),
         }
     }
 }
@@ -633,17 +671,17 @@ fn convert_node_error_to_system_error(error : NodeError) -> SystemError
         NodeError::RenameToNonExistent
             => SystemError::RenameToNonExistent,
 
-        NodeError::CreateFileOverExistingDirectory
-            => SystemError::CreateFileOverExistingDirectory,
-
-        NodeError::CreateDirectoryOverExistingFile
-            => SystemError::CreateDirectoryOverExistingFile,
+        NodeError::CreateOverExisting
+            => SystemError::CreateOverExisting,
 
         NodeError::GetModifiedOnDirectory
             => SystemError::NotImplemented,
 
         NodeError::IsExecutableOnDirectory
             => SystemError::NotImplemented,
+
+        NodeError::Error(system_error)
+            => system_error,
 
         NodeError::Weird
             => SystemError::Weird,
@@ -689,6 +727,15 @@ impl FakeSystem
     pub fn get_command_log(&self) -> Vec<String>
     {
         self.command_log.lock().unwrap().clone()
+    }
+
+    fn create_error(&mut self, path: &str, error: SystemError) -> Result<(), SystemError>
+    {
+        match self.get_root_node_mut().create_error(path, error)
+        {
+            Ok(()) => Ok(()),
+            Err(error) => Err(convert_node_error_to_system_error(error)),
+        }
     }
 
     fn execute_script_line(&mut self, line : String) -> Result<CommandLineOutput, SystemError>
@@ -1149,7 +1196,20 @@ mod test
         node.create_dir("images/more_images").unwrap();
         match node.create_file("images/more_images", Content::new(b"content".to_vec()), 0)
         {
-            Err(NodeError::CreateFileOverExistingDirectory) => {},
+            Err(NodeError::CreateOverExisting) => {},
+            _ => panic!("unexpected result"),
+        }
+    }
+
+    #[test]
+    fn create_directory_with_file_already_present()
+    {
+        let mut node = Node::empty_dir();
+        node.create_dir("images").unwrap();
+        node.create_dir("images/more_images").unwrap();
+        match node.create_file("images/more_images", Content::new(b"content".to_vec()), 0)
+        {
+            Err(NodeError::CreateOverExisting) => {},
             _ => panic!("unexpected result"),
         }
     }
@@ -1468,7 +1528,6 @@ mod test
         assert_eq!(read_file(&system, "poem.txt"), Ok(b"Ants\nLove to dance\n".to_vec()));
     }
 
-
     #[test]
     fn executing_mycat2_concatinates_and_dupes()
     {
@@ -1527,7 +1586,6 @@ mod test
             Err(error) => panic!("{}", error),
         }
     }
-
 
     #[test]
     fn use_commandline_to_remove()

@@ -267,6 +267,7 @@ fn resolve_with_cache<SystemType : System>
 ->
 Result<Vec<FileResolution>, WorkError>
 {
+    println!("resolve_with_cache 1");
     match rule_history.get_file_state_vec(sources_ticket)
     {
         Some(remembered_file_state_vec) =>
@@ -282,6 +283,7 @@ Result<Vec<FileResolution>, WorkError>
         None => {},
     }
 
+    println!("resolve_with_cache 2");
     match downloader_rule_history_opt
     {
         Some(downloader_rule_history) =>
@@ -305,6 +307,7 @@ Result<Vec<FileResolution>, WorkError>
         None => {},
     }
 
+    println!("resolve_with_cache 3");
     match blob.resolve_with_no_current_file_states(system, cache)
     {
         Ok(resolutions) => Ok(resolutions),
@@ -373,6 +376,7 @@ pub fn handle_rule_node<SystemType: System>
 ->
 Result<WorkResult, WorkError>
 {
+    println!("about to resolve with cache");
     match resolve_with_cache(
         &mut info.system,
         &mut rule_ext.cache,
@@ -386,6 +390,7 @@ Result<WorkResult, WorkError>
         {
             if needs_rebuild(&resolutions)
             {
+                println!("Needs rebuild");
                 rebuild_node(
                     &mut info.system,
                     rule_ext.rule_history,
@@ -395,6 +400,7 @@ Result<WorkResult, WorkError>
             }
             else
             {
+                println!("Does not need rebuild");
                 let file_state_vec = match info.blob.get_current_file_state_vec(&info.system)
                 {
                     Ok(file_state_vec) => file_state_vec,
@@ -692,6 +698,9 @@ mod test
 
         let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"), ticket_factory.result());
         rule_ext.command = vec!["error".to_string()];
+
+        let info = make_handle_node_info(system.clone(), vec!["poem.txt".to_string()]);
+        println!("info = {:?}", info.blob);
 
         match handle_rule_node(make_handle_node_info(system.clone(), vec!["poem.txt".to_string()]), rule_ext)
         {

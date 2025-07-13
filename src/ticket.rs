@@ -284,7 +284,7 @@ impl TicketFactory
 }
 
 /*  Ticket represents a hash of a file or a rule */
-#[derive(Serialize, Deserialize, PartialEq, Debug, Clone, Eq)]
+#[derive(Serialize, Deserialize, PartialEq, Clone, Eq)]
 pub struct Ticket
 {
     sha: [u8; 32],
@@ -354,6 +354,14 @@ impl Ticket
 }
 
 impl fmt::Display for Ticket
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result
+    {
+        write!(f, "{}", self.human_readable())
+    }
+}
+
+impl fmt::Debug for Ticket
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result
     {

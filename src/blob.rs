@@ -154,7 +154,8 @@ impl Blob
                         None => return Err(GetFileStateError::FileNotFound(target_info.path.clone())),
                     }
                 },
-                Err(error) => return Err(GetFileStateError::ReadWriteError(target_info.path.clone(), error)),
+                // WAS: Err(error) => return Err(GetFileStateError::ReadWriteError(target_info.path.clone(), error)),
+                Err(error) => return Err(GetFileStateError::FileNotFound(target_info.path.clone())),
             }
         }
 
@@ -445,25 +446,30 @@ fn get_file_ticket_from_path<SystemType: System>
 )
 -> Result<Option<Ticket>, ReadWriteError>
 {
-    if system.is_file(&path)
+    match TicketFactory::from_path(system, path)
     {
-        match TicketFactory::from_file(system, &path)
-        {
-            Ok(mut factory) => Ok(Some(factory.result())),
-            Err(error) => Err(error),
-        }
+        Ok(mut factory) => Ok(Some(factory.result())),
+        Err(error) => Err(error),
     }
-    else if system.is_dir(&path)
+}
+
+/*  Takes a system, a path and a timestamp assumed to be at that path as the modified date.
+    Returns true if the timestamp matches what's actually there, false otherwise.  Returns
+    false if any error occurs obtaining the current timestamp */
+pub fn timestamp_matches<SystemType: System>(
+    system : &SystemType,
+    path : &str,
+    assumed_timestamp : u64)
+-> bool
+{
+    match system.get_modified(&path)
     {
-        match TicketFactory::from_directory(system, &path)
+        Ok(system_time) => match get_timestamp(system_time)
         {
-            Ok(mut factory) => Ok(Some(factory.result())),
-            Err(error) => Err(error),
-        }
-    }
-    else
-    {
-        Ok(None)
+            Ok(timestamp) => timestamp == assumed_timestamp,
+            Err(_) => false,
+        },
+        Err(_) => false,
     }
 }
 
@@ -478,27 +484,10 @@ pub fn get_file_ticket<SystemType: System>
 )
 -> Result<Option<Ticket>, ReadWriteError>
 {
-    /*  The body of this match looks like it has unhandled errors.  What's happening is:
-        if any error occurs with the timestamp optimization, we skip the optimization. */
-    match system.get_modified(&path)
+    if timestamp_matches(system, path, assumed_file_state.timestamp)
     {
-        Ok(system_time) =>
-        {
-            match get_timestamp(system_time)
-            {
-                Ok(timestamp) =>
-                {
-                    if timestamp == assumed_file_state.timestamp
-                    {
-                        return Ok(Some(assumed_file_state.ticket.clone()))
-                    }
-                },
-                Err(_) => {},
-            }
-        },
-        Err(_) => {},
+        return Ok(Some(assumed_file_state.ticket.clone()));
     }
-
     get_file_ticket_from_path(system, path)
 }
 
@@ -936,6 +925,19 @@ mod test
         }
     }
 
+    #[test]
+    fn blob_get_file_ticket_basic()
+    {
+        let mut system = FakeSystem::new(10);
+        write_str_to_file(&mut system, "quine.sh", "cat $0").unwrap();
+        let ticket = get_file_ticket_from_path(&system, "quine.sh").unwrap().unwrap();
+
+        assert_eq! (
+            get_file_ticket(&system, "quine.sh", &FileState::new(ticket.clone(), 10)).unwrap(),
+            Some(ticket)
+        );
+    }
+
     /*  Use a fake system to create a file, and write a string to it.  Then use
         get_file_ticket_from_path to obtain a ticket for that file, and compare
         that against a ticket made directly from the string. */
@@ -943,20 +945,9 @@ mod test
     fn blob_get_file_ticket_from_path()
     {
         let mut system = FakeSystem::new(10);
-
         write_str_to_file(&mut system, "quine.sh", "cat $0").unwrap();
-
-        match get_file_ticket_from_path(
-            &system,
-            "quine.sh")
-        {
-            Ok(ticket_opt) => match ticket_opt
-            {
-                Some(ticket) => assert_eq!(ticket, TicketFactory::from_str("cat $0").result()),
-                None => panic!("Could not get ticket"),
-            }
-            Err(err) => panic!("Could not get ticket: {}", err),
-        }
+        let ticket_opt = get_file_ticket_from_path(&system, "quine.sh").unwrap();
+        assert_eq!(ticket_opt, Some(TicketFactory::from_str("cat $0").result()));
     }
 
     #[test]
@@ -1084,20 +1075,15 @@ mod test
 
         // Then get the ticket for the current target file, passing the FileInfo
         // with timestamp 11.  Check that it gives the ticket for the C++ code.
-        match get_file_ticket(
+        let ticket_opt = get_file_ticket(
             &system,
             "game.cpp",
-            &FileState::new(content_ticket.clone(), 11))
+            &FileState::new(content_ticket.clone(), 11)).unwrap();
+
+        match ticket_opt
         {
-            Ok(ticket_opt) =>
-            {
-                match ticket_opt
-                {
-                    Some(ticket) => assert_eq!(ticket, content_ticket),
-                    None => panic!("Failed to generate ticket"),
-                }
-            },
-            Err(_) => panic!("Unexpected error getting file ticket"),
+            Some(ticket) => assert_eq!(ticket, content_ticket),
+            None => panic!("Failed to generate ticket"),
         }
     }
 

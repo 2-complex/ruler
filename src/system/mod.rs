@@ -32,10 +32,10 @@ impl fmt::Display for ReadWriteError
         match self
         {
             ReadWriteError::IOError(io_error_message)
-                => write!(formatter, "{}", io_error_message),
+                => write!(formatter, "I/O Error: {}", io_error_message),
 
             ReadWriteError::SystemError(error)
-                => write!(formatter, "{}", error),
+                => write!(formatter, "Read/Write Error: {}", error),
         }
     }
 }
@@ -133,6 +133,7 @@ impl CommandLineOutput
 
 #[allow(dead_code)]
 #[derive(Debug, PartialEq)]
+#[derive(Clone)]
 pub enum SystemError
 {
     NotFound,
@@ -148,8 +149,7 @@ pub enum SystemError
     RenameToNonExistent,
     MetadataNotFound,
     ModifiedNotFound,
-    CreateFileOverExistingDirectory,
-    CreateDirectoryOverExistingFile,
+    CreateOverExisting,
     CommandExecutationFailed(String),
     NotImplemented,
     Weird,
@@ -200,11 +200,8 @@ impl fmt::Display for SystemError
             SystemError::MetadataNotFound
                 => write!(formatter, "Attempt to access metadate failed"),
 
-            SystemError::CreateFileOverExistingDirectory
-                => write!(formatter, "Attempt to create a file where a directory already exists"),
-
-            SystemError::CreateDirectoryOverExistingFile
-                => write!(formatter, "Attempt to create a directory where a file already exists"),
+            SystemError::CreateOverExisting
+                => write!(formatter, "Attempt to create a filesystem entity where another already exists with different type"),
 
             SystemError::CommandExecutationFailed(message)
                 => write!(formatter, "{}", message),
