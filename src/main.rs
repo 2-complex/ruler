@@ -12,7 +12,7 @@ use clap_derive::
 };
 use crate::system::real::RealSystem;
 use crate::printer::StandardPrinter;
-use crate::ticket::TicketFactory;
+use crate::ticket::Ticket;
 
 mod blob;
 mod bundle;
@@ -211,9 +211,18 @@ fn main()
         },
         RulerSubcommand::Hash(config) =>
         {
-            match TicketFactory::from_path(&RealSystem::new(), &config.path)
+            match Ticket::from_path(&RealSystem::new(), &config.path)
             {
-                Ok(mut factory) => println!("{}", factory.result().human_readable()),
+                Ok(opt_ticket) =>
+                {
+                    match opt_ticket
+                    {
+                        Some(ticket) =>
+                            println!("{}", ticket.human_readable()),
+                        None =>
+                            println!("No file or directory at path"),
+                    }
+                }
                 Err(error) => eprintln!("{}", error),
             }
         }

@@ -432,41 +432,6 @@ impl FileStateVec
     }
 }
 
-/*  Takes a System and a filepath as a string.
-
-    If the file exists, returns a ticket.
-    If the file does not exist, returns Ok, but with no Ticket inside
-    If the file exists but does not open or some other error occurs when generating
-    the ticket, returns an error. */
-fn get_file_ticket_from_path<SystemType: System>
-(
-    system : &SystemType,
-    path : &str
-)
--> Result<Option<Ticket>, ReadWriteError>
-{
-    if system.is_file(&path)
-    {
-        match TicketFactory::from_file(system, &path)
-        {
-            Ok(mut factory) => Ok(Some(factory.result())),
-            Err(error) => Err(error),
-        }
-    }
-    else if system.is_dir(&path)
-    {
-        match TicketFactory::from_directory(system, &path)
-        {
-            Ok(mut factory) => Ok(Some(factory.result())),
-            Err(error) => Err(error),
-        }
-    }
-    else
-    {
-        Ok(None)
-    }
-}
-
 /*  Takes a system, a path, and an assumed FileState, obtains a ticket for the file described.
     If the modified date of the file matches the one in FileState exactly, this function
     assumes the ticket matches.  This is part of the timestamp optimization. */
@@ -499,7 +464,7 @@ pub fn get_file_ticket<SystemType: System>
         Err(_) => {},
     }
 
-    get_file_ticket_from_path(system, path)
+    Ticket::from_path(system, path)
 }
 
 #[derive(Debug)]
@@ -767,7 +732,6 @@ mod test
         FileStateVec,
         BlobError,
         get_file_ticket,
-        get_file_ticket_from_path,
         get_actual_file_state,
         GetCurrentFileInfoError,
     };
@@ -933,29 +897,6 @@ mod test
                 assert_eq!(path, "story.txt");
             },
             _ => panic!("Unexpected error"),
-        }
-    }
-
-    /*  Use a fake system to create a file, and write a string to it.  Then use
-        get_file_ticket_from_path to obtain a ticket for that file, and compare
-        that against a ticket made directly from the string. */
-    #[test]
-    fn blob_get_file_ticket_from_path()
-    {
-        let mut system = FakeSystem::new(10);
-
-        write_str_to_file(&mut system, "quine.sh", "cat $0").unwrap();
-
-        match get_file_ticket_from_path(
-            &system,
-            "quine.sh")
-        {
-            Ok(ticket_opt) => match ticket_opt
-            {
-                Some(ticket) => assert_eq!(ticket, TicketFactory::from_str("cat $0").result()),
-                None => panic!("Could not get ticket"),
-            }
-            Err(err) => panic!("Could not get ticket: {}", err),
         }
     }
 

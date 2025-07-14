@@ -178,27 +178,6 @@ impl TicketFactory
         }
     }
 
-    pub fn from_path<FSType: System>
-    (
-        file_system: &FSType,
-        path : &str
-    )
-    ->
-    Result<TicketFactory, ReadWriteError>
-    {
-        if file_system.is_file(path)
-        {
-            return Self::from_file(file_system, path)
-        }
-
-        if file_system.is_dir(path)
-        {
-            return Self::from_directory(file_system, path)
-        }
-
-        return Err(ReadWriteError::SystemError(SystemError::NotFound));
-    }
-
     /*  Construct a TicketFactory, initialized with the contents of a file from a System. */
     pub fn from_file<FSType: System>
     (
@@ -350,6 +329,33 @@ impl Ticket
 
         factory.input_str("\n:\n");
         factory.result()
+    }
+
+    /*  Takes a System and a filepath as a string.
+
+        If the file exists, returns a ticket.
+        If the file does not exist, returns Ok, but with no Ticket inside
+        If the file exists but does not open or some other error occurs when generating
+        the ticket, returns an error. */
+    pub fn from_path<FSType: System>
+    (
+        file_system: &FSType,
+        path : &str
+    )
+    ->
+    Result<Option<Ticket>, ReadWriteError>
+    {
+        if file_system.is_file(path)
+        {
+            return Ok(Some(TicketFactory::from_file(file_system, path)?.result()));
+        }
+
+        if file_system.is_dir(path)
+        {
+            return Ok(Some(TicketFactory::from_directory(file_system, path)?.result()));
+        }
+
+        Ok(None)
     }
 }
 
@@ -751,5 +757,18 @@ mod test
             Ticket::from_human_readable("0abcdef"),
             Err(FromHumanReadableError::InvalidLength)
         );
+    }
+
+    /*  Use a fake system to create a file, write a string to it, then
+        obtain a ticket for that file, and compare that against a ticket
+        made directly from the string. */
+    #[test]
+    fn ticket_from_path()
+    {
+        let mut system = FakeSystem::new(10);
+        write_str_to_file(&mut system, "quine.sh", "cat $0").unwrap();
+        assert_eq!(
+            Ticket::from_path(&system, "quine.sh").unwrap(),
+            Some(TicketFactory::from_str("cat $0").result()));
     }
 }
