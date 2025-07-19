@@ -10,6 +10,8 @@ use crate::system::util::
     read_file,
     write_str_to_file,
     timestamp_to_system_time,
+    get_dir_path_and_name,
+    PathError
 };
 use std::collections::HashMap;
 use std::sync::
@@ -121,7 +123,7 @@ enum NodeError
     FileInPlaceOfDirectory(String),
     DirectoryInPlaceOfFile(String),
     DirectoryNotFound(String),
-    PathEmpty,
+    PathInvalid,
     RemoveFileFoundDir,
     ExpectedDirFoundFile,
     RemoveNonExistentFile,
@@ -151,8 +153,8 @@ impl fmt::Display for NodeError
             NodeError::DirectoryInPlaceOfFile(component)
                 => write!(formatter, "Expected file, found directory: {}", component),
 
-            NodeError::PathEmpty
-                => write!(formatter, "Invalid arguments: found empty path"),
+            NodeError::PathInvalid
+                => write!(formatter, "Invalid arguments: empty path or empty path components"),
 
             NodeError::RemoveFileFoundDir
                 => write!(formatter, "Attempt to remove file, found directory"),
@@ -202,20 +204,14 @@ fn get_components(dir_path: &str) -> Vec<&str>
     }
 }
 
-fn get_dir_path_and_name(dir_path: &str) -> Result<(Vec<&str>, &str), NodeError>
+fn to_node_error<'a>(result : Result<(Vec<&'a str>, &'a str), PathError>) -> Result<(Vec<&'a str>, &'a str), NodeError>
 {
-    if dir_path == ""
+    match result
     {
-        return Err(NodeError::PathEmpty);
+        Ok(p) => Ok(p),
+        Err(PathError::PathEmpty) => Err(NodeError::PathInvalid),
+        Err(PathError::PathComponentEmpty) => Err(NodeError::PathInvalid),
     }
-
-    let v : Vec<&str> = dir_path.split('/').collect();
-    if v.len() == 0
-    {
-        return Err(NodeError::PathEmpty);
-    }
-
-    return Ok((v[..v.len()-1].to_vec(), v[v.len()-1]))
 }
 
 impl Node
@@ -324,7 +320,7 @@ impl Node
 
     pub fn create_file(&mut self, path: &str, content : Content, timestamp : u64) -> Result<Content, NodeError>
     {
-        let (dir_components, name) = get_dir_path_and_name(path)?;
+        let (dir_components, name) = to_node_error(get_dir_path_and_name(path))?;
         let dir_map_mut = self.get_dir_map_mut(&dir_components)?;
 
         match dir_map_mut.get(name)
@@ -341,7 +337,7 @@ impl Node
 
     pub fn create_dir(&mut self, path: &str) -> Result<(), NodeError>
     {
-        let (dir_components, name) = get_dir_path_and_name(path)?;
+        let (dir_components, name) = to_node_error(get_dir_path_and_name(path))?;
         let dir_map_mut = self.get_dir_map_mut(&dir_components)?;
 
         match dir_map_mut.get(name)
@@ -356,7 +352,7 @@ impl Node
 
     pub fn remove_file(&mut self, path: &str) -> Result<(), NodeError>
     {
-        let (dir_components, name) = get_dir_path_and_name(path)?;
+        let (dir_components, name) = to_node_error(get_dir_path_and_name(path))?;
 
         match self.get_node_mut(&dir_components)?
         {
@@ -383,7 +379,7 @@ impl Node
 
     pub fn remove_dir(&mut self, path: &str) -> Result<(), NodeError>
     {
-        let (dir_components, name) = get_dir_path_and_name(path)?;
+        let (dir_components, name) = to_node_error(get_dir_path_and_name(path))?;
 
         let name_to_node = self.get_dir_map_mut(&dir_components)?;
         match name_to_node.remove(name)
@@ -412,8 +408,8 @@ impl Node
 
     pub fn rename(&mut self, from: &str, to: &str) -> Result<(), NodeError>
     {
-        let (from_dir_components, from_name) = get_dir_path_and_name(from)?;
-        let (to_dir_components, to_name) = get_dir_path_and_name(to)?;
+        let (from_dir_components, from_name) = to_node_error(get_dir_path_and_name(from))?;
+        let (to_dir_components, to_name) = to_node_error(get_dir_path_and_name(to))?;
 
         let from_name_to_node = self.get_dir_map_mut(&from_dir_components)?;
 
@@ -455,7 +451,7 @@ impl Node
                     Some(last) =>
                         return Err(NodeError::DirectoryInPlaceOfFile(last.to_string())),
                     None =>
-                        return Err(NodeError::PathEmpty)
+                        return Err(NodeError::PathInvalid),
                 }
             }
         }
@@ -612,8 +608,8 @@ fn convert_node_error_to_system_error(error : NodeError) -> SystemError
         NodeError::DirectoryNotFound(_component)
             => SystemError::NotFound,
 
-        NodeError::PathEmpty
-            => SystemError::PathEmpty,
+        NodeError::PathInvalid
+            => SystemError::PathInvalid,
 
         NodeError::RemoveFileFoundDir
             => SystemError::RemoveFileFoundDir,
@@ -947,7 +943,6 @@ mod test
         Node,
         NodeError,
         get_components,
-        get_dir_path_and_name,
         FakeSystem,
     };
 
@@ -993,63 +988,6 @@ mod test
         assert_eq!(get_components(""), empty_string_vec());
         assert_eq!(get_components("apples"), vec!["apples"]);
         assert_eq!(get_components("apples/bananas"), vec!["apples", "bananas"]);
-    }
-
-    #[test]
-    fn get_dir_path_and_name_three()
-    {
-        match get_dir_path_and_name("fruit/apples/arkansas red")
-        {
-            Ok((components, name)) =>
-            {
-                assert_eq!(components, vec!["fruit", "apples"]);
-                assert_eq!(name, "arkansas red");
-            },
-            Err(_) => panic!("Error splitting ordinary path"),
-        }
-    }
-
-    #[test]
-    fn get_dir_path_and_name_two()
-    {
-        match get_dir_path_and_name("apples/arkansas red")
-        {
-            Ok((components, name)) =>
-            {
-                assert_eq!(components, vec!["apples"]);
-                assert_eq!(name, "arkansas red");
-            },
-            Err(_) => panic!("Error splitting ordinary path"),
-        }
-    }
-
-    #[test]
-    fn get_dir_path_and_name_one()
-    {
-        match get_dir_path_and_name("apples")
-        {
-            Ok((components, name)) =>
-            {
-                assert_eq!(components, empty_string_vec());
-                assert_eq!(name, "apples");
-            },
-            Err(_) => panic!("Error splitting ordinary path"),
-        }
-    }
-
-    #[test]
-    fn get_dir_path_and_name_zero()
-    {
-        match get_dir_path_and_name("")
-        {
-            Ok((_components, _name)) => panic!("Unexpected success getting dir and path-name from empty path"),
-            Err(error) =>
-                match error
-                {
-                    NodeError::PathEmpty => {},
-                    _ => panic!("Unexpected error type.  Expected PathEmpty"),
-                },
-        }
     }
 
     #[test]
@@ -1562,19 +1500,3 @@ mod test
 
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
