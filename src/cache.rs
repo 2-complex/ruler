@@ -593,4 +593,45 @@ mod test
         let mut reading_file = cache.open(&TicketFactory::from_str("abc").result()).unwrap();
         assert_eq!(file_to_string(&mut reading_file).unwrap(), "abc".to_string());
     }
+
+    #[test]
+    fn list_empty()
+    {
+        let (_system, cache) = make_fake_system_and_cache();
+        assert_eq!(cache.list(0, 10).unwrap(), Vec::<String>::new());
+    }
+
+    #[test]
+    fn list_one_file()
+    {
+        let (mut system, mut cache) = make_fake_system_and_cache();
+        write_str_to_file(&mut system, "apples.txt", "apples\n").unwrap();
+        cache.back_up_file("apples.txt").unwrap();
+        assert_eq!(cache.list(0, 10).unwrap(), vec![TicketFactory::from_str("apples\n").result().to_string()]);
+    }
+
+    #[test]
+    fn list_two_files()
+    {
+        let (mut system, mut cache) = make_fake_system_and_cache();
+        write_str_to_file(&mut system, "apples.txt", "apples\n").unwrap();
+        cache.back_up_file("apples.txt").unwrap();
+        system.time_passes(1);
+        write_str_to_file(&mut system, "pears.txt", "pears\n").unwrap();
+        cache.back_up_file("pears.txt").unwrap();
+
+        assert_eq!(cache.list(0, 10).unwrap(), vec![
+            TicketFactory::from_str("apples\n").result().to_string(),
+            TicketFactory::from_str("pears\n").result().to_string()
+        ]);
+    }
 }
+
+
+
+
+
+
+
+
+

@@ -431,6 +431,7 @@ impl FileStateVec
         self.infos.iter().map(|info|{info.ticket.human_readable()}).collect::<Vec<String>>().join("\n")
     }
 
+    #[allow(dead_code)]
     pub fn get_html(&self) -> String
     {
         let mut out = "<div>".to_string();

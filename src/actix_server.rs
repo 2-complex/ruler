@@ -79,14 +79,37 @@ async fn home(data: web::Data<AppStateWithCounter>) -> impl Responder
 {
     let mut counter = data.counter.lock().unwrap();
     *counter += 1;
-    let body_string = format!("WOW!  Text! {:?}", *counter);
+    let mut body_string = String::new();
+
+    body_string += "<html><head></head><body>";
+    body_string += &format!("Menu {:?}<br/>", *counter);
+    body_string += "<a href=\"/files\">files</a>";
+    body_string += "</body></html>";
+
     HttpResponse::Ok().body(body_string)
 }
 
 #[get("/files")]
-async fn files(_data: web::Data<AppStateWithCounter>) -> impl Responder
+async fn files(data: web::Data<AppStateWithCounter>) -> impl Responder
 {
-    HttpResponse::Ok().body("Files!")
+    let mut counter = data.counter.lock().unwrap();
+    *counter += 1;
+    let mut body_string = String::new();
+
+    let list = match data.elements.cache.list(0, 5)
+    {
+        Err(error) => return HttpResponse::NotFound().body(format!("Error listing files in cache: {}", error)),
+        Ok(list) => list,
+    };
+
+    body_string += "<html><head></head><body>";
+    for filename in list
+    {
+        body_string += &format!("{}</br>", filename);
+    }
+    body_string += "</body></html>";
+
+    HttpResponse::Ok().body(body_string)
 }
 
 #[get("/files/{hash}")]

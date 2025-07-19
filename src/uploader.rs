@@ -42,9 +42,10 @@ pub async fn upload_file
 <
     SystemType : System
 >(
-    system : &mut SystemType,
+    _system : &mut SystemType,
     url : &str,
-    path : &str) -> Result<(), UploadError>
+    path : &str
+) -> Result<(), UploadError>
 {
     println!("url = {}", url);
 
