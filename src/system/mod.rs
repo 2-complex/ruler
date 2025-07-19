@@ -138,7 +138,7 @@ pub enum SystemError
     NotFound,
     FileInPlaceOfDirectory(String),
     DirectoryInPlaceOfFile(String),
-    PathEmpty,
+    PathInvalid,
     PathNotUnicode,
     RemoveFileFoundDir,
     ExpectedDirFoundFile,
@@ -170,8 +170,8 @@ impl fmt::Display for SystemError
             SystemError::DirectoryInPlaceOfFile(component)
                 => write!(formatter, "Expected file, found directory: {}", component),
 
-            SystemError::PathEmpty
-                => write!(formatter, "Invalid arguments: found empty path"),
+            SystemError::PathInvalid
+                => write!(formatter, "Invalid arguments: invalid path"),
 
             SystemError::PathNotUnicode
                 => write!(formatter, "Path encountered which does not convert to unicode string"),
@@ -229,6 +229,10 @@ pub trait System: Clone + Send + Sync
     fn create_dir(&mut self, path: &str) -> Result<(), SystemError>;
     fn is_dir(&self, path: &str) -> bool;
     fn is_file(&self, path: &str) -> bool;
+    fn exists(&self, path: &str) -> bool
+    {
+        return self.is_dir(path) || self.is_file(path);
+    }
 
     #[cfg(test)]
     fn remove_file(&mut self, path: &str) -> Result<(), SystemError>;

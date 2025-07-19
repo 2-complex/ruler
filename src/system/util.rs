@@ -198,3 +198,70 @@ pub fn read_file_to_string
     }
 }
 
+#[derive(Debug, PartialEq)]
+pub enum PathError
+{
+    PathEmpty,
+    PathComponentEmpty,
+}
+
+impl fmt::Display for PathError
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
+    {
+        match self
+        {
+            PathError::PathEmpty => write!(formatter, "Path empty"),
+            PathError::PathComponentEmpty => write!(formatter, "Path component empty"),
+        }
+    }
+}
+
+/*  Split the path.  Returns a tuple.  The first thing in the tuple is a vector of
+    components leading up to the filename, second thing is the filename. */
+pub fn get_dir_path_and_name(dir_path: &str) -> Result<(Vec<&str>, &str), PathError>
+{
+    if dir_path == ""
+    {
+        return Err(PathError::PathEmpty);
+    }
+
+    let v : Vec<&str> = dir_path.split('/').collect();
+    if v.len() == 0 || v.contains(&"")
+    {
+        return Err(PathError::PathComponentEmpty);
+    }
+
+    return Ok((v[..v.len()-1].to_vec(), v[v.len()-1]))
+}
+
+#[cfg(test)]
+mod test
+{
+    use crate::system::util::get_dir_path_and_name;
+    use crate::system::util::PathError;
+
+    #[test]
+    fn util_get_dir_path_and_name()
+    {
+        assert_eq!(get_dir_path_and_name("a/b/c/d"), Ok((vec!["a", "b", "c"], "d")));
+        assert_eq!(get_dir_path_and_name("a/b/c /d"), Ok((vec!["a", "b", "c "], "d")));
+        assert_eq!(get_dir_path_and_name("a/ b/c/d"), Ok((vec!["a", " b", "c"], "d")));
+        assert_eq!(get_dir_path_and_name(""), Err(PathError::PathEmpty));
+        assert_eq!(get_dir_path_and_name("/"), Err(PathError::PathComponentEmpty));
+        assert_eq!(get_dir_path_and_name("//"), Err(PathError::PathComponentEmpty));
+        assert_eq!(get_dir_path_and_name("a//b"), Err(PathError::PathComponentEmpty));
+        assert_eq!(get_dir_path_and_name("a/b//"), Err(PathError::PathComponentEmpty));
+    }
+}
+
+
+
+
+
+
+
+
+
+
+

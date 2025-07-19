@@ -11,7 +11,11 @@ use crate::cache::
     RestoreResult,
     DownloadResult,
 };
-use crate::system::util::get_timestamp;
+use crate::system::util::
+{
+    get_timestamp,
+    get_dir_path_and_name
+};
 use crate::ticket::
 {
     TicketFactory,
@@ -299,6 +303,46 @@ impl Blob
         Ok(resolutions)
     }
 
+    pub fn create_intermediate_directories<SystemType : System>
+    (
+        self : &Blob,
+        system : &mut SystemType
+    )
+    ->
+    Result<(), CreateIntermediateDirectoriesError>
+    {
+        for info in self.file_infos.iter()
+        {
+            let components = match get_dir_path_and_name(&info.path)
+            {
+                Ok((components, _)) => components,
+                Err(_) => return Err(CreateIntermediateDirectoriesError::PathInvalid(info.path.clone())),
+            };
+            let mut accum = vec![];
+            for component in components
+            {
+                accum.push(component);
+                let path = &accum.join("/");
+                if ! system.exists(path) || system.is_dir(path)
+                {
+                    match system.create_dir(path)
+                    {
+                        Ok(_) => {},
+                        Err(error) =>
+                        {
+                            return Err(CreateIntermediateDirectoriesError::SystemError(path.clone(), error));
+                        }
+                    }
+                }
+                else
+                {
+                    return Err(CreateIntermediateDirectoriesError::FileWhereDirectoryExpected(path.clone()));
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -604,7 +648,7 @@ pub fn get_actual_file_state<SystemType: System>
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ResolutionError
 {
     FileNotAvailableToCache(String, ReadWriteError),
@@ -633,6 +677,33 @@ impl fmt::Display for ResolutionError
         }
     }
 }
+
+#[derive(Debug, PartialEq)]
+pub enum CreateIntermediateDirectoriesError
+{
+    PathInvalid(String),
+    FileWhereDirectoryExpected(String),
+    SystemError(String, SystemError),
+}
+
+impl fmt::Display for CreateIntermediateDirectoriesError
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
+    {
+        match self
+        {
+            CreateIntermediateDirectoriesError::PathInvalid(path) =>
+                write!(formatter, "Invalid path: {}", path),
+
+            CreateIntermediateDirectoriesError::FileWhereDirectoryExpected(path) =>
+                write!(formatter, "File where directory expected: {}", path),
+
+            CreateIntermediateDirectoriesError::SystemError(path, error) =>
+                write!(formatter, "While attmempting to create directory: {} System Error: {}", path, error),
+        }
+    }
+}
+
 
 fn restore_or_download<SystemType : System>
 (
@@ -763,6 +834,7 @@ mod test
     };
     use crate::blob::
     {
+        Blob,
         FileState,
         FileStateVec,
         BlobError,
@@ -770,6 +842,7 @@ mod test
         get_file_ticket_from_path,
         get_actual_file_state,
         GetCurrentFileInfoError,
+        CreateIntermediateDirectoriesError,
     };
     use crate::system::
     {
@@ -1183,5 +1256,64 @@ mod test
 
         assert_eq!(file_state_vec, FileStateVec::from_download_string(
             &file_state_vec.download_string()).unwrap());
+    }
+
+    #[test]
+    fn blob_test_create_intermediate_directories_basic()
+    {
+        let mut system = FakeSystem::new(14);
+        let blob = Blob::from_paths(vec![
+            "source/math/vec.cpp".to_string(),
+            "source/math/matrix.cpp".to_string(),
+            "build/math/number.o".to_string(),
+        ], |_path|{FileState::empty()} );
+
+        assert_eq!(blob.create_intermediate_directories(&mut system), Ok(()));
+        assert!(system.is_dir("source"));
+        assert!(system.is_dir("source/math"));
+        assert!(system.is_dir("build"));
+    }
+
+    #[test]
+    fn blob_test_create_intermediate_directories_one_file()
+    {
+        let mut system = FakeSystem::new(14);
+        let blob = Blob::from_paths(vec![
+            "one_file".to_string()
+        ], |_path|{FileState::empty()} );
+
+        assert_eq!(blob.create_intermediate_directories(&mut system), Ok(()));
+        assert!(!system.is_dir("one_file"));
+        assert!(!system.is_file("one_file"));
+    }
+
+    #[test]
+    fn blob_test_create_intermediate_directories_one_dir_already_exists()
+    {
+        let mut system = FakeSystem::new(14);
+        system.create_dir("source").unwrap();
+
+        let blob = Blob::from_paths(vec![
+            "source".to_string()
+        ], |_path|{FileState::empty()} );
+
+        assert_eq!(blob.create_intermediate_directories(&mut system), Ok(()));
+        assert!(system.is_dir("source"));
+        assert!(!system.is_dir("source/source"));
+    }
+
+    #[test]
+    fn blob_test_create_intermediate_directories_one_file_in_the_way()
+    {
+        let mut system = FakeSystem::new(14);
+
+        system.create_file("source").unwrap();
+
+        let blob = Blob::from_paths(vec![
+            "source/some.cpp".to_string()
+        ], |_path|{FileState::empty()} );
+
+        assert_eq!(blob.create_intermediate_directories(&mut system),
+            Err(CreateIntermediateDirectoriesError::FileWhereDirectoryExpected("source".to_string())));
     }
 }
