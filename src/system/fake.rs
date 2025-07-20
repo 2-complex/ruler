@@ -1222,21 +1222,29 @@ mod test
     }
 
     #[test]
-    fn system_add_remove_file()
+    fn system_add_remove_file_basic()
     {
         let mut system = FakeSystem::new(10);
-        match system.create_file("file.txt")
-        {
-            Ok(_) => {},
-            Err(error) => panic!("create_file in FakeSystem failed with error: {}", error),
-        }
+        system.create_file("file.txt").unwrap();
         assert!(system.is_file("file.txt"));
-        match system.remove_file("file.txt")
-        {
-            Ok(_) => {},
-            Err(error) => panic!("remove_file in FakeSystem failed with error: {}", error),
-        }
+        system.remove_file("file.txt").unwrap();
         assert!(!system.is_file("file.txt"));
+        assert!(!system.is_dir("file.txt"));
+    }
+
+    #[test]
+    fn system_add_remove_file_using_command()
+    {
+        let mut system = FakeSystem::new(10);
+        system.create_file("file.txt").unwrap();
+        assert!(system.is_file("file.txt"));
+        system.execute_command(to_command_script(vec![
+            "rm".to_string(),
+            "file.txt".to_string()
+        ]));
+
+        assert!(!system.is_file("file.txt"));
+        assert!(!system.exists("file.txt"));
         assert!(!system.is_dir("file.txt"));
     }
 

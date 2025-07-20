@@ -33,7 +33,7 @@ use crate::cache::
 
 use std::fmt;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum WorkOption
 {
     SourceOnly,
@@ -41,7 +41,7 @@ pub enum WorkOption
     CommandExecuted(CommandLineOutput),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct WorkResult
 {
     pub file_state_vec : FileStateVec,
@@ -50,7 +50,7 @@ pub struct WorkResult
     pub rule_history : Option<RuleHistory>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum WorkError
 {
     TicketAlignmentError(ReadWriteError),
@@ -337,7 +337,10 @@ Result<Vec<FileResolution>, WorkError>
 
     match blob.resolve_with_no_current_file_states(system, cache)
     {
-        Ok(resolutions) => Ok(resolutions),
+        Ok(resolutions) =>
+        {
+            Ok(resolutions)
+        },
         Err(resolution_error) => Err(WorkError::ResolutionError(resolution_error)),
     }
 }
@@ -523,7 +526,6 @@ mod test
         Blob,
         FileState,
         FileStateVec,
-        ResolutionError,
         get_file_ticket
     };
     use crate::cache::
@@ -657,7 +659,7 @@ mod test
         let mut ticket_factory = TicketFactory::new();
         ticket_factory.input_ticket(TicketFactory::from_str("A-content").result());
 
-        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"), ticket_factory.result());
+        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache").unwrap(), ticket_factory.result());
         rule_ext.command = vec![];
 
         match handle_rule_node(make_handle_node_info(system.clone(), vec![]), rule_ext)
@@ -687,7 +689,7 @@ mod test
         ticket_factory.input_ticket(TicketFactory::from_str("apples").result());
         ticket_factory.input_ticket(TicketFactory::from_str("bananas").result());
 
-        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"), ticket_factory.result());
+        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache").unwrap(), ticket_factory.result());
         rule_ext.command = vec!["mycat".to_string(), "A-source.txt".to_string(), "A.txt".to_string()];
 
         match handle_rule_node(make_handle_node_info(system.clone(), vec!["A.txt".to_string()]), rule_ext)
@@ -710,17 +712,22 @@ mod test
         }
     }
 
+    fn make_rule_ext(system: &FakeSystem, ticket: Ticket) -> RuleExt<FakeSystem>
+    {
+        RuleExt::new(SysCache::new(system.clone(), ".ruler-cache").unwrap(), ticket)
+    }
 
     #[test]
     fn work_command_errors()
     {
-        let system = FakeSystem::new(10);
+        let mut system = FakeSystem::new(10);
+        system.create_dir(".ruler-cache").unwrap();
 
         let mut ticket_factory = TicketFactory::new();
         ticket_factory.input_ticket(TicketFactory::from_str("Roses are red\n").result());
         ticket_factory.input_ticket(TicketFactory::from_str("Violets are violet\n").result());
 
-        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"), ticket_factory.result());
+        let mut rule_ext = make_rule_ext(&system, ticket_factory.result());
         rule_ext.command = vec!["error".to_string()];
 
         match handle_rule_node(make_handle_node_info(system.clone(), vec!["poem.txt".to_string()]), rule_ext)
@@ -736,6 +743,7 @@ mod test
     fn command_fails_to_generate_target()
     {
         let mut system = FakeSystem::new(10);
+        system.create_dir(".ruler-cache").unwrap();
 
         write_str_to_file(&mut system, "verse1.txt", "Roses are red\n").unwrap();
         write_str_to_file(&mut system, "verse2.txt", "Violets are violet\n").unwrap();
@@ -744,7 +752,7 @@ mod test
         ticket_factory.input_ticket(TicketFactory::from_str("Roses are red\n").result());
         ticket_factory.input_ticket(TicketFactory::from_str("Violets are violet\n").result());
 
-        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"), ticket_factory.result());
+        let mut rule_ext = make_rule_ext(&system, ticket_factory.result());
         rule_ext.command = vec!["mycat".to_string(),"verse1.txt".to_string(),"verse2.txt".to_string(),"wrong.txt".to_string()];
 
         match handle_rule_node(make_handle_node_info(system.clone(), vec!["poem.txt".to_string()]), rule_ext)
@@ -762,6 +770,8 @@ mod test
     fn poem_concatination()
     {
         let mut system = FakeSystem::new(10);
+        system.create_dir(".ruler-cache").unwrap();
+
         write_str_to_file(&mut system, "verse1.txt", "Roses are red\n").unwrap();
         write_str_to_file(&mut system, "verse2.txt", "Violets are violet\n").unwrap();
 
@@ -769,7 +779,7 @@ mod test
         ticket_factory.input_ticket(TicketFactory::from_str("Roses are red\n").result());
         ticket_factory.input_ticket(TicketFactory::from_str("Violets are violet\n").result());
 
-        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"), ticket_factory.result());
+        let mut rule_ext = make_rule_ext(&system, ticket_factory.result());
         rule_ext.command = vec!["mycat".to_string(),"verse1.txt".to_string(),"verse2.txt".to_string(),"poem.txt".to_string()];
 
         match handle_rule_node(make_handle_node_info(system.clone(), vec!["poem.txt".to_string()]), rule_ext)
@@ -829,7 +839,7 @@ mod test
         write_str_to_file(&mut system, "verse2.txt", "Violets are violet\n").unwrap();
         write_str_to_file(&mut system, "poem.txt", "Roses are red\nViolets are violet\n").unwrap();
 
-        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"), sources_ticket);
+        let mut rule_ext = make_rule_ext(&system, sources_ticket);
         rule_ext.command = vec!["mycat".to_string(), "verse1.txt".to_string(), "verse2.txt".to_string(), "poem.txt".to_string()];
         rule_ext.rule_history = rule_history;
 
@@ -891,7 +901,7 @@ mod test
         write_str_to_file(&mut system, "verse2.txt", "Violets are violet\n").unwrap();
         write_str_to_file(&mut system, "poem.txt", "Arbitrary content").unwrap();
 
-        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"), sources_ticket);
+        let mut rule_ext = make_rule_ext(&system, sources_ticket);
         rule_ext.command = vec!["mycat".to_string(), "verse1.txt".to_string(), "verse2.txt".to_string(), "poem.txt".to_string()];
         rule_ext.rule_history = rule_history;
 
@@ -933,7 +943,7 @@ mod test
         factory.input_ticket(TicketFactory::from_str("Violets are violet\n").result());
         let sources_ticket = factory.result();
 
-        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"), sources_ticket);
+        let mut rule_ext = make_rule_ext(&system, sources_ticket);
         rule_ext.command = vec!["mycat".to_string(), "verse1.txt".to_string(), "verse2.txt".to_string(), "poem.txt".to_string()];
         rule_ext.rule_history = RuleHistory::new();
 
@@ -1012,34 +1022,28 @@ mod test
         }
     }
 
-
     /*  Contruct a rule with one target, except instead of building that target, the rule
-        contains a commandline invocation that deletes it.  Check this produces an appropriate error. */
+        contains a command-line invocation that deletes it.
+
+        What should happen here is: the file gets backed up into the cache immediately before
+        the rm command runs.  This is normal, because ruler caches previous versions of targets.
+
+        The rm command then fails, because the file it's trying to remove isn't there.
+    */
     #[test]
     fn target_removed_by_command()
     {
         let mut system = FakeSystem::new(10);
-
+        system.create_dir(".ruler-cache").unwrap();
         write_str_to_file(&mut system, "verse1.txt", "Arbitrary content\n").unwrap();
+        println!("system list in test: {:?}", system.list_dir(""));
 
-        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".rule-cache"), TicketFactory::new().result());
+        let mut rule_ext = make_rule_ext(&system, TicketFactory::new().result());
         rule_ext.command = vec!["rm".to_string(), "verse1.txt".to_string()];
 
-        match handle_rule_node(make_handle_node_info(system.clone(), vec!["verse1.txt".to_string()]), rule_ext)
-        {
-            Ok(_) =>
-            {
-                panic!("Expected failure when file not present")
-            },
-            Err(error) =>
-            {
-                match error
-                {
-                    WorkError::ResolutionError(ResolutionError::FileNotAvailableToCache(path, _error)) => assert_eq!(path, "verse1.txt"),
-                    _ => panic!("Wrong kind of error!  Incorrect error: {}", error),
-                }
-            },
-        }
+        assert_eq!(
+            handle_rule_node(make_handle_node_info(system.clone(), vec!["verse1.txt".to_string()]), rule_ext),
+            Err(WorkError::CommandExecutedButErrored));
     }
 
     /*  Use the fake command mycat2 to generate a poem and a copy of that poem.  Put one poem in place, with incorrect
@@ -1048,7 +1052,6 @@ mod test
     fn two_targets_one_already_present()
     {
         let mut system = FakeSystem::new(10);
-
         system.create_dir(".ruler-cache").unwrap();
         write_str_to_file(&mut system, "verse1.txt", "Roses are red\n").unwrap();
         write_str_to_file(&mut system, "verse2.txt", "Violets are blue\n").unwrap();
@@ -1059,7 +1062,7 @@ mod test
         factory.input_ticket(TicketFactory::from_str("Violets are blue\n").result());
         let sources_ticket = factory.result();
 
-        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"), sources_ticket);
+        let mut rule_ext = make_rule_ext(&system, sources_ticket);
         rule_ext.command = vec![
             "mycat2".to_string(),
             "verse1.txt".to_string(),
@@ -1114,7 +1117,7 @@ mod test
         factory.input_ticket(TicketFactory::from_str("Violets are blue\n").result());
         let sources_ticket = factory.result();
 
-        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"), sources_ticket);
+        let mut rule_ext = make_rule_ext(&system, sources_ticket);
         rule_ext.command = vec!["mycat".to_string(), "verse1.txt".to_string(), "verse2.txt".to_string(), "poem.txt".to_string()];
         rule_ext.rule_history = RuleHistory::new();
 
@@ -1161,7 +1164,7 @@ mod test
 
         assert_eq!(system.is_file("poem.txt"), true);
 
-        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"), sources_ticket);
+        let mut rule_ext = make_rule_ext(&system, sources_ticket);
         rule_ext.command = vec!["error".to_string()];
 
         match handle_rule_node(make_handle_node_info(system.clone(), vec![
@@ -1205,8 +1208,7 @@ mod test
         assert_eq!(system.is_file("poem.txt"), true);
         assert_eq!(system.is_file("poem_copy.txt"), false);
 
-        let cache = SysCache::new(system.clone(), ".ruler-cache");
-
+        let cache = SysCache::new(system.clone(), ".ruler-cache").unwrap();
         let mut rule_ext = RuleExt::new(cache.clone(), sources_ticket);
         rule_ext.command = vec!["error".to_string()];
 
@@ -1262,7 +1264,7 @@ mod test
 
         system.time_passes(1);
 
-        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache"), sources_ticket);
+        let mut rule_ext = make_rule_ext(&system, sources_ticket);
         rule_ext.command = vec!["mycat".to_string(), "verse1.txt".to_string(), "verse2.txt".to_string(), "poem.txt".to_string()];
         rule_ext.rule_history = rule_history;
 

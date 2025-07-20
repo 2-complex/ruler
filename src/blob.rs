@@ -27,12 +27,8 @@ use serde::
     Deserialize,
 };
 use std::fmt;
-use std::time::
-{
-    SystemTimeError
-};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum FileResolution
 {
     AlreadyCorrect,
@@ -525,10 +521,10 @@ pub fn get_file_ticket<SystemType: System>
     Ticket::from_path(system, path)
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum GetCurrentFileInfoError
 {
-    ErrorConveratingModifiedDateToNumber(String, SystemTimeError),
+    ErrorConveratingModifiedDateToNumber(String, String),
     ErrorGettingFilePermissions(String, SystemError),
     ErrorGettingTicketForFile(String, ReadWriteError),
     TargetFileNotFound(String, SystemError),
@@ -540,8 +536,8 @@ impl fmt::Display for GetCurrentFileInfoError
     {
         match self
         {
-            GetCurrentFileInfoError::ErrorConveratingModifiedDateToNumber(path, error) =>
-                write!(formatter, "Error converting from system time to number. File: {} Error: {}", path, error),
+            GetCurrentFileInfoError::ErrorConveratingModifiedDateToNumber(path, error_message) =>
+                write!(formatter, "Error converting from system time to number. File: {} Error: {}", path, error_message),
 
             GetCurrentFileInfoError::ErrorGettingFilePermissions(path, error) =>
                 write!(formatter, "Error getting executable permission from file. File: {} Error: {}", path, error),
@@ -589,7 +585,7 @@ pub fn get_actual_file_state<SystemType: System>
     {
         Ok(timestamp) => timestamp,
         Err(error) => return Err(GetCurrentFileInfoError::ErrorConveratingModifiedDateToNumber(
-            path.to_string(), error)),
+            path.to_string(), format!("{}", error))),
     };
 
     let executable =

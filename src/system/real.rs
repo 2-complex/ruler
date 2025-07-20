@@ -86,7 +86,6 @@ fn to_file_name_str(os_string : OsString) -> Result<String, SystemError>
     }
 }
 
-#[allow(dead_code)]
 fn to_path_str(path : &Path) -> Result<String, SystemError>
 {
     let mut result = Vec::new();
