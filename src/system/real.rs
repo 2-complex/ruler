@@ -32,9 +32,7 @@ fn convert_io_error_to_system_error(error : std::io::Error) -> SystemError
 {
     match error.kind()
     {
-        ErrorKind::NotFound
-            => SystemError::NotFound,
-
+        ErrorKind::NotFound => SystemError::NotFound,
         _ => SystemError::Weird,
     }
 }
