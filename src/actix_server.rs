@@ -96,7 +96,7 @@ async fn files(data: web::Data<AppStateWithCounter>) -> impl Responder
     *counter += 1;
     let mut body_string = String::new();
 
-    let list = match data.elements.cache.list(0, 5)
+    let list = match data.elements.cache.list(0, 10)
     {
         Err(error) => return HttpResponse::NotFound().body(format!("Error listing files in cache: {}", error)),
         Ok(list) => list,
@@ -105,7 +105,7 @@ async fn files(data: web::Data<AppStateWithCounter>) -> impl Responder
     body_string += "<html><head></head><body>";
     for filename in list
     {
-        body_string += &format!("{}</br>", filename);
+        body_string += &format!("<a href = \"files/{}\">{}</br>", filename, filename);
     }
     body_string += "</body></html>";
 

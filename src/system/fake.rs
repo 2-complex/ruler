@@ -134,7 +134,6 @@ enum NodeError
     CreateDirectoryOverExistingFile,
     GetModifiedOnDirectory,
     IsExecutableOnDirectory,
-    Weird,
 }
 
 
@@ -185,9 +184,6 @@ impl fmt::Display for NodeError
 
             NodeError::IsExecutableOnDirectory
                 => write!(formatter, "Attempt to ask whether a directory is an executable"),
-
-            NodeError::Weird
-                => write!(formatter, "Weird error, this happens when internal logic fails in a way the programmer didn't think was possible"),
         }
     }
 }
@@ -304,7 +300,7 @@ impl Node
     {
         match self.get_node_mut(dir_components)?
         {
-            Node::File(_) => Err(NodeError::Weird),
+            Node::File(_) => panic!("get_dir_map_mut called on file"),
             Node::Dir(name_to_node) => Ok(name_to_node),
         }
     }
@@ -313,7 +309,7 @@ impl Node
     {
         match self.get_node(dir_components)?
         {
-            Node::File(_) => Err(NodeError::Weird),
+            Node::File(_) => panic!("get_dir_map called on file"),
             Node::Dir(name_to_node) => Ok(name_to_node),
         }
     }
@@ -359,7 +355,10 @@ impl Node
             Node::File(_) => match dir_components.last()
             {
                 Some(last) => return Err(NodeError::FileInPlaceOfDirectory(last.to_string())),
-                None => return Err(NodeError::Weird),
+                None =>
+                {
+                    panic!("In remove_file, a File node was found at the root path?");
+                },
             },
             Node::Dir(name_to_node) => match name_to_node.remove(name)
             {
@@ -639,9 +638,6 @@ fn convert_node_error_to_system_error(error : NodeError) -> SystemError
 
         NodeError::IsExecutableOnDirectory
             => SystemError::NotImplemented,
-
-        NodeError::Weird
-            => SystemError::Weird,
     }
 }
 

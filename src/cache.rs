@@ -555,7 +555,7 @@ mod test
     {
         let mut system = FakeSystem::new(12);
         system.create_dir("cachedir").unwrap();
-        let mut cache = SysCache::new(system.clone(), "cachedir").unwrap();
+        let cache = SysCache::new(system.clone(), "cachedir").unwrap();
         system.remove_dir("cachedir").unwrap();
 
         match cache.open(&TicketFactory::from_str("apples\n").result())
@@ -657,11 +657,6 @@ mod test
         let (mut system, mut cache) = make_fake_system_and_cache();
         write_str_to_file(&mut system, "apples.txt", "apples\n").unwrap();
         cache.back_up_file("apples.txt").unwrap();
-
-        println!("listdir = {:?}", system.list_dir(""));
-        println!("listdir cachedir = {:?}", system.list_dir("cachedir"));
-        println!("listdir cachedir/files = {:?}", system.list_dir("cachedir/files"));
-
         assert_eq!(cache.list(0, 10).unwrap(), vec![TicketFactory::from_str("apples\n").result().to_string()]);
     }
 
@@ -677,10 +672,12 @@ mod test
 
         /*  Until there is a standard for what order these come out of here,
             they shall be compared as sorted vecs. */
-        assert_eq!(cache.list(0, 10).unwrap().sort(), vec![
+        let mut sorted_vec = vec![
             TicketFactory::from_str("apples\n").result().to_string(),
             TicketFactory::from_str("pears\n").result().to_string()
-        ].sort());
+        ];
+        sorted_vec.sort();
+        assert_eq!(cache.list(0, 10).unwrap(), sorted_vec);
     }
 }
 

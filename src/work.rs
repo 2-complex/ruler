@@ -1036,7 +1036,6 @@ mod test
         let mut system = FakeSystem::new(10);
         system.create_dir(".ruler-cache").unwrap();
         write_str_to_file(&mut system, "verse1.txt", "Arbitrary content\n").unwrap();
-        println!("system list in test: {:?}", system.list_dir(""));
 
         let mut rule_ext = make_rule_ext(&system, TicketFactory::new().result());
         rule_ext.command = vec!["rm".to_string(), "verse1.txt".to_string()];

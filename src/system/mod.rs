@@ -152,7 +152,7 @@ pub enum SystemError
     CreateDirectoryOverExistingFile,
     CommandExecutationFailed(String),
     NotImplemented,
-    Weird,
+    Weird(String),
 }
 
 impl fmt::Display for SystemError
@@ -212,8 +212,8 @@ impl fmt::Display for SystemError
             SystemError::NotImplemented
                 => write!(formatter, "Attempt to perform an operation not currently implemented by fake system"),
 
-            SystemError::Weird
-                => write!(formatter, "Weird error, this happens when internal logic fails in a way the programmer didn't think was possible"),
+            SystemError::Weird(message)
+                => write!(formatter, "Weird error, this happens when internal logic fails in a way the programmer didn't think was possible.  Message: {}", message),
         }
     }
 }
