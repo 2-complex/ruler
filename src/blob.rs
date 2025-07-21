@@ -11,7 +11,11 @@ use crate::cache::
     RestoreResult,
     DownloadResult,
 };
-use crate::system::util::get_timestamp;
+use crate::system::util::
+{
+    get_timestamp,
+    get_dir_path_and_name
+};
 use crate::ticket::
 {
     TicketFactory,
@@ -299,6 +303,46 @@ impl Blob
         Ok(resolutions)
     }
 
+    pub fn create_intermediate_directories<SystemType : System>
+    (
+        self : &Blob,
+        system : &mut SystemType
+    )
+    ->
+    Result<(), CreateIntermediateDirectoriesError>
+    {
+        for info in self.file_infos.iter()
+        {
+            let components = match get_dir_path_and_name(&info.path)
+            {
+                Ok((components, _)) => components,
+                Err(_) => return Err(CreateIntermediateDirectoriesError::PathInvalid(info.path.clone())),
+            };
+            let mut accum = vec![];
+            for component in components
+            {
+                accum.push(component);
+                let path = &accum.join("/");
+                if ! system.exists(path) || system.is_dir(path)
+                {
+                    match system.create_dir(path)
+                    {
+                        Ok(_) => {},
+                        Err(error) =>
+                        {
+                            return Err(CreateIntermediateDirectoriesError::SystemError(path.clone(), error));
+                        }
+                    }
+                }
+                else
+                {
+                    return Err(CreateIntermediateDirectoriesError::FileWhereDirectoryExpected(path.clone()));
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -432,46 +476,6 @@ impl FileStateVec
     }
 }
 
-/*  Takes a System and a filepath as a string.
-
-    If the file exists, returns a ticket.
-    If the file does not exist, returns Ok, but with no Ticket inside
-    If the file exists but does not open or some other error occurs when generating
-    the ticket, returns an error. */
-fn get_file_ticket_from_path<SystemType: System>
-(
-    system : &SystemType,
-    path : &str
-)
--> Result<Option<Ticket>, ReadWriteError>
-{
-    match TicketFactory::from_path(system, path)
-    {
-        Ok(mut factory) => Ok(Some(factory.result())),
-        Err(error) => Err(error),
-    }
-}
-
-/*  Takes a system, a path and a timestamp assumed to be at that path as the modified date.
-    Returns true if the timestamp matches what's actually there, false otherwise.  Returns
-    false if any error occurs obtaining the current timestamp */
-pub fn timestamp_matches<SystemType: System>(
-    system : &SystemType,
-    path : &str,
-    assumed_timestamp : u64)
--> bool
-{
-    match system.get_modified(&path)
-    {
-        Ok(system_time) => match get_timestamp(system_time)
-        {
-            Ok(timestamp) => timestamp == assumed_timestamp,
-            Err(_) => false,
-        },
-        Err(_) => false,
-    }
-}
-
 /*  Takes a system, a path, and an assumed FileState, obtains a ticket for the file described.
     If the modified date of the file matches the one in FileState exactly, this function
     assumes the ticket matches.  This is part of the timestamp optimization. */
@@ -487,7 +491,8 @@ pub fn get_file_ticket<SystemType: System>
     {
         return Ok(Some(assumed_file_state.ticket.clone()));
     }
-    get_file_ticket_from_path(system, path)
+
+    Ticket::from_path(system, path)
 }
 
 #[derive(Debug)]
@@ -592,7 +597,7 @@ pub fn get_actual_file_state<SystemType: System>
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ResolutionError
 {
     FileNotAvailableToCache(String, ReadWriteError),
@@ -621,6 +626,33 @@ impl fmt::Display for ResolutionError
         }
     }
 }
+
+#[derive(Debug, PartialEq)]
+pub enum CreateIntermediateDirectoriesError
+{
+    PathInvalid(String),
+    FileWhereDirectoryExpected(String),
+    SystemError(String, SystemError),
+}
+
+impl fmt::Display for CreateIntermediateDirectoriesError
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
+    {
+        match self
+        {
+            CreateIntermediateDirectoriesError::PathInvalid(path) =>
+                write!(formatter, "Invalid path: {}", path),
+
+            CreateIntermediateDirectoriesError::FileWhereDirectoryExpected(path) =>
+                write!(formatter, "File where directory expected: {}", path),
+
+            CreateIntermediateDirectoriesError::SystemError(path, error) =>
+                write!(formatter, "While attmempting to create directory: {} System Error: {}", path, error),
+        }
+    }
+}
+
 
 fn restore_or_download<SystemType : System>
 (
@@ -751,13 +783,14 @@ mod test
     };
     use crate::blob::
     {
+        Blob,
         FileState,
         FileStateVec,
         BlobError,
         get_file_ticket,
-        get_file_ticket_from_path,
         get_actual_file_state,
         GetCurrentFileInfoError,
+        CreateIntermediateDirectoriesError,
     };
     use crate::system::
     {
@@ -922,31 +955,6 @@ mod test
             },
             _ => panic!("Unexpected error"),
         }
-    }
-
-    #[test]
-    fn blob_get_file_ticket_basic()
-    {
-        let mut system = FakeSystem::new(10);
-        write_str_to_file(&mut system, "quine.sh", "cat $0").unwrap();
-        let ticket = get_file_ticket_from_path(&system, "quine.sh").unwrap().unwrap();
-
-        assert_eq! (
-            get_file_ticket(&system, "quine.sh", &FileState::new(ticket.clone(), 10)).unwrap(),
-            Some(ticket)
-        );
-    }
-
-    /*  Use a fake system to create a file, and write a string to it.  Then use
-        get_file_ticket_from_path to obtain a ticket for that file, and compare
-        that against a ticket made directly from the string. */
-    #[test]
-    fn blob_get_file_ticket_from_path()
-    {
-        let mut system = FakeSystem::new(10);
-        write_str_to_file(&mut system, "quine.sh", "cat $0").unwrap();
-        let ticket_opt = get_file_ticket_from_path(&system, "quine.sh").unwrap();
-        assert_eq!(ticket_opt, Some(TicketFactory::from_str("cat $0").result()));
     }
 
     #[test]
@@ -1168,5 +1176,64 @@ mod test
 
         assert_eq!(file_state_vec, FileStateVec::from_download_string(
             &file_state_vec.download_string()).unwrap());
+    }
+
+    #[test]
+    fn blob_test_create_intermediate_directories_basic()
+    {
+        let mut system = FakeSystem::new(14);
+        let blob = Blob::from_paths(vec![
+            "source/math/vec.cpp".to_string(),
+            "source/math/matrix.cpp".to_string(),
+            "build/math/number.o".to_string(),
+        ], |_path|{FileState::empty()} );
+
+        assert_eq!(blob.create_intermediate_directories(&mut system), Ok(()));
+        assert!(system.is_dir("source"));
+        assert!(system.is_dir("source/math"));
+        assert!(system.is_dir("build"));
+    }
+
+    #[test]
+    fn blob_test_create_intermediate_directories_one_file()
+    {
+        let mut system = FakeSystem::new(14);
+        let blob = Blob::from_paths(vec![
+            "one_file".to_string()
+        ], |_path|{FileState::empty()} );
+
+        assert_eq!(blob.create_intermediate_directories(&mut system), Ok(()));
+        assert!(!system.is_dir("one_file"));
+        assert!(!system.is_file("one_file"));
+    }
+
+    #[test]
+    fn blob_test_create_intermediate_directories_one_dir_already_exists()
+    {
+        let mut system = FakeSystem::new(14);
+        system.create_dir("source").unwrap();
+
+        let blob = Blob::from_paths(vec![
+            "source".to_string()
+        ], |_path|{FileState::empty()} );
+
+        assert_eq!(blob.create_intermediate_directories(&mut system), Ok(()));
+        assert!(system.is_dir("source"));
+        assert!(!system.is_dir("source/source"));
+    }
+
+    #[test]
+    fn blob_test_create_intermediate_directories_one_file_in_the_way()
+    {
+        let mut system = FakeSystem::new(14);
+
+        system.create_file("source").unwrap();
+
+        let blob = Blob::from_paths(vec![
+            "source/some.cpp".to_string()
+        ], |_path|{FileState::empty()} );
+
+        assert_eq!(blob.create_intermediate_directories(&mut system),
+            Err(CreateIntermediateDirectoriesError::FileWhereDirectoryExpected("source".to_string())));
     }
 }

@@ -22,6 +22,7 @@ use crate::blob::
     FileResolution,
     ResolutionError,
     GetCurrentFileInfoError,
+    CreateIntermediateDirectoriesError,
     get_file_ticket,
 };
 use crate::cache::
@@ -53,8 +54,11 @@ pub struct WorkResult
 pub enum WorkError
 {
     TicketAlignmentError(ReadWriteError),
+    PathInvalid(String),
     FileNotFound(String),
     TargetFileNotGenerated(String),
+    TargetDirectoryFailedToCreate(String, SystemError),
+    TargetDirectoryInterruptedByFile(String),
     FileNotAvailableToCache(String, ReadWriteError),
     ReadWriteError(String, ReadWriteError),
     ResolutionError(ResolutionError),
@@ -75,11 +79,20 @@ impl fmt::Display for WorkError
             WorkError::TicketAlignmentError(error) =>
                 write!(formatter, "File IO error when attempting to get hash of sources: {}", error),
 
+            WorkError::PathInvalid(path) =>
+                write!(formatter, "Path invalid: {}", path),
+
             WorkError::FileNotFound(path) =>
                 write!(formatter, "File not found: {}", path),
 
             WorkError::TargetFileNotGenerated(path) =>
                 write!(formatter, "Target file missing after running build command: {}", path),
+
+            WorkError::TargetDirectoryFailedToCreate(path, error) =>
+                write!(formatter, "Could not create target directory: {} error: {}", path, error),
+
+            WorkError::TargetDirectoryInterruptedByFile(path) =>
+                write!(formatter, "Could not create target directory because a file was in the way: {}", path),
 
             WorkError::FileNotAvailableToCache(path, error) =>
                 write!(formatter, "File not available to be cached: {} : {}", path, error),
@@ -201,6 +214,23 @@ fn rebuild_node<SystemType : System>
 ->
 Result<WorkResult, WorkError>
 {
+    match blob.create_intermediate_directories(system)
+    {
+        Ok(_) => {},
+        Err(CreateIntermediateDirectoriesError::PathInvalid(path)) =>
+        {
+            return Err(WorkError::PathInvalid(path));
+        },
+        Err(CreateIntermediateDirectoriesError::SystemError(path, error)) =>
+        {
+            return Err(WorkError::TargetDirectoryFailedToCreate(path, error));
+        },
+        Err(CreateIntermediateDirectoriesError::FileWhereDirectoryExpected(path)) =>
+        {
+            return Err(WorkError::TargetDirectoryInterruptedByFile(path));
+        },
+    }
+
     let command_result = to_command_line_input(system.execute_command(to_command_script(command)))?;
 
     let file_state_vec =
