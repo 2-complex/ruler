@@ -154,8 +154,7 @@ impl Blob
                         None => return Err(GetFileStateError::FileNotFound(target_info.path.clone())),
                     }
                 },
-                // WAS: Err(error) => return Err(GetFileStateError::ReadWriteError(target_info.path.clone(), error)),
-                Err(error) => return Err(GetFileStateError::FileNotFound(target_info.path.clone())),
+                Err(error) => return Err(GetFileStateError::ReadWriteError(target_info.path.clone(), error)),
             }
         }
 
