@@ -4,17 +4,18 @@ use crate::system::
     SystemError,
     ReadWriteError,
 };
+use crate::system::util::
+{
+    get_timestamp,
+    GetTimestampError,
+    get_dir_path_and_name
+};
 use crate::cache::
 {
     SysCache,
     DownloaderCache,
     RestoreResult,
     DownloadResult,
-};
-use crate::system::util::
-{
-    get_timestamp,
-    get_dir_path_and_name
 };
 use crate::ticket::
 {
@@ -27,10 +28,6 @@ use serde::
     Deserialize,
 };
 use std::fmt;
-use std::time::
-{
-    SystemTimeError
-};
 
 #[derive(Debug)]
 pub enum FileResolution
@@ -476,26 +473,6 @@ impl FileStateVec
     }
 }
 
-/*  Takes a system, a path and a timestamp assumed to be at that path as the modified date.
-    Returns true if the timestamp matches what's actually there, false otherwise.  Returns
-    false if any error occurs obtaining the current timestamp */
-pub fn timestamp_matches<SystemType: System>(
-    system : &SystemType,
-    path : &str,
-    assumed_timestamp : u64)
--> bool
-{
-    match system.get_modified(&path)
-    {
-        Ok(system_time) => match get_timestamp(system_time)
-        {
-            Ok(timestamp) => timestamp == assumed_timestamp,
-            Err(_) => false,
-        },
-        Err(_) => false,
-    }
-}
-
 /*  Takes a system, a path, and an assumed FileState, obtains a ticket for the file described.
     If the modified date of the file matches the one in FileState exactly, this function
     assumes the ticket matches.  This is part of the timestamp optimization. */
@@ -507,9 +484,25 @@ pub fn get_file_ticket<SystemType: System>
 )
 -> Result<Option<Ticket>, ReadWriteError>
 {
-    if timestamp_matches(system, path, assumed_file_state.timestamp)
+    /*  The body of this match looks like it has unhandled errors.  What's happening is:
+        if any error occurs with the timestamp optimization, we skip the optimization. */
+    match system.get_modified(&path)
     {
-        return Ok(Some(assumed_file_state.ticket.clone()));
+        Ok(system_time) =>
+        {
+            match get_timestamp(system_time)
+            {
+                Ok(timestamp) =>
+                {
+                    if timestamp == assumed_file_state.timestamp
+                    {
+                        return Ok(Some(assumed_file_state.ticket.clone()))
+                    }
+                },
+                Err(_) => {},
+            }
+        },
+        Err(_) => {},
     }
 
     Ticket::from_path(system, path)
@@ -518,7 +511,7 @@ pub fn get_file_ticket<SystemType: System>
 #[derive(Debug)]
 pub enum GetCurrentFileInfoError
 {
-    ErrorConveratingModifiedDateToNumber(String, SystemTimeError),
+    ErrorConveratingModifiedDateToNumber(String, GetTimestampError),
     ErrorGettingFilePermissions(String, SystemError),
     ErrorGettingTicketForFile(String, ReadWriteError),
     TargetFileNotFound(String, SystemError),
@@ -1102,15 +1095,20 @@ mod test
 
         // Then get the ticket for the current target file, passing the FileInfo
         // with timestamp 11.  Check that it gives the ticket for the C++ code.
-        let ticket_opt = get_file_ticket(
+        match get_file_ticket(
             &system,
             "game.cpp",
-            &FileState::new(content_ticket.clone(), 11)).unwrap();
-
-        match ticket_opt
+            &FileState::new(content_ticket.clone(), 11))
         {
-            Some(ticket) => assert_eq!(ticket, content_ticket),
-            None => panic!("Failed to generate ticket"),
+            Ok(ticket_opt) =>
+            {
+                match ticket_opt
+                {
+                    Some(ticket) => assert_eq!(ticket, content_ticket),
+                    None => panic!("Failed to generate ticket"),
+                }
+            },
+            Err(_) => panic!("Unexpected error getting file ticket"),
         }
     }
 

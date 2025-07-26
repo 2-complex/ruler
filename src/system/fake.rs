@@ -301,10 +301,7 @@ impl Node
                         None => return Err(NodeError::DirectoryNotFound(component.to_string())),
                     }
                 },
-                Node::Error(error) =>
-                {
-                    return Err(NodeError::Error(error.clone()));
-                }
+                Node::Error(error) => return Err(NodeError::Error(error.clone())),
             }
         }
 
@@ -317,7 +314,7 @@ impl Node
         {
             Node::File(_) => Err(NodeError::Weird),
             Node::Dir(name_to_node) => Ok(name_to_node),
-            Node::Error(_) => Err(NodeError::Weird),
+            Node::Error(error) => Err(NodeError::Error(error.clone())),
         }
     }
 
@@ -327,7 +324,7 @@ impl Node
         {
             Node::File(_) => Err(NodeError::Weird),
             Node::Dir(name_to_node) => Ok(name_to_node),
-            Node::Error(_) => Err(NodeError::Weird),
+            Node::Error(error) => Err(NodeError::Error(error.clone())),
         }
     }
 
@@ -978,6 +975,8 @@ mod test
     use crate::system::
     {
         System,
+        SystemError,
+        ReadWriteError,
         CommandLineOutput,
         to_command_script
     };
@@ -1024,15 +1023,10 @@ mod test
         assert_eq!(*file_content_clone.borrow(), b"content2".to_vec());
     }
 
-    fn empty_string_vec() -> Vec<&'static str>
-    {
-        Vec::new()
-    }
-
     #[test]
     fn get_components_general()
     {
-        assert_eq!(get_components(""), empty_string_vec());
+        assert_eq!(get_components(""), Vec::<&str>::new());
         assert_eq!(get_components("apples"), vec!["apples"]);
         assert_eq!(get_components("apples/bananas"), vec!["apples", "bananas"]);
     }
@@ -1062,6 +1056,14 @@ mod test
     }
 
     #[test]
+    fn error_is_not_file_or_directory()
+    {
+        let node = Node::Error(SystemError::NotFound);
+        assert!(!node.is_file(""));
+        assert!(!node.is_dir(""));
+    }
+
+    #[test]
     fn non_existent_child_is_not_file_or_dir()
     {
         let node = Node::File(FileInfo::from_content(Content::new(b"stuff".to_vec())));
@@ -1073,17 +1075,9 @@ mod test
     fn add_remove_file()
     {
         let mut node = Node::empty_dir();
-        match node.create_file("file.txt", Content::new(b"some text".to_vec()), 0)
-        {
-            Ok(_) => {},
-            Err(error) => panic!("create_file in empty root failed with error: {}", error),
-        }
+        node.create_file("file.txt", Content::new(b"some text".to_vec()), 0).unwrap();
         assert!(node.is_file("file.txt"));
-        match node.remove_file("file.txt")
-        {
-            Ok(_) => {},
-            Err(error) => panic!("remove_file in empty root failed with error: {}", error),
-        }
+        node.remove_file("file.txt").unwrap();
         assert!(!node.is_file("file.txt"));
         assert!(!node.is_dir("file.txt"));
     }
@@ -1092,19 +1086,33 @@ mod test
     fn add_remove_dir()
     {
         let mut node = Node::empty_dir();
-        match node.create_dir("images")
-        {
-            Ok(_) => {},
-            Err(error) => panic!("create_dir in empty root failed with error: {}", error),
-        }
+        node.create_dir("images").unwrap();
         assert!(node.is_dir("images"));
-        match node.remove_dir("images")
-        {
-            Ok(_) => {},
-            Err(error) => panic!("remove_dir we just created in empty root failed with error: {}", error),
-        }
+        node.remove_dir("images").unwrap();
         assert!(!node.is_file("images"));
         assert!(!node.is_dir("images"));
+    }
+
+    #[test]
+    fn add_and_attempt_to_remove_error_node()
+    {
+        let mut node = Node::empty_dir();
+        node.create_error("photos", SystemError::PathNotUnicode).unwrap();
+        assert!(!node.is_dir("photos"));
+        assert_eq!(node.remove_dir("photos"), Err(NodeError::Error(SystemError::PathNotUnicode)));
+        assert!(!node.is_file("photos"));
+        assert!(!node.is_dir("photos"));
+    }
+
+    #[test]
+    fn add_list_dir()
+    {
+        let mut node = Node::empty_dir();
+        node.create_error("photos", SystemError::PathNotUnicode).unwrap();
+        assert!(!node.is_dir("photos"));
+        assert_eq!(node.remove_dir("photos"), Err(NodeError::Error(SystemError::PathNotUnicode)));
+        assert!(!node.is_file("photos"));
+        assert!(!node.is_dir("photos"));
     }
 
     #[test]
@@ -1124,6 +1132,26 @@ mod test
         node.create_dir("images/more_images").unwrap();
         let list = node.list_dir("images").unwrap();
         assert_eq!(list, vec!["images/more_images".to_string()]);
+    }
+
+    #[test]
+    fn add_and_list_dir_containing_error_node()
+    {
+        let mut node = Node::empty_dir();
+        node.create_dir("photos").unwrap();
+        node.create_error("photos/more_photos", SystemError::NotFound).unwrap();
+
+        // Merely listing the name of the error node is not an error.
+        let list = node.list_dir("photos").unwrap();
+        assert_eq!(list, vec!["photos/more_photos".to_string()]);
+    }
+
+    #[test]
+    fn attempt_to_list_dir_on_error_node()
+    {
+        let mut node = Node::empty_dir();
+        node.create_error("photos", SystemError::MetadataNotFound).unwrap();
+        assert_eq!(node.list_dir("photos"), Err(NodeError::Error(SystemError::MetadataNotFound)));
     }
 
     #[test]
@@ -1150,6 +1178,17 @@ mod test
             Err(NodeError::CreateOverExisting) => {},
             _ => panic!("unexpected result"),
         }
+    }
+
+    #[test]
+    fn create_error_node_with_file_already_present()
+    {
+        let mut node = Node::empty_dir();
+        node.create_dir("images").unwrap();
+        node.create_dir("images/more_images").unwrap();
+        assert_eq!(
+            node.create_error("images/more_images", SystemError::MetadataNotFound),
+            Err(NodeError::CreateOverExisting));
     }
 
     #[test]
@@ -1209,15 +1248,7 @@ mod test
     fn remove_non_existent_dir_errors()
     {
         let mut node = Node::empty_dir();
-        match node.remove_dir("dir-not-there")
-        {
-            Ok(_) => panic!("Unexpected sucess removing non-existent file"),
-            Err(error) => match error
-            {
-                NodeError::RemoveNonExistentDir => {},
-                _ => panic!("Attempt to remove non-existent dir resulted in wrong error.")
-            }
-        }
+        assert_eq!(node.remove_dir("dir-not-there"), Err(NodeError::RemoveNonExistentDir));
         assert!(!node.is_file("some text"));
     }
 
@@ -1225,27 +1256,11 @@ mod test
     fn rename_file()
     {
         let mut node = Node::empty_dir();
-        match node.create_file("kitten.jpg", Content::new(b"jpg-content".to_vec()), 0)
-        {
-            Ok(_) => {},
-            Err(error) => panic!("create_file in empty root failed with error: {}", error),
-        }
-
-        match node.create_dir("images")
-        {
-            Ok(_) => {},
-            Err(error) => panic!("create_dir in almost empty root failed with error: {}", error),
-        }
-
+        node.create_file("kitten.jpg", Content::new(b"jpg-content".to_vec()), 0).unwrap();
+        node.create_dir("images").unwrap();
         assert!(node.is_file("kitten.jpg"));
         assert!(node.is_dir("images"));
-
-        match node.rename("kitten.jpg", "images/kitten.jpg")
-        {
-            Ok(_) => {},
-            Err(error) => panic!("rename failed with error: {}", error),
-        }
-
+        node.rename("kitten.jpg", "images/kitten.jpg").unwrap();
         assert!(!node.is_file("kitten.jpg"));
         assert!(node.is_dir("images"));
         assert!(node.is_file("images/kitten.jpg"));
@@ -1255,27 +1270,11 @@ mod test
     fn rename_directory()
     {
         let mut node = Node::empty_dir();
-        match node.create_dir("images")
-        {
-            Ok(_) => {},
-            Err(error) => panic!("create_dir in empty root failed with error: {}", error),
-        }
-
-        match node.create_file("images/kitten.jpg", Content::new(b"jpg-content".to_vec()), 0)
-        {
-            Ok(_) => {},
-            Err(error) => panic!("create_file failed with error: {}", error),
-        }
-
+        node.create_dir("images").unwrap();
+        node.create_file("images/kitten.jpg", Content::new(b"jpg-content".to_vec()), 0).unwrap();
         assert!(node.is_file("images/kitten.jpg"));
         assert!(node.is_dir("images"));
-
-        match node.rename("images", "images2")
-        {
-            Ok(_) => {},
-            Err(error) => panic!("rename failed with error: {}", error),
-        }
-
+        node.rename("images", "images2").unwrap();
         assert!(node.is_dir("images2"));
         assert!(!node.is_dir("images"));
         assert!(node.is_file("images2/kitten.jpg"));
@@ -1283,20 +1282,28 @@ mod test
     }
 
     #[test]
+    fn rename_error()
+    {
+        let mut node = Node::empty_dir();
+        node.create_error("kitten.jpg", SystemError::ExpectedDirFoundFile).unwrap();
+        node.create_dir("images").unwrap();
+        assert!(!node.is_file("kitten.jpg"));
+        assert!(node.is_dir("images"));
+        node.rename("kitten.jpg", "images/kitten.jpg").unwrap();
+        assert!(!node.is_file("kitten.jpg"));
+        assert!(node.is_dir("images"));
+
+        // Hot take: moving an error node should not produce an error
+        assert!(!node.is_file("images/kitten.jpg"));
+    }
+
+    #[test]
     fn system_add_remove_file()
     {
         let mut system = FakeSystem::new(10);
-        match system.create_file("file.txt")
-        {
-            Ok(_) => {},
-            Err(error) => panic!("create_file in FakeSystem failed with error: {}", error),
-        }
+        system.create_file("file.txt").unwrap();
         assert!(system.is_file("file.txt"));
-        match system.remove_file("file.txt")
-        {
-            Ok(_) => {},
-            Err(error) => panic!("remove_file in FakeSystem failed with error: {}", error),
-        }
+        system.remove_file("file.txt").unwrap();
         assert!(!system.is_file("file.txt"));
         assert!(!system.is_dir("file.txt"));
     }
@@ -1310,6 +1317,18 @@ mod test
         system.remove_dir("images").unwrap();
         assert!(!system.is_file("images"));
         assert!(!system.is_dir("images"));
+    }
+
+    #[test]
+    fn system_add_remove_error()
+    {
+        let mut system = FakeSystem::new(10);
+        system.create_error("photos", SystemError::PathNotUnicode).unwrap();
+        assert!(!system.is_file("photos"));
+        assert!(!system.is_dir("photos"));
+        assert_eq!(system.remove_dir("photos"), Err(SystemError::PathNotUnicode));
+        assert!(!system.is_file("photos"));
+        assert!(!system.is_dir("photos"));
     }
 
     #[test]
@@ -1339,64 +1358,77 @@ mod test
     }
 
     #[test]
+    fn system_error_node_write_errors()
+    {
+        let mut system = FakeSystem::new(10);
+        system.create_error("fruit_file.txt", SystemError::PathNotUnicode).unwrap();
+        assert_eq!(write_str_to_file(&mut system, "fruit_file.txt", "cantaloupe"), Err(ReadWriteError::SystemError(SystemError::CreateOverExisting)));
+    }
+
+    #[test]
+    fn system_error_node_read_errors()
+    {
+        let mut system = FakeSystem::new(10);
+        system.create_error("fruit_file.txt", SystemError::PathNotUnicode).unwrap();
+        assert_eq!(read_file(&system, "fruit_file.txt"), Err(ReadWriteError::SystemError(SystemError::PathNotUnicode)));
+    }
+
+    #[test]
     fn system_rename_file()
     {
         let mut system = FakeSystem::new(10);
-        match system.create_file("star.png")
-        {
-            Ok(_) => {},
-            Err(error) => panic!("create_file SystemError: {}", error),
-        }
-
+        system.create_file("star.png").unwrap();
         assert!(system.is_file("star.png"));
         assert!(!system.is_file("heart.png"));
-
-        match system.rename("star.png", "heart.png")
-        {
-            Ok(_) => {},
-            Err(error) => panic!("rename SystemError: {}", error),
-        }
-
+        system.rename("star.png", "heart.png").unwrap();
         assert!(!system.is_file("star.png"));
         assert!(system.is_file("heart.png"));
+    }
+
+    #[test]
+    fn system_rename_directory()
+    {
+        let mut system = FakeSystem::new(10);
+        system.create_dir("hearts").unwrap();
+        system.create_file("hearts/star1.png").unwrap();
+        system.create_file("hearts/star2.png").unwrap();
+        assert!(system.is_dir("hearts"));
+        assert!(system.is_file("hearts/star1.png"));
+        assert!(system.is_file("hearts/star2.png"));
+        assert!(!system.is_dir("stars"));
+        assert!(!system.is_file("stars/star1.png"));
+        assert!(!system.is_file("stars/star2.png"));
+        system.rename("hearts", "stars").unwrap();
+        assert!(!system.is_dir("hearts"));
+        assert!(!system.is_file("hearts/star1.png"));
+        assert!(!system.is_file("hearts/star2.png"));
+        assert!(system.is_dir("stars"));
+        assert!(system.is_file("stars/star1.png"));
+        assert!(system.is_file("stars/star2.png"));
+    }
+
+    #[test]
+    fn system_rename_error()
+    {
+        let mut system = FakeSystem::new(10);
+        system.create_error("star.png", SystemError::PathNotUnicode).unwrap();
+        assert!(!system.is_file("star.png"));
+        assert!(!system.is_dir("star.png"));
+        system.rename("star.png", "heart.png").unwrap();
+        assert!(!system.is_file("star.png"));
+        assert!(!system.is_dir("heart.png"));
     }
 
     #[test]
     fn modified_timestamps()
     {
         let mut system = FakeSystem::new(17);
-        match system.create_file("star.png")
-        {
-            Ok(_) => {},
-            Err(error) => panic!("create_file SystemError: {}", error),
-        }
-
+        system.create_file("star.png").unwrap();
         system.time_passes(17);
-        match system.create_file("heart.png")
-        {
-            Ok(_) => {},
-            Err(error) => panic!("create_file SystemError: {}", error),
-        }
+        system.create_file("heart.png").unwrap();
 
-        match system.get_modified("star.png")
-        {
-            Ok(system_time) => match get_timestamp(system_time)
-            {
-                Ok(timestamp) => assert_eq!(timestamp, 17),
-                Err(error) => panic!("get_modified SystemTimeError: {}", error),
-            },
-            Err(error) => panic!("get_modified SystemError: {}", error),
-        }
-
-        match system.get_modified("heart.png")
-        {
-            Ok(system_time) => match get_timestamp(system_time)
-            {
-                Ok(timestamp) => assert_eq!(timestamp, 34),
-                Err(error) => panic!("get_modified SystemTimeError: {}", error),
-            },
-            Err(error) => panic!("get_modified SystemError: {}", error),
-        }
+        assert_eq!(get_timestamp(system.get_modified("star.png").unwrap()), Ok(17));
+        assert_eq!(get_timestamp(system.get_modified("heart.png").unwrap()), Ok(34));
     }
 
     #[test]
@@ -1407,16 +1439,7 @@ mod test
         system.create_file("cars.txt").unwrap();
         system.time_passes(6);
         write_str_to_file(&mut system, "cars.txt", "cantaloupe").unwrap();
-
-        match system.get_modified("cars.txt")
-        {
-            Ok(system_time) => match get_timestamp(system_time)
-            {
-                Ok(timestamp) => assert_eq!(timestamp, 11),
-                Err(error) => panic!("get_modified SystemTimeError: {}", error),
-            },
-            Err(error) => panic!("get_modified SystemError: {}", error),
-        }
+        assert_eq!(get_timestamp(system.get_modified("cars.txt").unwrap()), Ok(11));
     }
 
     #[test]
@@ -1470,30 +1493,10 @@ mod test
     fn executing_mycat2_concatinates_and_dupes()
     {
         let mut system = FakeSystem::new(10);
-        match system.create_file("line1.txt")
-        {
-            Ok(_) => {},
-            Err(error) => panic!("create_file SystemError: {}", error),
-        }
-
-        match write_str_to_file(&mut system, "line1.txt", "Ants\n")
-        {
-            Ok(_) => {},
-            Err(error) => panic!("Error writing line1.txt: {}", error),
-        }
-
-        match system.create_file("line2.txt")
-        {
-            Ok(_) => {},
-            Err(error) => panic!("create_file SystemError: {}", error),
-        }
-
-        match write_str_to_file(&mut system, "line2.txt", "Love to dance\n")
-        {
-            Ok(_) => {},
-            Err(error) => panic!("Error writing line2.txt: {}", error),
-        }
-
+        system.create_file("line1.txt").unwrap();
+        write_str_to_file(&mut system, "line1.txt", "Ants\n").unwrap();
+        system.create_file("line2.txt").unwrap();
+        write_str_to_file(&mut system, "line2.txt", "Love to dance\n").unwrap();
         assert_eq!(system.execute_command(
             to_command_script(vec![
                 "mycat2".to_string(),
@@ -1512,31 +1515,16 @@ mod test
             ]
         );
 
-        match read_file(&system, "poem.txt")
-        {
-            Ok(content) => assert_eq!(content, b"Ants\nLove to dance\n"),
-            Err(error) => panic!("{}", error),
-        }
-
-        match read_file(&system, "poem-backup.txt")
-        {
-            Ok(content) => assert_eq!(content, b"Ants\nLove to dance\n"),
-            Err(error) => panic!("{}", error),
-        }
+        assert_eq!(read_file(&system, "poem.txt").unwrap(), b"Ants\nLove to dance\n");
+        assert_eq!(read_file(&system, "poem-backup.txt").unwrap(), b"Ants\nLove to dance\n");
     }
 
     #[test]
     fn use_commandline_to_remove()
     {
         let mut system = FakeSystem::new(10);
-        match system.create_file("terrible-file.txt")
-        {
-            Ok(_) => {},
-            Err(error) => panic!("create_file SystemError: {}", error),
-        }
-
+        system.create_file("terrible-file.txt").unwrap();
         assert!(system.is_file("terrible-file.txt"));
-
         assert_eq!(
             system.execute_command(
                 to_command_script(vec![
@@ -1555,6 +1543,5 @@ mod test
         );
 
         assert!(!system.is_file("terrible-file.txt"));
-
     }
 }
