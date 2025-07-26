@@ -476,6 +476,26 @@ impl FileStateVec
     }
 }
 
+/*  Takes a system, a path and a timestamp assumed to be at that path as the modified date.
+    Returns true if the timestamp matches what's actually there, false otherwise.  Returns
+    false if any error occurs obtaining the current timestamp */
+pub fn timestamp_matches<SystemType: System>(
+    system : &SystemType,
+    path : &str,
+    assumed_timestamp : u64)
+-> bool
+{
+    match system.get_modified(&path)
+    {
+        Ok(system_time) => match get_timestamp(system_time)
+        {
+            Ok(timestamp) => timestamp == assumed_timestamp,
+            Err(_) => false,
+        },
+        Err(_) => false,
+    }
+}
+
 /*  Takes a system, a path, and an assumed FileState, obtains a ticket for the file described.
     If the modified date of the file matches the one in FileState exactly, this function
     assumes the ticket matches.  This is part of the timestamp optimization. */

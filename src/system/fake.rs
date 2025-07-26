@@ -367,7 +367,7 @@ impl Node
 
     pub fn create_error(&mut self, path: &str, error: SystemError) -> Result<(), NodeError>
     {
-        let (dir_components, name) = get_dir_path_and_name(path)?;
+        let (dir_components, name) = to_node_error(get_dir_path_and_name(path))?;
         let dir_map_mut = self.get_dir_map_mut(&dir_components)?;
 
         match dir_map_mut.get(name)
