@@ -666,7 +666,6 @@ impl fmt::Display for CreateIntermediateDirectoriesError
     }
 }
 
-
 fn restore_or_download<SystemType : System>
 (
     system : &mut SystemType,
@@ -808,7 +807,9 @@ mod test
     use crate::system::
     {
         fake::FakeSystem,
-        System
+        System,
+        SystemError,
+        ReadWriteError
     };
     use crate::system::util::
     {
@@ -891,9 +892,8 @@ mod test
         assert_eq!(file_state.executable, false);
     }
 
-    /*  Create a file, and simulate a reasonable out-of-date FileState for the
-        input to get_actual_file_state, one where the timestamp is out of date, and
-        so is the content.
+    /*  Create a file, then call get_actual_file_state passing it an out-of-date
+        FileState, one where the timestamp is out of date, and so is the content.
 
         Call get_actual_file_state and check that the returned data matches the
         current file. */
@@ -1128,29 +1128,29 @@ mod test
         let current_ticket = TicketFactory::from_str(current_content).result();
 
         // Meanwhile, in the filesystem, put new and improved game.cpp
-        match write_str_to_file(&mut system, "game.cpp", current_content)
-        {
-            Ok(_) => {},
-            Err(why) => panic!("Failed to make fake file: {}", why),
-        }
+        write_str_to_file(&mut system, "game.cpp", current_content).unwrap();
 
         // Then get the ticket for the current target file, passing the FileInfo
         // with timestamp 11.  Check that it gives the ticket for the C++ code.
-        match get_file_ticket(
-            &system,
-            "game.cpp",
-            &FileState::new(previous_ticket.clone(), 9))
-        {
-            Ok(ticket_opt) =>
-            {
-                match ticket_opt
-                {
-                    Some(ticket) => assert_eq!(ticket, current_ticket),
-                    None => panic!("Failed to generate ticket"),
-                }
-            },
-            Err(_) => panic!("Unexpected error getting file ticket"),
-        }
+        assert_eq!(
+            get_file_ticket(&system, "game.cpp", &FileState::new(previous_ticket.clone(), 9)),
+            Ok(Some(current_ticket)));
+    }
+
+    /*  Call get_file_ticket on an error-file in the fake filesystem, check that the result
+        is an error. */
+    #[test]
+    fn blob_get_file_ticket_with_error()
+    {
+        let mut system = FakeSystem::new(15);
+        let ticket = TicketFactory::from_str("").result();
+        system.create_error_file("game.cpp", SystemError::NotFound).unwrap();
+
+        // Then get the ticket for the current target file, passing the FileInfo
+        // with timestamp 11.  Check that it gives the ticket for the C++ code.
+        assert_eq!(
+            get_file_ticket(&system, "game.cpp", &FileState::new(ticket, 16)),
+            Err(ReadWriteError::SystemError(SystemError::NotFound)));
     }
 
     /*  Create a directory, and then call get_file_ticketm, check result. */

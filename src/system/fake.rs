@@ -115,7 +115,7 @@ enum Node
 {
     File(FileInfo),
     Dir(HashMap<String, Node>),
-    Error(SystemError),
+    ErrorFile(SystemError),
 }
 
 #[derive(Debug, PartialEq)]
@@ -232,11 +232,10 @@ impl Node
                 {
                     Node::Dir(_) => false,
                     Node::File(_) => true,
-                    Node::Error(_) => false,
+                    Node::ErrorFile(_) => true,
                 }
             },
-            Err(_) =>
-                false
+            Err(_) => false
         }
     }
 
@@ -250,7 +249,7 @@ impl Node
                 {
                     Node::Dir(_) => true,
                     Node::File(_) => false,
-                    Node::Error(_) => false,
+                    Node::ErrorFile(_) => false,
                 }
             },
             Err(_) => false
@@ -275,7 +274,7 @@ impl Node
                         None => return Err(NodeError::DirectoryNotFound(component.to_string())),
                     }
                 },
-                Node::Error(error) =>
+                Node::ErrorFile(error) =>
                 {
                     return Err(NodeError::Error(error.clone()));
                 }
@@ -301,7 +300,7 @@ impl Node
                         None => return Err(NodeError::DirectoryNotFound(component.to_string())),
                     }
                 },
-                Node::Error(error) => return Err(NodeError::Error(error.clone())),
+                Node::ErrorFile(error) => return Err(NodeError::Error(error.clone())),
             }
         }
 
@@ -314,7 +313,7 @@ impl Node
         {
             Node::File(_) => Err(NodeError::Weird),
             Node::Dir(name_to_node) => Ok(name_to_node),
-            Node::Error(error) => Err(NodeError::Error(error.clone())),
+            Node::ErrorFile(error) => Err(NodeError::Error(error.clone())),
         }
     }
 
@@ -324,7 +323,7 @@ impl Node
         {
             Node::File(_) => Err(NodeError::Weird),
             Node::Dir(name_to_node) => Ok(name_to_node),
-            Node::Error(error) => Err(NodeError::Error(error.clone())),
+            Node::ErrorFile(error) => Err(NodeError::Error(error.clone())),
         }
     }
 
@@ -362,7 +361,7 @@ impl Node
         Ok(())
     }
 
-    pub fn create_error(&mut self, path: &str, error: SystemError) -> Result<(), NodeError>
+    pub fn create_error_file(&mut self, path: &str, error: SystemError) -> Result<(), NodeError>
     {
         let (dir_components, name) = to_node_error(get_dir_path_and_name(path))?;
         let dir_map_mut = self.get_dir_map_mut(&dir_components)?;
@@ -370,11 +369,11 @@ impl Node
         match dir_map_mut.get(name)
         {
             None => {},
-            Some(Node::Error(_)) => {},
+            Some(Node::ErrorFile(_)) => {},
             _ => return Err(NodeError::CreateOverExisting),
         }
 
-        dir_map_mut.insert(name.to_string(), Node::Error(error));
+        dir_map_mut.insert(name.to_string(), Node::ErrorFile(error));
         Ok(())
     }
 
@@ -399,11 +398,11 @@ impl Node
                         name_to_node.insert(name.to_string(), node);
                         Err(NodeError::RemoveFileFoundDir)
                     },
-                    Node::Error(error) => Err(NodeError::Error(error.clone()))
+                    Node::ErrorFile(error) => Err(NodeError::Error(error.clone()))
                 },
                 None => Err(NodeError::RemoveNonExistentFile)
             },
-            Node::Error(error) => Err(NodeError::Error(error.clone()))
+            Node::ErrorFile(error) => Err(NodeError::Error(error.clone()))
         }
     }
 
@@ -422,7 +421,7 @@ impl Node
                     Err(NodeError::ExpectedDirFoundFile)
                 }
                 Node::Dir(_) => Ok(()),
-                Node::Error(error) => Err(NodeError::Error(error.clone())),
+                Node::ErrorFile(error) => Err(NodeError::Error(error.clone())),
             },
             None => Err(NodeError::RemoveNonExistentDir)
         }
@@ -485,7 +484,7 @@ impl Node
                         return Err(NodeError::PathInvalid),
                 }
             },
-            Node::Error(error) => Err(NodeError::Error(error.clone())),
+            Node::ErrorFile(error) => Err(NodeError::Error(error.clone())),
         }
     }
 
@@ -496,7 +495,7 @@ impl Node
         {
             Node::File(info) => Ok(info.metadata.modified.clone()),
             Node::Dir(_) => Err(NodeError::GetModifiedOnDirectory),
-            Node::Error(error) => Err(NodeError::Error(error.clone())),
+            Node::ErrorFile(error) => Err(NodeError::Error(error.clone())),
         }
     }
 
@@ -507,7 +506,7 @@ impl Node
         {
             Node::File(info) => Ok(info.metadata.executable),
             Node::Dir(_) => Err(NodeError::IsExecutableOnDirectory),
-            Node::Error(error) => Err(NodeError::Error(error.clone())),
+            Node::ErrorFile(error) => Err(NodeError::Error(error.clone())),
         }
     }
 
@@ -522,7 +521,7 @@ impl Node
                 Ok(())
             },
             Node::Dir(_) => Err(NodeError::IsExecutableOnDirectory),
-            Node::Error(error) => Err(NodeError::Error(error.clone())),
+            Node::ErrorFile(error) => Err(NodeError::Error(error.clone())),
         }
     }
 }
@@ -722,9 +721,9 @@ impl FakeSystem
         self.command_log.lock().unwrap().clone()
     }
 
-    fn create_error(&mut self, path: &str, error: SystemError) -> Result<(), SystemError>
+    pub fn create_error_file(&mut self, path: &str, error: SystemError) -> Result<(), SystemError>
     {
-        match self.get_root_node_mut().create_error(path, error)
+        match self.get_root_node_mut().create_error_file(path, error)
         {
             Ok(()) => Ok(()),
             Err(error) => Err(convert_node_error_to_system_error(error)),
@@ -1058,8 +1057,8 @@ mod test
     #[test]
     fn error_is_not_file_or_directory()
     {
-        let node = Node::Error(SystemError::NotFound);
-        assert!(!node.is_file(""));
+        let node = Node::ErrorFile(SystemError::NotFound);
+        assert!(node.is_file(""));
         assert!(!node.is_dir(""));
     }
 
@@ -1097,7 +1096,7 @@ mod test
     fn add_and_attempt_to_remove_error_node()
     {
         let mut node = Node::empty_dir();
-        node.create_error("photos", SystemError::PathNotUnicode).unwrap();
+        node.create_error_file("photos", SystemError::PathNotUnicode).unwrap();
         assert!(!node.is_dir("photos"));
         assert_eq!(node.remove_dir("photos"), Err(NodeError::Error(SystemError::PathNotUnicode)));
         assert!(!node.is_file("photos"));
@@ -1108,7 +1107,7 @@ mod test
     fn add_list_dir()
     {
         let mut node = Node::empty_dir();
-        node.create_error("photos", SystemError::PathNotUnicode).unwrap();
+        node.create_error_file("photos", SystemError::PathNotUnicode).unwrap();
         assert!(!node.is_dir("photos"));
         assert_eq!(node.remove_dir("photos"), Err(NodeError::Error(SystemError::PathNotUnicode)));
         assert!(!node.is_file("photos"));
@@ -1139,7 +1138,7 @@ mod test
     {
         let mut node = Node::empty_dir();
         node.create_dir("photos").unwrap();
-        node.create_error("photos/more_photos", SystemError::NotFound).unwrap();
+        node.create_error_file("photos/more_photos", SystemError::NotFound).unwrap();
 
         // Merely listing the name of the error node is not an error.
         let list = node.list_dir("photos").unwrap();
@@ -1150,7 +1149,7 @@ mod test
     fn attempt_to_list_dir_on_error_node()
     {
         let mut node = Node::empty_dir();
-        node.create_error("photos", SystemError::MetadataNotFound).unwrap();
+        node.create_error_file("photos", SystemError::MetadataNotFound).unwrap();
         assert_eq!(node.list_dir("photos"), Err(NodeError::Error(SystemError::MetadataNotFound)));
     }
 
@@ -1181,13 +1180,13 @@ mod test
     }
 
     #[test]
-    fn create_error_node_with_file_already_present()
+    fn create_error_file_node_with_file_already_present()
     {
         let mut node = Node::empty_dir();
         node.create_dir("images").unwrap();
         node.create_dir("images/more_images").unwrap();
         assert_eq!(
-            node.create_error("images/more_images", SystemError::MetadataNotFound),
+            node.create_error_file("images/more_images", SystemError::MetadataNotFound),
             Err(NodeError::CreateOverExisting));
     }
 
@@ -1272,29 +1271,30 @@ mod test
         let mut node = Node::empty_dir();
         node.create_dir("images").unwrap();
         node.create_file("images/kitten.jpg", Content::new(b"jpg-content".to_vec()), 0).unwrap();
-        assert!(node.is_file("images/kitten.jpg"));
         assert!(node.is_dir("images"));
+        assert!(node.is_file("images/kitten.jpg"));
+        assert!(!node.is_dir("images2"));
+        assert!(!node.is_file("images2/kitten.jpg"));
         node.rename("images", "images2").unwrap();
-        assert!(node.is_dir("images2"));
         assert!(!node.is_dir("images"));
-        assert!(node.is_file("images2/kitten.jpg"));
         assert!(!node.is_file("images/kitten.jpg"));
+        assert!(node.is_dir("images2"));
+        assert!(node.is_file("images2/kitten.jpg"));
     }
 
     #[test]
-    fn rename_error()
+    fn rename_error_file()
     {
         let mut node = Node::empty_dir();
-        node.create_error("kitten.jpg", SystemError::ExpectedDirFoundFile).unwrap();
+        node.create_error_file("kitten.jpg", SystemError::ExpectedDirFoundFile).unwrap();
         node.create_dir("images").unwrap();
-        assert!(!node.is_file("kitten.jpg"));
+        assert!(node.is_file("kitten.jpg"));
         assert!(node.is_dir("images"));
+        assert!(!node.is_file("images/kitten.jpg"));
         node.rename("kitten.jpg", "images/kitten.jpg").unwrap();
         assert!(!node.is_file("kitten.jpg"));
         assert!(node.is_dir("images"));
-
-        // Hot take: moving an error node should not produce an error
-        assert!(!node.is_file("images/kitten.jpg"));
+        assert!(node.is_file("images/kitten.jpg"));
     }
 
     #[test]
@@ -1323,8 +1323,8 @@ mod test
     fn system_add_remove_error()
     {
         let mut system = FakeSystem::new(10);
-        system.create_error("photos", SystemError::PathNotUnicode).unwrap();
-        assert!(!system.is_file("photos"));
+        system.create_error_file("photos", SystemError::PathNotUnicode).unwrap();
+        assert!(system.is_file("photos"));
         assert!(!system.is_dir("photos"));
         assert_eq!(system.remove_dir("photos"), Err(SystemError::PathNotUnicode));
         assert!(!system.is_file("photos"));
@@ -1361,7 +1361,7 @@ mod test
     fn system_error_node_write_errors()
     {
         let mut system = FakeSystem::new(10);
-        system.create_error("fruit_file.txt", SystemError::PathNotUnicode).unwrap();
+        system.create_error_file("fruit_file.txt", SystemError::PathNotUnicode).unwrap();
         assert_eq!(write_str_to_file(&mut system, "fruit_file.txt", "cantaloupe"), Err(ReadWriteError::SystemError(SystemError::CreateOverExisting)));
     }
 
@@ -1369,7 +1369,7 @@ mod test
     fn system_error_node_read_errors()
     {
         let mut system = FakeSystem::new(10);
-        system.create_error("fruit_file.txt", SystemError::PathNotUnicode).unwrap();
+        system.create_error_file("fruit_file.txt", SystemError::PathNotUnicode).unwrap();
         assert_eq!(read_file(&system, "fruit_file.txt"), Err(ReadWriteError::SystemError(SystemError::PathNotUnicode)));
     }
 
@@ -1411,12 +1411,12 @@ mod test
     fn system_rename_error()
     {
         let mut system = FakeSystem::new(10);
-        system.create_error("star.png", SystemError::PathNotUnicode).unwrap();
-        assert!(!system.is_file("star.png"));
-        assert!(!system.is_dir("star.png"));
+        system.create_error_file("star.png", SystemError::PathNotUnicode).unwrap();
+        assert!(system.is_file("star.png"));
+        assert!(!system.is_file("heart.png"));
         system.rename("star.png", "heart.png").unwrap();
         assert!(!system.is_file("star.png"));
-        assert!(!system.is_dir("heart.png"));
+        assert!(system.is_file("heart.png"));
     }
 
     #[test]

@@ -371,8 +371,7 @@ c++ -c math.cpp -o build/math.o
     #[test]
     fn parse_all_empty()
     {
-        match parse_all(
-            vec![])
+        match parse_all(vec![])
         {
             Ok(v) =>
             {
