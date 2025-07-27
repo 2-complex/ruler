@@ -89,21 +89,8 @@ fn to_path_str(path : &Path) -> Result<String, SystemError>
         )
     }
 
-    match result.get(0)
-    {
-        Some(string) =>
-        {
-            if string == "."
-            {
-                Ok(result[1..].join("/"))
-            }
-            else
-            {
-                Err(SystemError::Weird)
-            }
-        }
-        _ => Err(SystemError::Weird)
-    }
+    result.retain(|s| s != ".");
+    Ok(result[..].join("/"))
 }
 
 impl System for RealSystem

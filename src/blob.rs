@@ -1144,13 +1144,13 @@ mod test
     {
         let mut system = FakeSystem::new(15);
         let ticket = TicketFactory::from_str("").result();
-        system.create_error_file("game.cpp", SystemError::NotFound).unwrap();
+        system.create_error_file("game.cpp", SystemError::RemoveFileFoundDir).unwrap();
 
         // Then get the ticket for the current target file, passing the FileInfo
         // with timestamp 11.  Check that it gives the ticket for the C++ code.
         assert_eq!(
             get_file_ticket(&system, "game.cpp", &FileState::new(ticket, 16)),
-            Err(ReadWriteError::SystemError(SystemError::NotFound)));
+            Err(ReadWriteError::SystemError(SystemError::RemoveFileFoundDir)));
     }
 
     /*  Create a directory, and then call get_file_ticketm, check result. */
