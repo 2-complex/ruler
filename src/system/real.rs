@@ -10,6 +10,7 @@ use std::io::ErrorKind;
 use std::path::Path;
 use std::path::PathBuf;
 use std::time::SystemTime;
+use std::fmt;
 
 use execute::Execute;
 
@@ -91,6 +92,33 @@ fn to_path_str(path : &Path) -> Result<String, SystemError>
 
     result.retain(|s| s != ".");
     Ok(result[..].join("/"))
+}
+
+#[derive(Debug, PartialEq)]
+pub enum GetTimestampError
+{
+    Error(String),
+}
+
+impl fmt::Display for GetTimestampError
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
+    {
+        match self
+        {
+            GetTimestampError::Error(message) =>
+                write!(formatter, "Error getting timestamp: {}", message),
+        }
+    }
+}
+
+fn get_timestamp(system_time : SystemTime) -> Result<u64, GetTimestampError>
+{
+    match system_time.duration_since(SystemTime::UNIX_EPOCH)
+    {
+        Ok(duration) => Ok(1_000_000u64 * duration.as_secs() + u64::from(duration.subsec_micros())),
+        Err(error) => Err(GetTimestampError::Error(format!("{}", error))),
+    }
 }
 
 impl System for RealSystem
@@ -201,7 +229,7 @@ impl System for RealSystem
         }
     }
 
-    fn get_modified(&self, path: &str) -> Result<SystemTime, SystemError>
+    fn get_modified(&self, path: &str) -> Result<u64, SystemError>
     {
         match fs::metadata(path)
         {
@@ -209,7 +237,14 @@ impl System for RealSystem
             {
                 match metadata.modified()
                 {
-                    Ok(timestamp) => Ok(timestamp),
+                    Ok(system_time) => 
+                    {
+                        match get_timestamp(system_time)
+                        {
+                            Ok(timestamp) => Ok(timestamp),
+                            Err(_) => Err(SystemError::ModifiedInvalid),
+                        }
+                    },
                     Err(_) => Err(SystemError::ModifiedNotFound)
                 }
             },

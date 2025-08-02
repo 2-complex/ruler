@@ -9,7 +9,6 @@ use crate::system::util::
 {
     read_file,
     write_str_to_file,
-    timestamp_to_system_time,
     get_dir_path_and_name,
     PathError
 };
@@ -33,7 +32,6 @@ use std::io::
 };
 use std::cmp::min;
 use std::fmt;
-use std::time::SystemTime;
 use std::str::from_utf8;
 
 
@@ -66,7 +64,7 @@ impl Content
 #[derive(Debug, Clone)]
 struct Metadata
 {
-    modified : SystemTime,
+    modified : u64,
     executable : bool,
 }
 
@@ -76,7 +74,7 @@ impl Metadata
     {
         Metadata
         {
-            modified : timestamp_to_system_time(timestamp),
+            modified : timestamp,
             executable : false,
         }
     }
@@ -111,10 +109,29 @@ impl FileInfo
 }
 
 #[derive(Debug, Clone)]
+struct DirInfo
+{
+    timestamp : u64,
+    name_to_node : HashMap<String, Node>,
+}
+
+impl DirInfo
+{
+    fn new(timestamp : u64, name_to_node : HashMap<String, Node>) -> Self
+    {
+        Self
+        {
+            timestamp : timestamp,
+            name_to_node : name_to_node
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 enum Node
 {
     File(FileInfo),
-    Dir(HashMap<String, Node>),
+    Dir(DirInfo),
     ErrorFile(SystemError),
 }
 
@@ -132,7 +149,6 @@ enum NodeError
     RenameFromNonExistent,
     RenameToNonExistent,
     CreateOverExisting,
-    GetModifiedOnDirectory,
     IsExecutableOnDirectory,
     Error(SystemError),
     Weird,
@@ -178,9 +194,6 @@ impl fmt::Display for NodeError
             NodeError::CreateOverExisting
                 => write!(formatter, "Attempt to create a filesystem entity where another already exists with different type"),
 
-            NodeError::GetModifiedOnDirectory
-                => write!(formatter, "Attempt to get modified time for a directory (that is not implemented)"),
-
             NodeError::IsExecutableOnDirectory
                 => write!(formatter, "Attempt to ask whether a directory is an executable"),
 
@@ -217,9 +230,9 @@ fn to_node_error<'a>(result : Result<(Vec<&'a str>, &'a str), PathError>) -> Res
 
 impl Node
 {
-    pub fn empty_dir() -> Self
+    pub fn empty_dir(modified_timestamp : u64) -> Self
     {
-        Node::Dir(HashMap::new())
+        Node::Dir(DirInfo::new(modified_timestamp, HashMap::new()))
     }
 
     pub fn is_file(&self, path : &str) -> bool
@@ -266,9 +279,9 @@ impl Node
             node = match node
             {
                 Node::File(_) => return Err(NodeError::FileInPlaceOfDirectory(component.to_string())),
-                Node::Dir(name_to_node) =>
+                Node::Dir(dir_info) =>
                 {
-                    match name_to_node.get(&component.to_string())
+                    match dir_info.name_to_node.get(&component.to_string())
                     {
                         Some(n) => n,
                         None => return Err(NodeError::DirectoryNotFound(component.to_string())),
@@ -292,9 +305,9 @@ impl Node
             node = match node
             {
                 Node::File(_) => return Err(NodeError::FileInPlaceOfDirectory(component.to_string())),
-                Node::Dir(name_to_node) =>
+                Node::Dir(dir_info) =>
                 {
-                    match name_to_node.get_mut(&component.to_string())
+                    match dir_info.name_to_node.get_mut(&component.to_string())
                     {
                         Some(n) => n,
                         None => return Err(NodeError::DirectoryNotFound(component.to_string())),
@@ -312,7 +325,7 @@ impl Node
         match self.get_node_mut(dir_components)?
         {
             Node::File(_) => Err(NodeError::Weird),
-            Node::Dir(name_to_node) => Ok(name_to_node),
+            Node::Dir(dir_info) => Ok(&mut dir_info.name_to_node),
             Node::ErrorFile(error) => Err(NodeError::Error(error.clone())),
         }
     }
@@ -322,7 +335,7 @@ impl Node
         match self.get_node(dir_components)?
         {
             Node::File(_) => Err(NodeError::Weird),
-            Node::Dir(name_to_node) => Ok(name_to_node),
+            Node::Dir(dir_info) => Ok(&dir_info.name_to_node),
             Node::ErrorFile(error) => Err(NodeError::Error(error.clone())),
         }
     }
@@ -345,7 +358,7 @@ impl Node
         Ok(content)
     }
 
-    pub fn create_dir(&mut self, path: &str) -> Result<(), NodeError>
+    pub fn create_dir(&mut self, path: &str, timestamp : u64) -> Result<(), NodeError>
     {
         let (dir_components, name) = to_node_error(get_dir_path_and_name(path))?;
         let dir_map_mut = self.get_dir_map_mut(&dir_components)?;
@@ -357,7 +370,7 @@ impl Node
             _ => return Err(NodeError::CreateOverExisting),
         }
 
-        dir_map_mut.insert(name.to_string(), Node::Dir(HashMap::new()));
+        dir_map_mut.insert(name.to_string(), Node::Dir(DirInfo::new(timestamp, HashMap::new())));
         Ok(())
     }
 
@@ -388,14 +401,14 @@ impl Node
                 Some(last) => return Err(NodeError::FileInPlaceOfDirectory(last.to_string())),
                 None => return Err(NodeError::Weird),
             },
-            Node::Dir(name_to_node) => match name_to_node.remove(name)
+            Node::Dir(dir_info) => match dir_info.name_to_node.remove(name)
             {
                 Some(node) => match node
                 {
                     Node::File(_) => Ok(()),
                     Node::Dir(_) => 
                     {
-                        name_to_node.insert(name.to_string(), node);
+                        dir_info.name_to_node.insert(name.to_string(), node);
                         Err(NodeError::RemoveFileFoundDir)
                     },
                     Node::ErrorFile(error) => Err(NodeError::Error(error.clone()))
@@ -488,13 +501,13 @@ impl Node
         }
     }
 
-    pub fn get_modified(&self, path: &str) -> Result<SystemTime, NodeError>
+    pub fn get_modified(&self, path: &str) -> Result<u64, NodeError>
     {
         let components = get_components(path);
         match self.get_node(&components)?
         {
-            Node::File(info) => Ok(info.metadata.modified.clone()),
-            Node::Dir(_) => Err(NodeError::GetModifiedOnDirectory),
+            Node::File(info) => Ok(info.metadata.modified),
+            Node::Dir(dir_info) => Ok(dir_info.timestamp),
             Node::ErrorFile(error) => Err(NodeError::Error(error.clone())),
         }
     }
@@ -505,7 +518,7 @@ impl Node
         match self.get_node(&components)?
         {
             Node::File(info) => Ok(info.metadata.executable),
-            Node::Dir(_) => Err(NodeError::IsExecutableOnDirectory),
+            Node::Dir(_) => Ok(false),
             Node::ErrorFile(error) => Err(NodeError::Error(error.clone())),
         }
     }
@@ -666,11 +679,8 @@ fn convert_node_error_to_system_error(error : NodeError) -> SystemError
         NodeError::CreateOverExisting
             => SystemError::CreateOverExisting,
 
-        NodeError::GetModifiedOnDirectory
-            => SystemError::NotImplemented,
-
         NodeError::IsExecutableOnDirectory
-            => SystemError::NotImplemented,
+            => panic!("Attempt to ask is executable on directory"),
 
         NodeError::Error(system_error)
             => system_error,
@@ -686,7 +696,7 @@ impl FakeSystem
     {
         FakeSystem
         {
-            root : Arc::new(Mutex::new(Node::empty_dir())),
+            root : Arc::new(Mutex::new(Node::empty_dir(start))),
 
             /*  When too many timestamps are 0 by default it triggers the
                 timestamp optimization at the wrong time */
@@ -876,7 +886,7 @@ impl System for FakeSystem
 
     fn create_dir(&mut self, path: &str) -> Result<(), SystemError>
     {
-        match self.get_root_node_mut().create_dir(path)
+        match self.get_root_node_mut().create_dir(path, self.current_timestamp)
         {
             Ok(_) => Ok(()),
             Err(error) => Err(convert_node_error_to_system_error(error)),
@@ -929,7 +939,7 @@ impl System for FakeSystem
         }
     }
 
-    fn get_modified(&self, path: &str) -> Result<SystemTime, SystemError>
+    fn get_modified(&self, path: &str) -> Result<u64, SystemError>
     {
         match self.get_root_node().get_modified(path)
         {
@@ -995,7 +1005,6 @@ mod test
     {
         write_str_to_file,
         read_file,
-        get_timestamp,
     };
 
     #[test]
@@ -1049,7 +1058,7 @@ mod test
     #[test]
     fn dir_is_dir()
     {
-        let node = Node::empty_dir();
+        let node = Node::empty_dir(1);
         assert!(!node.is_file(""));
         assert!(node.is_dir(""));
     }
@@ -1073,7 +1082,7 @@ mod test
     #[test]
     fn add_remove_file()
     {
-        let mut node = Node::empty_dir();
+        let mut node = Node::empty_dir(2);
         node.create_file("file.txt", Content::new(b"some text".to_vec()), 0).unwrap();
         assert!(node.is_file("file.txt"));
         node.remove_file("file.txt").unwrap();
@@ -1084,8 +1093,8 @@ mod test
     #[test]
     fn add_remove_dir()
     {
-        let mut node = Node::empty_dir();
-        node.create_dir("images").unwrap();
+        let mut node = Node::empty_dir(2);
+        node.create_dir("images", 2).unwrap();
         assert!(node.is_dir("images"));
         node.remove_dir("images").unwrap();
         assert!(!node.is_file("images"));
@@ -1095,7 +1104,7 @@ mod test
     #[test]
     fn add_and_attempt_to_remove_error_node()
     {
-        let mut node = Node::empty_dir();
+        let mut node = Node::empty_dir(3);
         node.create_error_file("photos", SystemError::PathNotUnicode).unwrap();
         assert!(!node.is_dir("photos"));
         assert_eq!(node.remove_dir("photos"), Err(NodeError::Error(SystemError::PathNotUnicode)));
@@ -1106,7 +1115,7 @@ mod test
     #[test]
     fn add_list_dir()
     {
-        let mut node = Node::empty_dir();
+        let mut node = Node::empty_dir(5);
         node.create_error_file("photos", SystemError::PathNotUnicode).unwrap();
         assert!(!node.is_dir("photos"));
         assert_eq!(node.remove_dir("photos"), Err(NodeError::Error(SystemError::PathNotUnicode)));
@@ -1117,8 +1126,8 @@ mod test
     #[test]
     fn add_and_list_dir_empty()
     {
-        let mut node = Node::empty_dir();
-        node.create_dir("images").unwrap();
+        let mut node = Node::empty_dir(7);
+        node.create_dir("images", 7).unwrap();
         let list = node.list_dir("images").unwrap();
         assert!(list.len() == 0);
     }
@@ -1126,9 +1135,9 @@ mod test
     #[test]
     fn add_and_list_dir_dir()
     {
-        let mut node = Node::empty_dir();
-        node.create_dir("images").unwrap();
-        node.create_dir("images/more_images").unwrap();
+        let mut node = Node::empty_dir(10);
+        node.create_dir("images", 10).unwrap();
+        node.create_dir("images/more_images", 10).unwrap();
         let list = node.list_dir("images").unwrap();
         assert_eq!(list, vec!["images/more_images".to_string()]);
     }
@@ -1136,8 +1145,8 @@ mod test
     #[test]
     fn add_and_list_dir_containing_error_node()
     {
-        let mut node = Node::empty_dir();
-        node.create_dir("photos").unwrap();
+        let mut node = Node::empty_dir(11);
+        node.create_dir("photos", 11).unwrap();
         node.create_error_file("photos/more_photos", SystemError::NotFound).unwrap();
 
         // Merely listing the name of the error node is not an error.
@@ -1148,7 +1157,7 @@ mod test
     #[test]
     fn attempt_to_list_dir_on_error_node()
     {
-        let mut node = Node::empty_dir();
+        let mut node = Node::empty_dir(14);
         node.create_error_file("photos", SystemError::MetadataNotFound).unwrap();
         assert_eq!(node.list_dir("photos"), Err(NodeError::Error(SystemError::MetadataNotFound)));
     }
@@ -1156,9 +1165,9 @@ mod test
     #[test]
     fn create_file_with_directory_already_present()
     {
-        let mut node = Node::empty_dir();
-        node.create_dir("images").unwrap();
-        node.create_dir("images/more_images").unwrap();
+        let mut node = Node::empty_dir(12);
+        node.create_dir("images", 12).unwrap();
+        node.create_dir("images/more_images", 12).unwrap();
         match node.create_file("images/more_images", Content::new(b"content".to_vec()), 0)
         {
             Err(NodeError::CreateOverExisting) => {},
@@ -1169,9 +1178,9 @@ mod test
     #[test]
     fn create_directory_with_file_already_present()
     {
-        let mut node = Node::empty_dir();
-        node.create_dir("images").unwrap();
-        node.create_dir("images/more_images").unwrap();
+        let mut node = Node::empty_dir(11);
+        node.create_dir("images", 12).unwrap();
+        node.create_dir("images/more_images", 13).unwrap();
         match node.create_file("images/more_images", Content::new(b"content".to_vec()), 0)
         {
             Err(NodeError::CreateOverExisting) => {},
@@ -1182,9 +1191,9 @@ mod test
     #[test]
     fn create_error_file_node_with_file_already_present()
     {
-        let mut node = Node::empty_dir();
-        node.create_dir("images").unwrap();
-        node.create_dir("images/more_images").unwrap();
+        let mut node = Node::empty_dir(12);
+        node.create_dir("images", 13).unwrap();
+        node.create_dir("images/more_images", 14).unwrap();
         assert_eq!(
             node.create_error_file("images/more_images", SystemError::MetadataNotFound),
             Err(NodeError::CreateOverExisting));
@@ -1193,8 +1202,8 @@ mod test
     #[test]
     fn add_and_list_dir_file()
     {
-        let mut node = Node::empty_dir();
-        node.create_dir("images").unwrap();
+        let mut node = Node::empty_dir(0);
+        node.create_dir("images", 0).unwrap();
         node.create_file("images/mydog.jpg", Content::new(b"jpeginternals".to_vec()), 0).unwrap();
         let list = node.list_dir("images").unwrap();
         assert_eq!(list, vec!["images/mydog.jpg".to_string()]);
@@ -1207,8 +1216,8 @@ mod test
     #[test]
     fn list_dir_sorted()
     {
-        let mut node = Node::empty_dir();
-        node.create_dir("images").unwrap();
+        let mut node = Node::empty_dir(1);
+        node.create_dir("images", 1).unwrap();
         node.create_file("images/B.txt", Content::new(b"B".to_vec()), 0).unwrap();
         node.create_file("images/G.txt", Content::new(b"G".to_vec()), 0).unwrap();
         node.create_file("images/D.txt", Content::new(b"D".to_vec()), 0).unwrap();
@@ -1230,7 +1239,7 @@ mod test
     #[test]
     fn remove_non_existent_file_errors()
     {
-        let mut node = Node::empty_dir();
+        let mut node = Node::empty_dir(2);
         match node.remove_file("file-not-there.txt")
         {
             Ok(_) => panic!("Unexpected sucess removing non-existent file"),
@@ -1246,7 +1255,7 @@ mod test
     #[test]
     fn remove_non_existent_dir_errors()
     {
-        let mut node = Node::empty_dir();
+        let mut node = Node::empty_dir(1);
         assert_eq!(node.remove_dir("dir-not-there"), Err(NodeError::RemoveNonExistentDir));
         assert!(!node.is_file("some text"));
     }
@@ -1254,9 +1263,9 @@ mod test
     #[test]
     fn rename_file()
     {
-        let mut node = Node::empty_dir();
+        let mut node = Node::empty_dir(1);
         node.create_file("kitten.jpg", Content::new(b"jpg-content".to_vec()), 0).unwrap();
-        node.create_dir("images").unwrap();
+        node.create_dir("images", 1).unwrap();
         assert!(node.is_file("kitten.jpg"));
         assert!(node.is_dir("images"));
         node.rename("kitten.jpg", "images/kitten.jpg").unwrap();
@@ -1268,8 +1277,8 @@ mod test
     #[test]
     fn rename_directory()
     {
-        let mut node = Node::empty_dir();
-        node.create_dir("images").unwrap();
+        let mut node = Node::empty_dir(2);
+        node.create_dir("images", 1).unwrap();
         node.create_file("images/kitten.jpg", Content::new(b"jpg-content".to_vec()), 0).unwrap();
         assert!(node.is_dir("images"));
         assert!(node.is_file("images/kitten.jpg"));
@@ -1285,9 +1294,9 @@ mod test
     #[test]
     fn rename_error_file()
     {
-        let mut node = Node::empty_dir();
+        let mut node = Node::empty_dir(3);
         node.create_error_file("kitten.jpg", SystemError::ExpectedDirFoundFile).unwrap();
-        node.create_dir("images").unwrap();
+        node.create_dir("images", 3).unwrap();
         assert!(node.is_file("kitten.jpg"));
         assert!(node.is_dir("images"));
         assert!(!node.is_file("images/kitten.jpg"));
@@ -1427,8 +1436,8 @@ mod test
         system.time_passes(17);
         system.create_file("heart.png").unwrap();
 
-        assert_eq!(get_timestamp(system.get_modified("star.png").unwrap()), Ok(17));
-        assert_eq!(get_timestamp(system.get_modified("heart.png").unwrap()), Ok(34));
+        assert_eq!(system.get_modified("star.png").unwrap(), 17);
+        assert_eq!(system.get_modified("heart.png").unwrap(), 34);
     }
 
     #[test]
@@ -1439,7 +1448,7 @@ mod test
         system.create_file("cars.txt").unwrap();
         system.time_passes(6);
         write_str_to_file(&mut system, "cars.txt", "cantaloupe").unwrap();
-        assert_eq!(get_timestamp(system.get_modified("cars.txt").unwrap()), Ok(11));
+        assert_eq!(system.get_modified("cars.txt").unwrap(), 11);
     }
 
     #[test]

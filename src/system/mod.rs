@@ -2,7 +2,6 @@ use std::str::from_utf8;
 use std::process::Output;
 use std::io;
 use std::fmt;
-use std::time::SystemTime;
 
 #[cfg(test)]
 pub mod fake;
@@ -149,9 +148,9 @@ pub enum SystemError
     RenameToNonExistent,
     MetadataNotFound,
     ModifiedNotFound,
+    ModifiedInvalid,
     CreateOverExisting,
     CommandExecutationFailed(String),
-    NotImplemented,
     Weird,
 }
 
@@ -197,6 +196,9 @@ impl fmt::Display for SystemError
             SystemError::ModifiedNotFound
                 => write!(formatter, "Attempt to access modified time for file failed"),
 
+            SystemError::ModifiedInvalid
+                => write!(formatter, "Attempt to access modified time failed becase system time did not convert to number"),
+
             SystemError::MetadataNotFound
                 => write!(formatter, "Attempt to access metadate failed"),
 
@@ -205,9 +207,6 @@ impl fmt::Display for SystemError
 
             SystemError::CommandExecutationFailed(message)
                 => write!(formatter, "{}", message),
-
-            SystemError::NotImplemented
-                => write!(formatter, "Attempt to perform an operation not currently implemented by fake system"),
 
             SystemError::Weird
                 => write!(formatter, "Weird error, this happens when internal logic fails in a way the programmer didn't think was possible"),
@@ -240,7 +239,12 @@ pub trait System: Clone + Send + Sync
     fn list_dir(&self, path: &str) -> Result<Vec<String>, SystemError>;
     fn rename(&mut self, from: &str, to: &str) -> Result<(), SystemError>;
 
-    fn get_modified(&self, path: &str) -> Result<SystemTime, SystemError>;
+    fn get_modified(&self, path: &str) -> Result<u64, SystemError>;
+    fn get_modified_timestamp_recursive() -> Result<u64, SystemError>
+    {
+        Ok(0) //TODO
+    }
+
     fn is_executable(&self, path: &str) -> Result<bool, SystemError>;
     fn set_is_executable(&mut self, path: &str, executable : bool) -> Result<(), SystemError>;
     fn execute_command(&mut self, command_script: CommandScript) -> Vec<Result<CommandLineOutput, SystemError>>;

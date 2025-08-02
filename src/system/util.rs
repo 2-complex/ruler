@@ -12,46 +12,8 @@ use std::io::Read;
 #[cfg(test)]
 use std::io::Write;
 
-#[cfg(test)]
-use std::time::Duration;
-use std::time::SystemTime;
 use std::str::from_utf8;
 use std::fmt;
-
-#[cfg(test)]
-pub fn timestamp_to_system_time(timestamp: u64) -> SystemTime
-{
-    SystemTime::UNIX_EPOCH
-        + Duration::from_secs(timestamp / 1_000_000u64)
-        + Duration::from_micros(timestamp % 1_000_000u64)
-}
-
-#[derive(Debug, PartialEq)]
-pub enum GetTimestampError
-{
-    Error(String),
-}
-
-impl fmt::Display for GetTimestampError
-{
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
-    {
-        match self
-        {
-            GetTimestampError::Error(message) =>
-                write!(formatter, "Error getting timestamp: {}", message),
-        }
-    }
-}
-
-pub fn get_timestamp(system_time : SystemTime) -> Result<u64, GetTimestampError>
-{
-    match system_time.duration_since(SystemTime::UNIX_EPOCH)
-    {
-        Ok(duration) => Ok(1_000_000u64 * duration.as_secs() + u64::from(duration.subsec_micros())),
-        Err(error) => Err(GetTimestampError::Error(format!("{}", error))),
-    }
-}
 
 /*  Takes a System, a path as a &str and content, and content as a &str.  Writes content to the file.
     If system fails, forwards the system error.  If file-io fails, forwards the std::io::Error. */

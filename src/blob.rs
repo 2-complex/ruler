@@ -4,12 +4,7 @@ use crate::system::
     SystemError,
     ReadWriteError,
 };
-use crate::system::util::
-{
-    get_timestamp,
-    GetTimestampError,
-    get_dir_path_and_name
-};
+use crate::system::util::get_dir_path_and_name;
 use crate::cache::
 {
     SysCache,
@@ -488,18 +483,11 @@ pub fn get_file_ticket<SystemType: System>
         if any error occurs with the timestamp optimization, we skip the optimization. */
     match system.get_modified(&path)
     {
-        Ok(system_time) =>
+        Ok(timestamp) =>
         {
-            match get_timestamp(system_time)
+            if timestamp == assumed_file_state.timestamp
             {
-                Ok(timestamp) =>
-                {
-                    if timestamp == assumed_file_state.timestamp
-                    {
-                        return Ok(Some(assumed_file_state.ticket.clone()))
-                    }
-                },
-                Err(_) => {},
+                return Ok(Some(assumed_file_state.ticket.clone()))
             }
         },
         Err(_) => {},
@@ -511,7 +499,6 @@ pub fn get_file_ticket<SystemType: System>
 #[derive(Debug)]
 pub enum GetCurrentFileInfoError
 {
-    ErrorConveratingModifiedDateToNumber(String, GetTimestampError),
     ErrorGettingFilePermissions(String, SystemError),
     ErrorGettingTicketForFile(String, ReadWriteError),
     TargetFileNotFound(String, SystemError),
@@ -523,9 +510,6 @@ impl fmt::Display for GetCurrentFileInfoError
     {
         match self
         {
-            GetCurrentFileInfoError::ErrorConveratingModifiedDateToNumber(path, error) =>
-                write!(formatter, "Error converting from system time to number. File: {} Error: {}", path, error),
-
             GetCurrentFileInfoError::ErrorGettingFilePermissions(path, error) =>
                 write!(formatter, "Error getting executable permission from file. File: {} Error: {}", path, error),
 
@@ -556,23 +540,15 @@ pub fn get_actual_file_state<SystemType: System>
 )
 -> Result<FileState, GetCurrentFileInfoError>
 {
-    let system_time =
+    let timestamp =
     match system.get_modified(path)
     {
-        Ok(system_time) => system_time,
+        Ok(timestamp) => timestamp,
 
         // Note: possibly there are other ways get_modified can fail than the file being absent.
         // Maybe this logic should change.
         Err(system_error) => return Err(
             GetCurrentFileInfoError::TargetFileNotFound(path.to_string(), system_error)),
-    };
-
-    let timestamp =
-    match get_timestamp(system_time)
-    {
-        Ok(timestamp) => timestamp,
-        Err(error) => return Err(GetCurrentFileInfoError::ErrorConveratingModifiedDateToNumber(
-            path.to_string(), error)),
     };
 
     let executable =
@@ -1153,36 +1129,46 @@ mod test
             Err(ReadWriteError::SystemError(SystemError::RemoveFileFoundDir)));
     }
 
-    /*  Create a directory, and then call get_file_ticketm, check result. */
+    /*  Create a directory, and then call get_file_ticket.  Use a new timestamp
+        so the ticket updates, check that the ticket is different. */
     #[test]
     fn blob_test_get_file_ticket_directory()
     {
-        // Set the clock to 11
-        let mut system = FakeSystem::new(11);
+        let mut system = FakeSystem::new(11); // Set the clock to 11
         system.create_dir("things").unwrap();
+
         let some_ticket = TicketFactory::from_str("some content").result();
 
-        // Then get the ticket for the current target file, passing the FileInfo
-        // with timestamp 11.  Check that it gives the ticket for the C++ code.
-        match get_file_ticket(
+        // Pass a different timestamp, so the optimization will not apply.
+        let ticket = get_file_ticket(
             &system,
             "things",
-            &FileState::new(some_ticket.clone(), 11))
-        {
-            Ok(ticket_opt) =>
-            {
-                match ticket_opt
-                {
-                    Some(ticket) =>
-                    {
-                        assert_ne!(ticket, some_ticket);
-                        assert!(hash_heuristic(&ticket.human_readable()));
-                    },
-                    None => panic!("Failed to generate ticket"),
-                }
-            },
-            Err(error) => panic!("Unexpected error getting file ticket {}", error),
-        }
+            &FileState::new(some_ticket.clone(), 12)).unwrap().unwrap();
+
+        assert_ne!(ticket, some_ticket);
+        assert!(hash_heuristic(&ticket.human_readable()));
+    }
+
+    /*  Create a directory, and then call get_file_ticket, check result.
+        Represent the known timestamp the same as when the directory was
+        created, thereby invoking the timestamp optimization.  Exepct the
+        ticket not to update beacuse of the optimization. */
+    #[test]
+    fn blob_test_get_file_ticket_directory_timestamp_optimization()
+    {
+        let mut system = FakeSystem::new(11); // Set the clock to 11
+        system.create_dir("things").unwrap();
+
+        let some_ticket = TicketFactory::from_str("some content").result();
+
+        // Pass the same timestamp, so the optimization will apply.
+        let ticket = get_file_ticket(
+            &system,
+            "things",
+            &FileState::new(some_ticket.clone(), 11)).unwrap().unwrap();
+
+        assert_eq!(ticket, some_ticket);
+        assert!(hash_heuristic(&ticket.human_readable()));
     }
 
     #[test]
