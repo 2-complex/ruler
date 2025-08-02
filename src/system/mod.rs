@@ -214,8 +214,8 @@ impl fmt::Display for SystemError
     }
 }
 
-/*  System abstracts the filesystem and command-line executor.  An implementation can appeal to the
-    real computer's file-system and command-line, or it can fake it for testing. */
+/*  System abstracts the filesystem and command-line executor.  An implementation can
+    use the real computer's file-system and command-line, or it can fake it for testing. */
 pub trait System: Clone + Send + Sync
 {
     type File: io::Read + io::Write + fmt::Debug + Send;
@@ -240,9 +240,15 @@ pub trait System: Clone + Send + Sync
     fn rename(&mut self, from: &str, to: &str) -> Result<(), SystemError>;
 
     fn get_modified(&self, path: &str) -> Result<u64, SystemError>;
-    fn get_modified_timestamp_recursive() -> Result<u64, SystemError>
+    fn get_timestamp_recursive(&self, path: &str) -> Result<u64, SystemError>
     {
-        Ok(0) //TODO
+        let mut timestamp = self.get_modified(path)?;
+        for name in self.list_dir(path)?
+        {
+            timestamp = std::cmp::max(timestamp,
+                self.get_timestamp_recursive(&format!("{}/{}", path, name))?);
+        }
+        Ok(timestamp)
     }
 
     fn is_executable(&self, path: &str) -> Result<bool, SystemError>;

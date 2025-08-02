@@ -273,7 +273,6 @@ impl Node
         -> Result<&Node, NodeError>
     {
         let mut node = self;
-
         for component in dir_components.iter()
         {
             node = match node
@@ -287,13 +286,9 @@ impl Node
                         None => return Err(NodeError::DirectoryNotFound(component.to_string())),
                     }
                 },
-                Node::ErrorFile(error) =>
-                {
-                    return Err(NodeError::Error(error.clone()));
-                }
+                Node::ErrorFile(error) => return Err(NodeError::Error(error.clone())),
             }
         }
-
         return Ok(node)
     }
 
@@ -316,18 +311,7 @@ impl Node
                 Node::ErrorFile(error) => return Err(NodeError::Error(error.clone())),
             }
         }
-
         return Ok(node)
-    }
-
-    fn get_dir_map_mut(&mut self, dir_components : &Vec<&str>) -> Result<&mut HashMap<String, Node>, NodeError>
-    {
-        match self.get_node_mut(dir_components)?
-        {
-            Node::File(_) => Err(NodeError::Weird),
-            Node::Dir(dir_info) => Ok(&mut dir_info.name_to_node),
-            Node::ErrorFile(error) => Err(NodeError::Error(error.clone())),
-        }
     }
 
     fn get_dir_map(&self, dir_components : &Vec<&str>) -> Result<&HashMap<String, Node>, NodeError>
@@ -340,19 +324,30 @@ impl Node
         }
     }
 
+    fn get_dir_info_mut(&mut self, dir_components : &Vec<&str>) -> Result<&mut DirInfo, NodeError>
+    {
+        match self.get_node_mut(dir_components)?
+        {
+            Node::File(_) => Err(NodeError::Weird),
+            Node::Dir(dir_info) => Ok(dir_info),
+            Node::ErrorFile(error) => Err(NodeError::Error(error.clone())),
+        }
+    }
+
     pub fn create_file(&mut self, path: &str, content : Content, timestamp : u64) -> Result<Content, NodeError>
     {
         let (dir_components, name) = to_node_error(get_dir_path_and_name(path))?;
-        let dir_map_mut = self.get_dir_map_mut(&dir_components)?;
+        let dir_info = self.get_dir_info_mut(&dir_components)?;
 
-        match dir_map_mut.get(name)
+        match dir_info.name_to_node.get(name)
         {
             None => {},
             Some(Node::File(_)) => {},
             _ => return Err(NodeError::CreateOverExisting),
         }
 
-        dir_map_mut.insert(name.to_string(), Node::File(
+        dir_info.timestamp = timestamp;
+        dir_info.name_to_node.insert(name.to_string(), Node::File(
             FileInfo::new(Metadata::new(timestamp), content.clone())));
 
         Ok(content)
@@ -361,39 +356,39 @@ impl Node
     pub fn create_dir(&mut self, path: &str, timestamp : u64) -> Result<(), NodeError>
     {
         let (dir_components, name) = to_node_error(get_dir_path_and_name(path))?;
-        let dir_map_mut = self.get_dir_map_mut(&dir_components)?;
+        let dir_info = self.get_dir_info_mut(&dir_components)?;
 
-        match dir_map_mut.get(name)
+        match dir_info.name_to_node.get(name)
         {
             None => {},
             Some(Node::Dir(_)) => {},
             _ => return Err(NodeError::CreateOverExisting),
         }
 
-        dir_map_mut.insert(name.to_string(), Node::Dir(DirInfo::new(timestamp, HashMap::new())));
+        dir_info.timestamp = timestamp;
+        dir_info.name_to_node.insert(name.to_string(), Node::Dir(DirInfo::new(timestamp, HashMap::new())));
         Ok(())
     }
 
     pub fn create_error_file(&mut self, path: &str, error: SystemError) -> Result<(), NodeError>
     {
         let (dir_components, name) = to_node_error(get_dir_path_and_name(path))?;
-        let dir_map_mut = self.get_dir_map_mut(&dir_components)?;
+        let dir_info = self.get_dir_info_mut(&dir_components)?;
 
-        match dir_map_mut.get(name)
+        match dir_info.name_to_node.get(name)
         {
             None => {},
             Some(Node::ErrorFile(_)) => {},
             _ => return Err(NodeError::CreateOverExisting),
         }
 
-        dir_map_mut.insert(name.to_string(), Node::ErrorFile(error));
+        dir_info.name_to_node.insert(name.to_string(), Node::ErrorFile(error));
         Ok(())
     }
 
-    pub fn remove_file(&mut self, path: &str) -> Result<(), NodeError>
+    pub fn remove_file(&mut self, path: &str, timestamp : u64) -> Result<(), NodeError>
     {
         let (dir_components, name) = to_node_error(get_dir_path_and_name(path))?;
-
         match self.get_node_mut(&dir_components)?
         {
             Node::File(_) => match dir_components.last()
@@ -401,11 +396,15 @@ impl Node
                 Some(last) => return Err(NodeError::FileInPlaceOfDirectory(last.to_string())),
                 None => return Err(NodeError::Weird),
             },
-            Node::Dir(dir_info) => match dir_info.name_to_node.remove(name)
+            Node::Dir(dir_info) => {match dir_info.name_to_node.remove(name)
             {
                 Some(node) => match node
                 {
-                    Node::File(_) => Ok(()),
+                    Node::File(_) => 
+                    {
+                        dir_info.timestamp = timestamp;
+                        Ok(())
+                    },
                     Node::Dir(_) => 
                     {
                         dir_info.name_to_node.insert(name.to_string(), node);
@@ -414,26 +413,30 @@ impl Node
                     Node::ErrorFile(error) => Err(NodeError::Error(error.clone()))
                 },
                 None => Err(NodeError::RemoveNonExistentFile)
-            },
+            }},
             Node::ErrorFile(error) => Err(NodeError::Error(error.clone()))
         }
     }
 
-    pub fn remove_dir(&mut self, path: &str) -> Result<(), NodeError>
+    pub fn remove_dir(&mut self, path : &str, timestamp : u64) -> Result<(), NodeError>
     {
         let (dir_components, name) = to_node_error(get_dir_path_and_name(path))?;
 
-        let name_to_node = self.get_dir_map_mut(&dir_components)?;
-        match name_to_node.remove(name)
+        let dir_info = self.get_dir_info_mut(&dir_components)?;
+        match dir_info.name_to_node.remove(name)
         {
             Some(node) => match node
             {
                 Node::File(_) => 
                 {
-                    name_to_node.insert(name.to_string(), node);
+                    dir_info.name_to_node.insert(name.to_string(), node);
                     Err(NodeError::ExpectedDirFoundFile)
                 }
-                Node::Dir(_) => Ok(()),
+                Node::Dir(_) => 
+                {
+                    dir_info.timestamp = timestamp;
+                    Ok(())
+                },
                 Node::ErrorFile(error) => Err(NodeError::Error(error.clone())),
             },
             None => Err(NodeError::RemoveNonExistentDir)
@@ -454,24 +457,24 @@ impl Node
         let (from_dir_components, from_name) = to_node_error(get_dir_path_and_name(from))?;
         let (to_dir_components, to_name) = to_node_error(get_dir_path_and_name(to))?;
 
-        let from_name_to_node = self.get_dir_map_mut(&from_dir_components)?;
+        let from_dir_info = self.get_dir_info_mut(&from_dir_components)?;
 
-        match from_name_to_node.remove(from_name)
+        match from_dir_info.name_to_node.remove(from_name)
         {
             Some(moving_node) =>
             {
-                match self.get_dir_map_mut(&to_dir_components)
+                match self.get_dir_info_mut(&to_dir_components)
                 {
-                    Ok(to_name_to_node) =>
+                    Ok(to_dir_info) =>
                     {
-                        to_name_to_node.insert(to_name.to_string(), moving_node);
+                        to_dir_info.name_to_node.insert(to_name.to_string(), moving_node);
                         Ok(())
                     }
 
                     Err(_) =>
                     {
-                        let from_name_to_node = self.get_dir_map_mut(&from_dir_components)?;
-                        from_name_to_node.insert(from_name.to_string(), moving_node);
+                        let dir_info = self.get_dir_info_mut(&from_dir_components)?;
+                        dir_info.name_to_node.insert(from_name.to_string(), moving_node);
                         Err(NodeError::RenameToNonExistent)
                     }
                 }
@@ -905,7 +908,7 @@ impl System for FakeSystem
 
     fn remove_file(&mut self, path: &str) -> Result<(), SystemError>
     {
-        match self.get_root_node_mut().remove_file(path)
+        match self.get_root_node_mut().remove_file(path, self.current_timestamp)
         {
             Ok(_) => Ok(()),
             Err(error) => Err(convert_node_error_to_system_error(error)),
@@ -914,7 +917,7 @@ impl System for FakeSystem
 
     fn remove_dir(&mut self, path: &str) -> Result<(), SystemError>
     {
-        match self.get_root_node_mut().remove_dir(path)
+        match self.get_root_node_mut().remove_dir(path, self.current_timestamp)
         {
             Ok(_) => Ok(()),
             Err(error) => Err(convert_node_error_to_system_error(error)),
@@ -1064,7 +1067,7 @@ mod test
     }
 
     #[test]
-    fn error_is_not_file_or_directory()
+    fn error_file_is_file_or_directory()
     {
         let node = Node::ErrorFile(SystemError::NotFound);
         assert!(node.is_file(""));
@@ -1085,7 +1088,7 @@ mod test
         let mut node = Node::empty_dir(2);
         node.create_file("file.txt", Content::new(b"some text".to_vec()), 0).unwrap();
         assert!(node.is_file("file.txt"));
-        node.remove_file("file.txt").unwrap();
+        node.remove_file("file.txt", 3).unwrap();
         assert!(!node.is_file("file.txt"));
         assert!(!node.is_dir("file.txt"));
     }
@@ -1096,7 +1099,7 @@ mod test
         let mut node = Node::empty_dir(2);
         node.create_dir("images", 2).unwrap();
         assert!(node.is_dir("images"));
-        node.remove_dir("images").unwrap();
+        node.remove_dir("images", 3).unwrap();
         assert!(!node.is_file("images"));
         assert!(!node.is_dir("images"));
     }
@@ -1107,7 +1110,7 @@ mod test
         let mut node = Node::empty_dir(3);
         node.create_error_file("photos", SystemError::PathNotUnicode).unwrap();
         assert!(!node.is_dir("photos"));
-        assert_eq!(node.remove_dir("photos"), Err(NodeError::Error(SystemError::PathNotUnicode)));
+        assert_eq!(node.remove_dir("photos", 4), Err(NodeError::Error(SystemError::PathNotUnicode)));
         assert!(!node.is_file("photos"));
         assert!(!node.is_dir("photos"));
     }
@@ -1118,7 +1121,7 @@ mod test
         let mut node = Node::empty_dir(5);
         node.create_error_file("photos", SystemError::PathNotUnicode).unwrap();
         assert!(!node.is_dir("photos"));
-        assert_eq!(node.remove_dir("photos"), Err(NodeError::Error(SystemError::PathNotUnicode)));
+        assert_eq!(node.remove_dir("photos", 6), Err(NodeError::Error(SystemError::PathNotUnicode)));
         assert!(!node.is_file("photos"));
         assert!(!node.is_dir("photos"));
     }
@@ -1240,7 +1243,7 @@ mod test
     fn remove_non_existent_file_errors()
     {
         let mut node = Node::empty_dir(2);
-        match node.remove_file("file-not-there.txt")
+        match node.remove_file("file-not-there.txt", 3)
         {
             Ok(_) => panic!("Unexpected sucess removing non-existent file"),
             Err(error) => match error
@@ -1256,7 +1259,7 @@ mod test
     fn remove_non_existent_dir_errors()
     {
         let mut node = Node::empty_dir(1);
-        assert_eq!(node.remove_dir("dir-not-there"), Err(NodeError::RemoveNonExistentDir));
+        assert_eq!(node.remove_dir("dir-not-there", 2), Err(NodeError::RemoveNonExistentDir));
         assert!(!node.is_file("some text"));
     }
 
@@ -1449,6 +1452,56 @@ mod test
         system.time_passes(6);
         write_str_to_file(&mut system, "cars.txt", "cantaloupe").unwrap();
         assert_eq!(system.get_modified("cars.txt").unwrap(), 11);
+    }
+
+    #[test]
+    fn get_modified_on_directory_basic()
+    {
+        let mut system = FakeSystem::new(32);
+        system.create_dir("stuff").unwrap();
+        assert_eq!(system.get_modified("stuff").unwrap(), 32);
+    }
+
+    #[test]
+    fn get_modified_on_directory_after_adding_file()
+    {
+        let mut system = FakeSystem::new(10);
+        system.create_dir("stuff").unwrap();
+        system.time_passes(1);
+        system.create_file("stuff/thing").unwrap();
+        assert_eq!(system.get_modified("stuff").unwrap(), 11);
+    }
+
+    #[test]
+    fn get_modified_on_directory_after_removing_file()
+    {
+        let mut system = FakeSystem::new(10);
+        system.create_dir("stuff").unwrap();
+        system.create_file("stuff/thing").unwrap();
+        system.time_passes(1);
+        system.remove_file("stuff/thing").unwrap();
+        assert_eq!(system.get_modified("stuff").unwrap(), 11);
+    }
+
+    #[test]
+    fn get_modified_on_directory_after_adding_subdirectory()
+    {
+        let mut system = FakeSystem::new(10);
+        system.create_dir("stuff").unwrap();
+        system.time_passes(1);
+        system.create_dir("stuff/thing").unwrap();
+        assert_eq!(system.get_modified("stuff").unwrap(), 11);
+    }
+
+    #[test]
+    fn get_modified_on_directory_after_removing_subdirectory()
+    {
+        let mut system = FakeSystem::new(10);
+        system.create_dir("stuff").unwrap();
+        system.create_dir("stuff/thing").unwrap();
+        system.time_passes(1);
+        system.remove_dir("stuff/thing").unwrap();
+        assert_eq!(system.get_modified("stuff").unwrap(), 11);
     }
 
     #[test]
