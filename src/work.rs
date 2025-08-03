@@ -1235,7 +1235,6 @@ mod test
         cache.open(&TicketFactory::from_str("Roses are red\nViolets are blue\n").result()).unwrap();
     }
 
-
     #[test]
     fn one_target_already_correct_according_to_timestamp()
     {

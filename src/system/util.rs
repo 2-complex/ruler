@@ -15,8 +15,9 @@ use std::io::Write;
 use std::str::from_utf8;
 use std::fmt;
 
-/*  Takes a System, a path as a &str and content, and content as a &str.  Writes content to the file.
-    If system fails, forwards the system error.  If file-io fails, forwards the std::io::Error. */
+/*  Takes a System, a path as a &str and content, and content as a &str.
+    Writes content to the file. If system fails, forwards the system error.
+    If file-io fails, forwards the std::io::Error. */
 #[cfg(test)]
 pub fn write_str_to_file
 <

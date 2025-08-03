@@ -541,7 +541,7 @@ pub fn get_actual_file_state<SystemType: System>
 -> Result<FileState, GetCurrentFileInfoError>
 {
     let timestamp =
-    match system.get_modified(path)
+    match system.get_timestamp_recursive(path)
     {
         Ok(timestamp) => timestamp,
 
