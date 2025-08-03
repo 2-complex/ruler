@@ -1571,11 +1571,7 @@ mod test
         system.create_dir("images").unwrap();
         system.time_passes(1);
         system.create_file("images/kitten.jpg").unwrap();
-
-        let directory_timestamp = system.get_timestamp_recursive("images").unwrap();
         let recursive_timestamp = system.get_timestamp_recursive("images").unwrap();
-
-        assert_eq!(directory_timestamp, 15);
         assert_eq!(recursive_timestamp, 15);
     }
 
