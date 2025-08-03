@@ -243,10 +243,13 @@ pub trait System: Clone + Send + Sync
     fn get_timestamp_recursive(&self, path: &str) -> Result<u64, SystemError>
     {
         let mut timestamp = self.get_modified(path)?;
-        for name in self.list_dir(path)?
+        if self.is_file(path)
         {
-            timestamp = std::cmp::max(timestamp,
-                self.get_timestamp_recursive(&format!("{}/{}", path, name))?);
+            return Ok(timestamp);
+        }
+        for entry in self.list_dir(path)?
+        {
+            timestamp = std::cmp::max(timestamp, self.get_timestamp_recursive(&entry)?);
         }
         Ok(timestamp)
     }

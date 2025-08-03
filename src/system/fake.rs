@@ -318,7 +318,7 @@ impl Node
     {
         match self.get_node(dir_components)?
         {
-            Node::File(_) => Err(NodeError::Weird),
+            Node::File(_) => panic!("Attmept to get_dir_map for file"),
             Node::Dir(dir_info) => Ok(&dir_info.name_to_node),
             Node::ErrorFile(error) => Err(NodeError::Error(error.clone())),
         }
@@ -341,12 +341,14 @@ impl Node
 
         match dir_info.name_to_node.get(name)
         {
-            None => {},
+            None =>
+            {
+                dir_info.timestamp = timestamp;
+            },
             Some(Node::File(_)) => {},
             _ => return Err(NodeError::CreateOverExisting),
         }
 
-        dir_info.timestamp = timestamp;
         dir_info.name_to_node.insert(name.to_string(), Node::File(
             FileInfo::new(Metadata::new(timestamp), content.clone())));
 
@@ -452,7 +454,7 @@ impl Node
         Ok(result)
     }
 
-    pub fn rename(&mut self, from: &str, to: &str) -> Result<(), NodeError>
+    pub fn rename(&mut self, from: &str, to: &str, timestamp : u64) -> Result<(), NodeError>
     {
         let (from_dir_components, from_name) = to_node_error(get_dir_path_and_name(from))?;
         let (to_dir_components, to_name) = to_node_error(get_dir_path_and_name(to))?;
@@ -467,6 +469,7 @@ impl Node
                 {
                     Ok(to_dir_info) =>
                     {
+                        to_dir_info.timestamp = timestamp;
                         to_dir_info.name_to_node.insert(to_name.to_string(), moving_node);
                         Ok(())
                     }
@@ -935,7 +938,7 @@ impl System for FakeSystem
 
     fn rename(&mut self, from: &str, to: &str) -> Result<(), SystemError>
     {
-        match self.get_root_node_mut().rename(from, to)
+        match self.get_root_node_mut().rename(from, to, self.current_timestamp)
         {
             Ok(_) => Ok(()),
             Err(error) => Err(convert_node_error_to_system_error(error)),
@@ -1271,7 +1274,7 @@ mod test
         node.create_dir("images", 1).unwrap();
         assert!(node.is_file("kitten.jpg"));
         assert!(node.is_dir("images"));
-        node.rename("kitten.jpg", "images/kitten.jpg").unwrap();
+        node.rename("kitten.jpg", "images/kitten.jpg", 2).unwrap();
         assert!(!node.is_file("kitten.jpg"));
         assert!(node.is_dir("images"));
         assert!(node.is_file("images/kitten.jpg"));
@@ -1287,7 +1290,7 @@ mod test
         assert!(node.is_file("images/kitten.jpg"));
         assert!(!node.is_dir("images2"));
         assert!(!node.is_file("images2/kitten.jpg"));
-        node.rename("images", "images2").unwrap();
+        node.rename("images", "images2", 2).unwrap();
         assert!(!node.is_dir("images"));
         assert!(!node.is_file("images/kitten.jpg"));
         assert!(node.is_dir("images2"));
@@ -1303,7 +1306,7 @@ mod test
         assert!(node.is_file("kitten.jpg"));
         assert!(node.is_dir("images"));
         assert!(!node.is_file("images/kitten.jpg"));
-        node.rename("kitten.jpg", "images/kitten.jpg").unwrap();
+        node.rename("kitten.jpg", "images/kitten.jpg", 4).unwrap();
         assert!(!node.is_file("kitten.jpg"));
         assert!(node.is_dir("images"));
         assert!(node.is_file("images/kitten.jpg"));
@@ -1455,6 +1458,17 @@ mod test
     }
 
     #[test]
+    fn renaming_keeps_modified_timestamp()
+    {
+        let mut system = FakeSystem::new(0);
+        system.time_passes(5);
+        system.create_file("cars.txt").unwrap();
+        system.time_passes(6);
+        system.rename("cars.txt", "cars2.txt").unwrap();
+        assert_eq!(system.get_modified("cars2.txt").unwrap(), 5);
+    }
+
+    #[test]
     fn get_modified_on_directory_basic()
     {
         let mut system = FakeSystem::new(32);
@@ -1484,6 +1498,17 @@ mod test
     }
 
     #[test]
+    fn get_modified_on_directory_after_renaming_file()
+    {
+        let mut system = FakeSystem::new(10);
+        system.create_dir("stuff").unwrap();
+        system.create_file("stuff/thing").unwrap();
+        system.time_passes(1);
+        system.rename("stuff/thing", "stuff/object").unwrap();
+        assert_eq!(system.get_modified("stuff").unwrap(), 11);
+    }
+
+    #[test]
     fn get_modified_on_directory_after_adding_subdirectory()
     {
         let mut system = FakeSystem::new(10);
@@ -1502,6 +1527,114 @@ mod test
         system.time_passes(1);
         system.remove_dir("stuff/thing").unwrap();
         assert_eq!(system.get_modified("stuff").unwrap(), 11);
+    }
+
+    #[test]
+    fn get_modified_on_directory_after_renaming_subdirectory()
+    {
+        let mut system = FakeSystem::new(10);
+        system.create_dir("stuff").unwrap();
+        system.create_dir("stuff/thing").unwrap();
+        system.time_passes(1);
+        system.rename("stuff/thing", "stuff/things").unwrap();
+        assert_eq!(system.get_modified("stuff").unwrap(), 11);
+    }
+
+    #[test]
+    fn get_timestamp_recursive_on_file()
+    {
+        let mut system = FakeSystem::new(32);
+        system.create_file("data").unwrap();
+        let recursive_timestamp = system.get_timestamp_recursive("data").unwrap();
+        let timestamp = system.get_timestamp_recursive("data").unwrap();
+
+        assert_eq!(recursive_timestamp, 32);
+        assert_eq!(timestamp, recursive_timestamp);
+    }
+
+    #[test]
+    fn get_timetstamp_recursive_on_empty_directory()
+    {
+        let mut system = FakeSystem::new(14);
+        system.create_dir("images").unwrap();
+        let recursive_timestamp = system.get_timestamp_recursive("images").unwrap();
+        let timestamp = system.get_modified("images").unwrap();
+
+        assert_eq!(recursive_timestamp, 14);
+        assert_eq!(timestamp, recursive_timestamp);
+    }
+
+    #[test]
+    fn get_timetstamp_recursive_on_directory_with_one_file()
+    {
+        let mut system = FakeSystem::new(14);
+        system.create_dir("images").unwrap();
+        system.time_passes(1);
+        system.create_file("images/kitten.jpg").unwrap();
+
+        let directory_timestamp = system.get_timestamp_recursive("images").unwrap();
+        let recursive_timestamp = system.get_timestamp_recursive("images").unwrap();
+
+        assert_eq!(directory_timestamp, 15);
+        assert_eq!(recursive_timestamp, 15);
+    }
+
+    #[test]
+    fn get_timetstamp_recursive_on_directory_with_one_file_then_write()
+    {
+        let mut system = FakeSystem::new(14);
+        system.create_dir("images").unwrap();
+        system.create_file("images/kitten.jpg").unwrap();
+        system.time_passes(1);
+        write_str_to_file(&mut system, "images/kitten.jpg", "image content").unwrap();
+
+        let directory_timestamp = system.get_modified("images").unwrap();
+        let recursive_timestamp = system.get_timestamp_recursive("images").unwrap();
+
+        assert_eq!(directory_timestamp, 14);
+        assert_eq!(recursive_timestamp, 15);
+    }
+
+    #[test]
+    fn get_timetstamp_non_existent_error_basic()
+    {
+        let mut system = FakeSystem::new(14);
+        system.create_dir("images").unwrap();
+        system.create_dir("images/cats").unwrap();
+        assert_eq!(
+            system.get_modified("images/cats/monorailcat.jpg"),
+            Err(SystemError::NotFound));
+    }
+
+    #[test]
+    fn get_timetstamp_non_existent_error_deep()
+    {
+        let mut system = FakeSystem::new(14);
+        system.create_dir("images").unwrap();
+        assert_eq!(
+            system.get_modified("images/cats/monorailcat.jpg"),
+            Err(SystemError::NotFound));
+    }
+
+    #[test]
+    fn get_timetstamp_recursive_deep()
+    {
+        let mut system = FakeSystem::new(14);
+        system.create_dir("images").unwrap();
+        system.time_passes(1);
+        system.create_dir("images/cats").unwrap();
+        system.time_passes(1);
+        system.create_file("images/cats/monorailcat.jpg").unwrap();
+        system.time_passes(1);
+        write_str_to_file(&mut system, "images/cats/monorailcat.jpg", "image content").unwrap();
+
+        let directory_timestamp = system.get_modified("images").unwrap();
+        let subdirectory_timestamp = system.get_modified("images/cats").unwrap();
+        let recursive_timestamp = system.get_timestamp_recursive("images/cats/monorailcat.jpg").unwrap();
+
+        assert_eq!(directory_timestamp, 15);
+        assert_eq!(subdirectory_timestamp, 16);
+        assert_eq!(recursive_timestamp, 17);
     }
 
     #[test]
