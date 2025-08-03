@@ -481,7 +481,7 @@ pub fn get_file_ticket<SystemType: System>
 {
     /*  The body of this match looks like it has unhandled errors.  What's happening is:
         if any error occurs with the timestamp optimization, we skip the optimization. */
-    match system.get_modified(&path)
+    match system.get_timestamp_recursive(&path)
     {
         Ok(timestamp) =>
         {
@@ -791,6 +791,7 @@ mod test
     {
         write_str_to_file,
     };
+    use crate::Ticket;
 
     /*  Create a file, and make FileInfo that matches the reality of that file.
         Call get_actual_file_state and check that the returned data matches. */
@@ -1056,18 +1057,13 @@ mod test
     #[test]
     fn blob_test_timestamp_optimization()
     {
-        // Set the clock to 11
-        let mut system = FakeSystem::new(11);
+        let mut system = FakeSystem::new(11); // Set the clock to 11
 
         let content = "int main(){printf(\"my game\"); return 0;}";
         let content_ticket = TicketFactory::from_str(content).result();
 
         // Meanwhile, in the filesystem put some incorrect rubbish in game.cpp
-        match write_str_to_file(&mut system, "game.cpp", "some rubbish")
-        {
-            Ok(_) => {},
-            Err(why) => panic!("Failed to make fake file: {}", why),
-        }
+        write_str_to_file(&mut system, "game.cpp", "some rubbish").unwrap();
 
         // Then get the ticket for the current target file, passing the FileInfo
         // with timestamp 11.  Check that it gives the ticket for the C++ code.
@@ -1169,6 +1165,35 @@ mod test
 
         assert_eq!(ticket, some_ticket);
         assert!(hash_heuristic(&ticket.human_readable()));
+    }
+
+    /*  Create a directory with a file in it, then store the ticket for the directory.
+        Let time pass, then modify the contents of the file inside the directory.
+        Call get_file_ticket with the timestamp from when the directory was created
+        thereby not invoking the timestamp optimization.  Exepct the ticket to update
+        because the recursive timestamp of the directory is up-to-date with the file. */
+    #[test]
+    fn blob_test_get_file_ticket_directory_containing_file()
+    {
+        let mut system = FakeSystem::new(11);
+        system.create_dir("fruit").unwrap();
+        system.create_file("fruit/apple").unwrap();
+        let before = Ticket::from_path(&system, "fruit").unwrap().unwrap();
+        system.time_passes(1);
+        write_str_to_file(&mut system, "fruit/apple", "five seeds").unwrap();
+
+        let after = Ticket::from_path(&system, "fruit").unwrap().unwrap();
+        assert_ne!(before, after);
+        assert!(hash_heuristic(&before.human_readable()));
+        assert!(hash_heuristic(&after.human_readable()));
+
+        let ticket = get_file_ticket(
+            &system,
+            "fruit",
+            &FileState::new(before.clone(), 11)
+        ).unwrap().unwrap();
+
+        assert_eq!(after, ticket);
     }
 
     #[test]
