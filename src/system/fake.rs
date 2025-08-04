@@ -150,8 +150,6 @@ enum NodeError
     RenameToNonExistent,
     CreateOverExisting,
     IsExecutableOnDirectory,
-    Error(SystemError),
-    Weird,
 }
 
 
@@ -196,12 +194,6 @@ impl fmt::Display for NodeError
 
             NodeError::IsExecutableOnDirectory
                 => write!(formatter, "Attempt to ask whether a directory is an executable"),
-
-            NodeError::Error(error)
-                => write!(formatter, "Node error representing system error: {}", error),
-
-            NodeError::Weird
-                => write!(formatter, "Weird error, this happens when internal logic fails in a way the programmer didn't think was possible"),
         }
     }
 }
@@ -328,7 +320,7 @@ impl Node
     {
         match self.get_node_mut(dir_components)?
         {
-            Node::File(_) => Err(NodeError::Weird),
+            Node::File(_) => panic!("Attmept to get_dir_info_mut for file"),
             Node::Dir(dir_info) => Ok(dir_info),
             Node::ErrorFile(error) => Err(NodeError::Error(error.clone())),
         }
@@ -396,7 +388,10 @@ impl Node
             Node::File(_) => match dir_components.last()
             {
                 Some(last) => return Err(NodeError::FileInPlaceOfDirectory(last.to_string())),
-                None => return Err(NodeError::Weird),
+                None =>
+                {
+                    panic!("In remove_file, a File node was found at the root path?");
+                },
             },
             Node::Dir(dir_info) => {match dir_info.name_to_node.remove(name)
             {
@@ -448,8 +443,7 @@ impl Node
     pub fn list_dir(&self, path: &str) -> Result<Vec<String>, NodeError>
     {
         let mut result : Vec<String> =
-            self.get_dir_map(&get_components(path))?.clone().into_keys().map(
-                |p|{format!("{}/{}", path, p)}).collect();
+            self.get_dir_map(&get_components(path))?.clone().into_keys().collect();
         result.sort();
         Ok(result)
     }
@@ -687,12 +681,6 @@ fn convert_node_error_to_system_error(error : NodeError) -> SystemError
 
         NodeError::IsExecutableOnDirectory
             => panic!("Attempt to ask is executable on directory"),
-
-        NodeError::Error(system_error)
-            => system_error,
-
-        NodeError::Weird
-            => SystemError::Weird,
     }
 }
 
@@ -1145,7 +1133,7 @@ mod test
         node.create_dir("images", 10).unwrap();
         node.create_dir("images/more_images", 10).unwrap();
         let list = node.list_dir("images").unwrap();
-        assert_eq!(list, vec!["images/more_images".to_string()]);
+        assert_eq!(list, vec!["more_images".to_string()]);
     }
 
     #[test]
@@ -1212,7 +1200,7 @@ mod test
         node.create_dir("images", 0).unwrap();
         node.create_file("images/mydog.jpg", Content::new(b"jpeginternals".to_vec()), 0).unwrap();
         let list = node.list_dir("images").unwrap();
-        assert_eq!(list, vec!["images/mydog.jpg".to_string()]);
+        assert_eq!(list, vec!["mydog.jpg".to_string()]);
     }
 
     /*  This test is supposed to check whether the retured list of paths is sorted.  It does this by
@@ -1233,13 +1221,13 @@ mod test
         node.create_file("images/A.txt", Content::new(b"A".to_vec()), 0).unwrap();
         let list = node.list_dir("images").unwrap();
         assert_eq!(list, vec![
-            "images/A.txt".to_string(),
-            "images/B.txt".to_string(),
-            "images/C.txt".to_string(),
-            "images/D.txt".to_string(),
-            "images/E.txt".to_string(),
-            "images/F.txt".to_string(),
-            "images/G.txt".to_string()]);
+            "A.txt".to_string(),
+            "B.txt".to_string(),
+            "C.txt".to_string(),
+            "D.txt".to_string(),
+            "E.txt".to_string(),
+            "F.txt".to_string(),
+            "G.txt".to_string()]);
     }
 
     #[test]
@@ -1313,13 +1301,29 @@ mod test
     }
 
     #[test]
-    fn system_add_remove_file()
+    fn system_add_remove_file_basic()
     {
         let mut system = FakeSystem::new(10);
         system.create_file("file.txt").unwrap();
         assert!(system.is_file("file.txt"));
         system.remove_file("file.txt").unwrap();
         assert!(!system.is_file("file.txt"));
+        assert!(!system.is_dir("file.txt"));
+    }
+
+    #[test]
+    fn system_add_remove_file_using_command()
+    {
+        let mut system = FakeSystem::new(10);
+        system.create_file("file.txt").unwrap();
+        assert!(system.is_file("file.txt"));
+        system.execute_command(to_command_script(vec![
+            "rm".to_string(),
+            "file.txt".to_string()
+        ]));
+
+        assert!(!system.is_file("file.txt"));
+        assert!(!system.exists("file.txt"));
         assert!(!system.is_dir("file.txt"));
     }
 

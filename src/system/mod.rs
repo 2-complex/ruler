@@ -151,7 +151,7 @@ pub enum SystemError
     ModifiedInvalid,
     CreateOverExisting,
     CommandExecutationFailed(String),
-    Weird,
+    Weird(String),
 }
 
 impl fmt::Display for SystemError
@@ -208,8 +208,8 @@ impl fmt::Display for SystemError
             SystemError::CommandExecutationFailed(message)
                 => write!(formatter, "{}", message),
 
-            SystemError::Weird
-                => write!(formatter, "Weird error, this happens when internal logic fails in a way the programmer didn't think was possible"),
+            SystemError::Weird(message)
+                => write!(formatter, "Weird error, this happens when internal logic fails in a way the programmer didn't think was possible.  Message: {}", message),
         }
     }
 }

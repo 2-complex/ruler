@@ -905,6 +905,7 @@ mod test
     {
         SysCache,
         OpenError,
+        RestoreResult
     };
     use crate::system::util::
     {
@@ -1278,6 +1279,9 @@ poem.txt
 :
 ";
         let mut system = FakeSystem::new(10);
+        system.create_dir(".ruler").unwrap();
+        system.create_dir(".ruler/cache").unwrap();
+        let mut cache = SysCache::new(system.clone(), ".ruler/cache").unwrap();
 
         write_str_to_file(&mut system, "verse1.txt", "Roses are red.\n").unwrap();
         write_str_to_file(&mut system, "verse2.txt", "Violets are blue.\n").unwrap();
@@ -1288,7 +1292,6 @@ poem.txt
             &mut EmptyPrinter::new(),
             make_default_build_params()
         ).unwrap();
-
         system.time_passes(1);
 
         assert_eq!(read_file_to_string(&mut system, "poem.txt").unwrap(),
@@ -1302,12 +1305,12 @@ poem.txt
             &mut EmptyPrinter::new(),
             make_default_build_params()
         ).unwrap();
+        system.time_passes(1);
 
         assert_eq!(read_file_to_string(&mut system, "poem.txt").unwrap(),
             "Roses are red.\nViolets are violet.\n");
 
-        let mut cache = SysCache::new(system.clone(), ".ruler/cache");
-        cache.restore_file(&ticket, "temp-poem.txt");
+        assert_eq!(cache.restore_file(&ticket, "temp-poem.txt"), RestoreResult::Done);
 
         assert_eq!(read_file_to_string(&mut system, "temp-poem.txt").unwrap(),
             "Roses are red.\nViolets are blue.\n");
@@ -1320,6 +1323,7 @@ poem.txt
             &mut EmptyPrinter::new(),
             make_default_build_params()
         ).unwrap();
+        system.time_passes(1);
 
         assert_eq!(read_file_to_string(&mut system, "poem.txt").unwrap(), "Roses are red.\nViolets are blue.\n");
     }

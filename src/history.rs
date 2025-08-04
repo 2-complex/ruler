@@ -139,6 +139,11 @@ impl RuleHistory
     {
         self.source_to_targets.get(source_ticket)
     }
+
+    pub fn get_source_to_targets(&self) -> HashMap<Ticket, FileStateVec>
+    {
+        return self.source_to_targets.clone()
+    }
 }
 
 impl fmt::Display for RuleHistory
@@ -176,6 +181,7 @@ pub struct History<SystemType : System>
 #[derive(Debug)]
 pub enum HistoryError
 {
+    CannotFindHistory,
     CannotReadRuleHistoryFile(String),
     CannotInterpretRuleHistoryFile(String),
     CannotSerializeRuleHistory(String),
@@ -190,6 +196,9 @@ impl fmt::Display for HistoryError
     {
         match self
         {
+            HistoryError::CannotFindHistory =>
+                write!(formatter, "Cannot find history"),
+
             HistoryError::CannotReadRuleHistoryFile(path) =>
                 write!(formatter, "Cannot read rule history file: {}", path),
 
@@ -246,7 +255,10 @@ impl<SystemType : System> History<SystemType>
         }
     }
 
-    /*  Retrive a RuleHisotry for a given rule.  If it can't openthe file, it just makes a new RuleHistory */
+    /*  Retrive a RuleHisotry for a given rule.
+
+        Currently, if the file does not open for any reason, this function returns a new RuleHistory.
+        Possible future improvement: scrutinze why, and error appropriately. */
     pub fn read_rule_history(&self, rule_ticket: &Ticket) -> Result<RuleHistory, HistoryError>
     {
         let system = &(*self.system_box);
@@ -259,7 +271,7 @@ impl<SystemType : System> History<SystemType>
             Err(_) => return Ok(RuleHistory::new()),
         };
 
-        let mut content = Vec::new();
+        let mut content = vec![];
         match file.read_to_end(&mut content)
         {
             Ok(_size) => {},
@@ -270,6 +282,16 @@ impl<SystemType : System> History<SystemType>
         {
             Ok(rule_history) => Ok(rule_history),
             Err(_) => Err(HistoryError::CannotInterpretRuleHistoryFile(rule_history_file_path)),
+        }
+    }
+
+    pub fn list(&self) -> Result<Vec<String>, HistoryError>
+    {
+        let system = &(*self.system_box);
+        match system.list_dir(&self.path)
+        {
+            Ok(result) => Ok(result),
+            Err(_) => Err(HistoryError::CannotFindHistory),
         }
     }
 }
