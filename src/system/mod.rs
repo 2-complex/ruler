@@ -152,7 +152,7 @@ pub enum SystemError
     CreateDirectoryOverExistingFile,
     CommandExecutationFailed(String),
     NotImplemented,
-    Weird,
+    Weird(String),
 }
 
 impl fmt::Display for SystemError
@@ -212,14 +212,15 @@ impl fmt::Display for SystemError
             SystemError::NotImplemented
                 => write!(formatter, "Attempt to perform an operation not currently implemented by fake system"),
 
-            SystemError::Weird
-                => write!(formatter, "Weird error, this happens when internal logic fails in a way the programmer didn't think was possible"),
+            SystemError::Weird(message)
+                => write!(formatter, "Weird error, this happens when internal logic fails in a way the programmer didn't think was possible.  Message: {}", message),
         }
     }
 }
 
 /*  System abstracts the filesystem and command-line executor.  An implementation can appeal to the
     real computer's file-system and command-line, or it can fake it for testing. */
+#[allow(dead_code)]
 pub trait System: Clone + Send + Sync
 {
     type File: io::Read + io::Write + fmt::Debug + Send;

@@ -6,6 +6,8 @@ use crate::system::
     CommandLineOutput,
 };
 use std::fs;
+use std::fs::ReadDir;
+use std::ffi::OsString;
 use std::io::ErrorKind;
 use std::path::Path;
 use std::path::PathBuf;
@@ -31,7 +33,7 @@ fn convert_io_error_to_system_error(error : std::io::Error) -> SystemError
     match error.kind()
     {
         ErrorKind::NotFound => SystemError::NotFound,
-        _ => SystemError::Weird,
+        _ => SystemError::Weird("Convert function expects io error NotFound, nothing else".to_string()),
     }
 }
 
@@ -75,18 +77,30 @@ fn to_path_buf(path: &str) -> PathBuf
     Path::new(".").join(path.split("/").map(|s|{s.to_string()}).collect::<PathBuf>())
 }
 
+fn to_file_name_str(os_string : OsString) -> Result<String, SystemError>
+{
+    match os_string.to_str()
+    {
+        Some(s) => Ok(s.to_string()),
+        None => return Err(SystemError::PathNotUnicode),
+    }
+}
+
+fn get_file_name(path : &Path) -> Result<String, SystemError>
+{
+    match path.components().last()
+    {
+        Some(filename_component) => to_file_name_str(filename_component.as_os_str().to_os_string()),
+        None => Err(SystemError::Weird("get_file_name expected path to have at least one component".to_string())),
+    }
+}
+
 fn to_path_str(path : &Path) -> Result<String, SystemError>
 {
     let mut result = Vec::new();
     for component in path.components()
     {
-        result.push(
-            match component.as_os_str().to_str()
-            {
-                Some(s) => s.to_string(),
-                None => return Err(SystemError::PathNotUnicode),
-            }
-        )
+        result.push(to_file_name_str(component.as_os_str().to_os_string())?);
     }
 
     match result.get(0)
@@ -99,10 +113,22 @@ fn to_path_str(path : &Path) -> Result<String, SystemError>
             }
             else
             {
-                Err(SystemError::Weird)
+                Err(SystemError::Weird("to_path_str expected an initial component of \".\".".to_string()))
             }
         }
-        _ => Err(SystemError::Weird)
+        None => Err(SystemError::Weird("to_path_str expected at least one component in path.components()".to_string()))
+    }
+}
+
+fn read_dir_convert_error(path: &str) -> Result<ReadDir, SystemError>
+{
+    match fs::read_dir(to_path_buf(path))
+    {
+        Ok(entries) => Ok(entries),
+        Err(error) =>
+        {
+            return Err(convert_io_error_to_system_error(error));
+        },
     }
 }
 
@@ -133,7 +159,17 @@ impl System for RealSystem
         match fs::create_dir(to_path_buf(path))
         {
             Ok(_) => Ok(()),
-            Err(error) => Err(convert_io_error_to_system_error(error)),  
+            Err(error) =>
+            {
+                if error.kind() == ErrorKind::AlreadyExists
+                {
+                    Ok(())
+                }
+                else
+                {
+                    Err(convert_io_error_to_system_error(error))
+                }
+            }
         }
     }
 
@@ -189,18 +225,22 @@ impl System for RealSystem
             Err(error) => return Err(convert_io_error_to_system_error(error))
         }
         {
-            result.push(
                 match dir_entry_opt
+            {
+                Ok(entry) =>
                 {
-                    Ok(entry) => to_path_str(&entry.path())?,
+                    let name = get_file_name(&entry.path())?;
+                    if ! name.starts_with(".")
+                {
+                        result.push(name);
+                    }
+                }
                     Err(error) =>
                     {
                         return Err(convert_io_error_to_system_error(error));
                     },
                 }
-            );
         }
-
         result.sort();
         Ok(result)
     }

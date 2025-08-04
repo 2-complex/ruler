@@ -97,11 +97,16 @@ pub fn init<SystemType : System>
             Ok(current_file_states) => current_file_states,
             Err(error) => return Err(InitDirectoryError::FailedToReadCurrentFileStates(error)),
         },
-        cache : SysCache::new(system.clone(), &cache_path),
+        cache : match SysCache::new(system.clone(), &cache_path)
+        {
+            Ok(cache) => cache,
+            Err(system_error) => return Err(InitDirectoryError::FailedToCreateCacheDirectory(system_error)),
+        },
         history : History::new(system.clone(), &history_path),
     })
 }
 
+#[derive(Clone)]
 pub struct Elements<SystemType : System>
 {
     pub current_file_states : CurrentFileStates<SystemType>,

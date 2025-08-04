@@ -1,7 +1,5 @@
 use std::boxed::Box;
 use std::fmt;
-
-#[cfg(test)]
 use rand::prelude::*;
 
 use crate::ticket::Ticket;
@@ -12,6 +10,8 @@ use crate::system::
     SystemError,
     ReadWriteError,
 };
+use crate::system::util::get_dir_path_and_name;
+
 use crate::downloader::
 {
     download_file,
@@ -99,10 +99,7 @@ impl DownloaderCache
 
 pub struct InboxFile<SystemType : System>
 {
-    #[cfg(test)]
     pub cache : SysCache<SystemType>,
-
-    #[cfg(test)]
     pub inbox_file_path : String,
     pub file : SystemType::File,
     pub ticket_factory : TicketFactory,
@@ -124,24 +121,24 @@ impl<SystemType : System> std::io::Write for InboxFile<SystemType>
 
 impl<SystemType : System> InboxFile<SystemType>
 {
-    #[cfg(test)]
-    fn finish(mut self) -> Result<(), ReadWriteError>
+    pub fn finish(mut self) -> Result<Ticket, ReadWriteError>
     {
         drop(self.file);
+        let ticket = self.ticket_factory.result();
         self.cache.back_up_file_with_ticket(
-            &self.ticket_factory.result(),
-            &self.inbox_file_path)
+            &ticket,
+            &self.inbox_file_path)?;
+        Ok(ticket)
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SysCache<SystemType : System>
 {
     system_box : Box<SystemType>,
     path : String,
 }
 
-#[cfg(test)]
 fn random_filename() -> String
 {
     const ALPHABET : [u8; 62] = [
@@ -158,13 +155,22 @@ fn random_filename() -> String
 impl<SystemType : System> SysCache<SystemType>
 {
     pub fn new(system : SystemType, path : &str)
-    -> SysCache<SystemType>
+    -> Result<SysCache<SystemType>, SystemError>
     {
-        SysCache
+        let mut cache = SysCache
         {
             system_box : Box::new(system),
             path : path.to_string(),
+        };
+        cache.create_files_subdir()?;
+        Ok(cache)
         }
+
+    fn create_files_subdir(&mut self) -> Result<(), SystemError>
+    {
+        let system = &mut (*self.system_box);
+        system.create_dir(&format!("{}/files", self.path))?;
+        Ok(())
     }
 
     pub fn restore_file(
@@ -176,7 +182,7 @@ impl<SystemType : System> SysCache<SystemType>
         let system = &mut (*self.system_box);
         if system.is_dir(&self.path)
         {
-            let cache_path = format!("{}/{}", self.path, ticket.human_readable());
+            let cache_path = format!("{}/files/{}", self.path, ticket.human_readable());
             if system.is_file(&cache_path)
             {
                 match system.rename(&cache_path, &target_path)
@@ -202,12 +208,13 @@ impl<SystemType : System> SysCache<SystemType>
     ) -> Result<impl std::io::Read, OpenError>
     {
         let system = &(*self.system_box);
-        if ! system.is_dir(&self.path)
+        let cache_files_path = format!("{}/files", self.path);
+        if ! system.is_dir(&cache_files_path)
         {
             return Err(OpenError::CacheDirectoryMissing);
         }
 
-        let cache_path = format!("{}/{}", self.path, ticket.human_readable());
+        let cache_path = format!("{}/files/{}", self.path, ticket.human_readable());
         if ! system.is_file(&cache_path)
         {
             return Err(OpenError::NotThere);
@@ -220,7 +227,6 @@ impl<SystemType : System> SysCache<SystemType>
         }
     }
 
-    #[cfg(test)]
     pub fn open_inbox_file(&mut self) -> Result<InboxFile<SystemType>, OpenError>
     {
         let system = &mut (*self.system_box);
@@ -259,6 +265,38 @@ impl<SystemType : System> SysCache<SystemType>
         })
     }
 
+    pub fn list(&self, start: usize, length: usize) -> Result<Vec<String>, OpenError>
+    {
+        let system = &(*self.system_box);
+        let cache_files_path = format!("{}/files", self.path);
+
+        if ! system.is_dir(&cache_files_path)
+        {
+            return Err(OpenError::CacheDirectoryMissing);
+        }
+
+        match system.list_dir(&cache_files_path)
+        {
+            Ok(list) =>
+            {
+                if start >= list.len()
+                {
+                    return Ok(vec![]);
+                }
+                let mut result = vec![];
+                for p in &list[start..(std::cmp::min(list.len(), start+length))]
+                {
+                    if let Ok((_, name)) = get_dir_path_and_name(p)
+                    {
+                        result.push(name.to_string())
+                    }
+                }
+                Ok(result)
+            },
+            Err(error) => Err(OpenError::SystemError(error)),
+        }
+    }
+
     /*  Creates a file with the given ticket (convertd to human_readable) as a name, and
         moves the file into that place. */
     pub fn back_up_file_with_ticket
@@ -271,7 +309,7 @@ impl<SystemType : System> SysCache<SystemType>
     Result<(), ReadWriteError>
     {
         let system = &mut (*self.system_box);
-        let cache_path = format!("{}/{}", self.path, ticket.human_readable());
+        let cache_path = format!("{}/files/{}", self.path, ticket.human_readable());
         match system.rename(&target_path, &cache_path)
         {
             Ok(_) => Ok(()),
@@ -285,17 +323,12 @@ impl<SystemType : System> SysCache<SystemType>
         target_path : &str
     )
     ->
-    Result<(), ReadWriteError>
+    Result<Ticket, ReadWriteError>
     {
         let system = &mut (*self.system_box);
-        match TicketFactory::from_file(system, target_path)
-        {
-            Ok(mut factory) =>
-            {
-                self.back_up_file_with_ticket(&mut factory.result(), target_path)
-            }
-            Err(error) => Err(error)
-        }
+        let ticket = TicketFactory::from_file(system, target_path)?.result();
+        self.back_up_file_with_ticket(&ticket, target_path)?;
+        Ok(ticket)
     }
 }
 
@@ -311,7 +344,8 @@ mod test
     use crate::system::
     {
         System,
-        fake::FakeSystem
+        fake::FakeSystem,
+        SystemError
     };
     use crate::ticket::TicketFactory;
     use crate::system::util::
@@ -325,9 +359,8 @@ mod test
     fn make_fake_system_and_cache() -> (FakeSystem, SysCache<FakeSystem>)
     {
         let mut system = FakeSystem::new(10);
-        system.create_dir("files").unwrap();
-
-        let cache = SysCache::new(system.clone(), "files");
+        system.create_dir("cachedir").unwrap();
+        let cache = SysCache::new(system.clone(), "cachedir").unwrap();
         (system, cache)
     }
 
@@ -339,7 +372,10 @@ mod test
 
         match cache.back_up_file("apples.txt")
         {
-            Ok(()) => {},
+            Ok(ticket) =>
+            {
+                assert_eq!(ticket, TicketFactory::from_str("apples\n").result());
+            },
             Err(error) => panic!("Backup failed unexpectedly: {}", error),
         }
 
@@ -361,7 +397,7 @@ mod test
 
         match cache.back_up_file("apples.txt")
         {
-            Ok(()) => panic!("Unexpected successful backup when file not present"),
+            Ok(_) => panic!("Unexpected successful backup when file not present"),
             Err(_error) => {},
         }
     }
@@ -381,7 +417,10 @@ mod test
 
         match cache.back_up_file("apples.txt")
         {
-            Ok(()) => {},
+            Ok(ticket) =>
+            {
+                assert_eq!(ticket, TicketFactory::from_str("wrong content\n").result());
+            },
             Err(error) => panic!("Backup failed unexpectedly: {}", error),
         }
 
@@ -413,7 +452,10 @@ mod test
 
         match cache.back_up_file("apples.txt")
         {
-            Ok(()) => {},
+            Ok(ticket) =>
+            {
+                assert_eq!(ticket, TicketFactory::from_str("apples\n").result());
+            },
             Err(error) => panic!("Backup failed unexpectedly: {}", error),
         }
 
@@ -429,7 +471,10 @@ mod test
 
         match cache.back_up_file("apples.txt")
         {
-            Ok(()) => {},
+            Ok(ticket) =>
+            {
+                assert_eq!(ticket, TicketFactory::from_str("apples\n").result());
+            },
             Err(error) => panic!("Backup failed unexpectedly: {}", error),
         }
 
@@ -467,7 +512,10 @@ mod test
 
         match cache.back_up_file("apples.txt")
         {
-            Ok(()) => {},
+            Ok(ticket) =>
+            {
+                assert_eq!(ticket, TicketFactory::from_str("apples\n").result());
+            },
             Err(error) => panic!("Backup failed unexpectedly: {}", error),
         }
 
@@ -505,7 +553,11 @@ mod test
     #[test]
     fn open_file_with_directory_not_there()
     {
-        let cache = SysCache::new(FakeSystem::new(11), "files");
+        let mut system = FakeSystem::new(12);
+        system.create_dir("cachedir").unwrap();
+        let cache = SysCache::new(system.clone(), "cachedir").unwrap();
+        system.remove_dir("cachedir").unwrap();
+
         match cache.open(&TicketFactory::from_str("apples\n").result())
         {
             Err(OpenError::CacheDirectoryMissing) => {},
@@ -514,9 +566,23 @@ mod test
     }
 
     #[test]
+    fn new_cache_with_directory_not_there()
+    {
+        match SysCache::new(FakeSystem::new(12), "cachedir")
+        {
+            Err(SystemError::NotFound) => {},
+            _=> panic!("unexpected result"),
+        }
+    }
+
+    #[test]
     fn open_inbox_file_with_directory_not_there()
     {
-        let mut cache = SysCache::new(FakeSystem::new(12), "files");
+        let mut system = FakeSystem::new(12);
+        system.create_dir("cachedir").unwrap();
+        let mut cache = SysCache::new(system.clone(), "cachedir").unwrap();
+        system.remove_dir("cachedir").unwrap();
+
         match cache.open_inbox_file()
         {
             Err(OpenError::CacheDirectoryMissing) => {},
@@ -531,7 +597,7 @@ mod test
         system.create_dir("cache-dir").unwrap();
         system.create_file("cache-dir/inbox").unwrap();
 
-        let mut cache = SysCache::new(system, "cache-dir");
+        let mut cache = SysCache::new(system, "cache-dir").unwrap();
         match cache.open_inbox_file()
         {
             Err(OpenError::SystemError(_system_error)) => {},
@@ -540,10 +606,13 @@ mod test
     }
 
     #[test]
-    fn open_inbox_file_directory_missing()
+    fn open_inbox_file_with_directory_missing()
     {
-        let system = FakeSystem::new(14);
-        let mut cache = SysCache::new(system, "cache-dir");
+        let mut system = FakeSystem::new(14);
+        system.create_dir("cache-dir").unwrap();
+        let mut cache = SysCache::new(system.clone(), "cache-dir").unwrap();
+        system.remove_dir("cache-dir").unwrap();
+
         match cache.open_inbox_file()
         {
             Err(OpenError::CacheDirectoryMissing) => {},
@@ -556,7 +625,7 @@ mod test
     {
         let mut system = FakeSystem::new(14);
         system.create_dir("cache-dir").unwrap();
-        let mut cache = SysCache::new(system, "cache-dir");
+        let mut cache = SysCache::new(system, "cache-dir").unwrap();
         let mut file = cache.open_inbox_file().unwrap();
         assert_eq!(file.write(&[1u8, 2, 3]).unwrap(), 3usize);
     }
@@ -566,7 +635,7 @@ mod test
     {
         let mut system = FakeSystem::new(14);
         system.create_dir("cache-dir").unwrap();
-        let mut cache = SysCache::new(system, "cache-dir");
+        let mut cache = SysCache::new(system, "cache-dir").unwrap();
         let mut writing_file = cache.open_inbox_file().unwrap();
         assert_eq!(writing_file.write("abc".as_bytes()).unwrap(), 3usize);
         writing_file.finish().unwrap();
@@ -574,4 +643,49 @@ mod test
         let mut reading_file = cache.open(&TicketFactory::from_str("abc").result()).unwrap();
         assert_eq!(file_to_string(&mut reading_file).unwrap(), "abc".to_string());
     }
+
+    #[test]
+    fn list_empty()
+    {
+        let (_system, cache) = make_fake_system_and_cache();
+        assert_eq!(cache.list(0, 10).unwrap(), Vec::<String>::new());
+    }
+
+    #[test]
+    fn list_one_file()
+    {
+        let (mut system, mut cache) = make_fake_system_and_cache();
+        write_str_to_file(&mut system, "apples.txt", "apples\n").unwrap();
+        cache.back_up_file("apples.txt").unwrap();
+        assert_eq!(cache.list(0, 10).unwrap(), vec![TicketFactory::from_str("apples\n").result().to_string()]);
+    }
+
+    #[test]
+    fn list_two_files()
+    {
+        let (mut system, mut cache) = make_fake_system_and_cache();
+        write_str_to_file(&mut system, "apples.txt", "apples\n").unwrap();
+        cache.back_up_file("apples.txt").unwrap();
+        system.time_passes(1);
+        write_str_to_file(&mut system, "pears.txt", "pears\n").unwrap();
+        cache.back_up_file("pears.txt").unwrap();
+
+        /*  Until there is a standard for what order these come out of here,
+            they shall be compared as sorted vecs. */
+        let mut sorted_vec = vec![
+            TicketFactory::from_str("apples\n").result().to_string(),
+            TicketFactory::from_str("pears\n").result().to_string()
+        ];
+        sorted_vec.sort();
+        assert_eq!(cache.list(0, 10).unwrap(), sorted_vec);
+    }
 }
+
+
+
+
+
+
+
+
+
