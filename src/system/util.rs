@@ -4,15 +4,15 @@ use crate::system::
     SystemError,
 };
 use std::io;
-
-#[cfg(test)]
-use std::io::Read;
-
-#[cfg(test)]
-use std::io::Write;
-
 use std::str::from_utf8;
 use std::fmt;
+
+#[cfg(test)]
+use std::io::
+{
+    Read,
+    Write,
+};
 
 /*  Takes a System, a path as a &str and content, and content as a &str.
     Writes content to the file. If system fails, forwards the system error.
@@ -217,14 +217,3 @@ mod test
         assert_eq!(get_dir_path_and_name("a/b//"), Err(PathError::PathComponentEmpty));
     }
 }
-
-
-
-
-
-
-
-
-
-
-

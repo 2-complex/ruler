@@ -1,4 +1,3 @@
-
 use crate::ticket::Ticket;
 use crate::system::
 {
@@ -496,7 +495,6 @@ pub fn clean_targets<SystemType: System>
 
     Ok(())
 }
-
 
 #[cfg(test)]
 mod test
