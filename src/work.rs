@@ -1295,9 +1295,4 @@ mod test
             Err(err) => panic!("Command failed: {}", err),
         }
     }
-
-    #[test]
-    fn one_target_correct_hash_incorrect_timestamp()
-    {
-    }
 }
