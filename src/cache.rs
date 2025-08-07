@@ -164,7 +164,7 @@ impl<SystemType : System> SysCache<SystemType>
         };
         cache.create_files_subdir()?;
         Ok(cache)
-        }
+    }
 
     fn create_files_subdir(&mut self) -> Result<(), SystemError>
     {
@@ -372,10 +372,7 @@ mod test
 
         match cache.back_up_file("apples.txt")
         {
-            Ok(ticket) =>
-            {
-                assert_eq!(ticket, TicketFactory::from_str("apples\n").result());
-            },
+            Ok(ticket) => assert_eq!(ticket, TicketFactory::from_str("apples\n").result()),
             Err(error) => panic!("Backup failed unexpectedly: {}", error),
         }
 
@@ -417,10 +414,7 @@ mod test
 
         match cache.back_up_file("apples.txt")
         {
-            Ok(ticket) =>
-            {
-                assert_eq!(ticket, TicketFactory::from_str("wrong content\n").result());
-            },
+            Ok(ticket) => assert_eq!(ticket, TicketFactory::from_str("wrong content\n").result()),
             Err(error) => panic!("Backup failed unexpectedly: {}", error),
         }
 

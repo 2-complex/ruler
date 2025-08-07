@@ -249,7 +249,7 @@ pub trait System: Clone + Send + Sync
         }
         for entry in self.list_dir(path)?
         {
-            timestamp = std::cmp::max(timestamp, self.get_timestamp_recursive(&entry)?);
+            timestamp = std::cmp::max(timestamp, self.get_timestamp_recursive(&format!("{}/{}", path, entry))?);
         }
         Ok(timestamp)
     }

@@ -40,7 +40,10 @@ pub fn write_str_to_file
                 Err(error) => Err(ReadWriteError::IOError(format!("{}", error))),
             }
         }
-        Err(error) => Err(ReadWriteError::SystemError(error))
+        Err(error) => 
+        {
+            Err(ReadWriteError::SystemError(error))
+        }
     }
 }
 

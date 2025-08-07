@@ -150,6 +150,7 @@ enum NodeError
     RenameToNonExistent,
     CreateOverExisting,
     IsExecutableOnDirectory,
+    SystemError(SystemError),
 }
 
 
@@ -194,6 +195,9 @@ impl fmt::Display for NodeError
 
             NodeError::IsExecutableOnDirectory
                 => write!(formatter, "Attempt to ask whether a directory is an executable"),
+
+            NodeError::SystemError(error)
+                => write!(formatter, "Intensional error for testing: {}", error),
         }
     }
 }
@@ -278,7 +282,7 @@ impl Node
                         None => return Err(NodeError::DirectoryNotFound(component.to_string())),
                     }
                 },
-                Node::ErrorFile(error) => return Err(NodeError::Error(error.clone())),
+                Node::ErrorFile(error) => return Err(NodeError::SystemError(error.clone())),
             }
         }
         return Ok(node)
@@ -300,7 +304,7 @@ impl Node
                         None => return Err(NodeError::DirectoryNotFound(component.to_string())),
                     }
                 },
-                Node::ErrorFile(error) => return Err(NodeError::Error(error.clone())),
+                Node::ErrorFile(error) => return Err(NodeError::SystemError(error.clone())),
             }
         }
         return Ok(node)
@@ -312,7 +316,7 @@ impl Node
         {
             Node::File(_) => panic!("Attmept to get_dir_map for file"),
             Node::Dir(dir_info) => Ok(&dir_info.name_to_node),
-            Node::ErrorFile(error) => Err(NodeError::Error(error.clone())),
+            Node::ErrorFile(error) => Err(NodeError::SystemError(error.clone())),
         }
     }
 
@@ -322,7 +326,7 @@ impl Node
         {
             Node::File(_) => panic!("Attmept to get_dir_info_mut for file"),
             Node::Dir(dir_info) => Ok(dir_info),
-            Node::ErrorFile(error) => Err(NodeError::Error(error.clone())),
+            Node::ErrorFile(error) => Err(NodeError::SystemError(error.clone())),
         }
     }
 
@@ -407,11 +411,11 @@ impl Node
                         dir_info.name_to_node.insert(name.to_string(), node);
                         Err(NodeError::RemoveFileFoundDir)
                     },
-                    Node::ErrorFile(error) => Err(NodeError::Error(error.clone()))
+                    Node::ErrorFile(error) => Err(NodeError::SystemError(error.clone()))
                 },
                 None => Err(NodeError::RemoveNonExistentFile)
             }},
-            Node::ErrorFile(error) => Err(NodeError::Error(error.clone()))
+            Node::ErrorFile(error) => Err(NodeError::SystemError(error.clone()))
         }
     }
 
@@ -434,7 +438,7 @@ impl Node
                     dir_info.timestamp = timestamp;
                     Ok(())
                 },
-                Node::ErrorFile(error) => Err(NodeError::Error(error.clone())),
+                Node::ErrorFile(error) => Err(NodeError::SystemError(error.clone())),
             },
             None => Err(NodeError::RemoveNonExistentDir)
         }
@@ -497,7 +501,7 @@ impl Node
                         return Err(NodeError::PathInvalid),
                 }
             },
-            Node::ErrorFile(error) => Err(NodeError::Error(error.clone())),
+            Node::ErrorFile(error) => Err(NodeError::SystemError(error.clone())),
         }
     }
 
@@ -508,7 +512,7 @@ impl Node
         {
             Node::File(info) => Ok(info.metadata.modified),
             Node::Dir(dir_info) => Ok(dir_info.timestamp),
-            Node::ErrorFile(error) => Err(NodeError::Error(error.clone())),
+            Node::ErrorFile(error) => Err(NodeError::SystemError(error.clone())),
         }
     }
 
@@ -519,7 +523,7 @@ impl Node
         {
             Node::File(info) => Ok(info.metadata.executable),
             Node::Dir(_) => Ok(false),
-            Node::ErrorFile(error) => Err(NodeError::Error(error.clone())),
+            Node::ErrorFile(error) => Err(NodeError::SystemError(error.clone())),
         }
     }
 
@@ -534,7 +538,7 @@ impl Node
                 Ok(())
             },
             Node::Dir(_) => Err(NodeError::IsExecutableOnDirectory),
-            Node::ErrorFile(error) => Err(NodeError::Error(error.clone())),
+            Node::ErrorFile(error) => Err(NodeError::SystemError(error.clone())),
         }
     }
 }
@@ -681,6 +685,9 @@ fn convert_node_error_to_system_error(error : NodeError) -> SystemError
 
         NodeError::IsExecutableOnDirectory
             => panic!("Attempt to ask is executable on directory"),
+
+        NodeError::SystemError(error)
+            => error,
     }
 }
 
@@ -1101,7 +1108,7 @@ mod test
         let mut node = Node::empty_dir(3);
         node.create_error_file("photos", SystemError::PathNotUnicode).unwrap();
         assert!(!node.is_dir("photos"));
-        assert_eq!(node.remove_dir("photos", 4), Err(NodeError::Error(SystemError::PathNotUnicode)));
+        assert_eq!(node.remove_dir("photos", 4), Err(NodeError::SystemError(SystemError::PathNotUnicode)));
         assert!(!node.is_file("photos"));
         assert!(!node.is_dir("photos"));
     }
@@ -1112,7 +1119,7 @@ mod test
         let mut node = Node::empty_dir(5);
         node.create_error_file("photos", SystemError::PathNotUnicode).unwrap();
         assert!(!node.is_dir("photos"));
-        assert_eq!(node.remove_dir("photos", 6), Err(NodeError::Error(SystemError::PathNotUnicode)));
+        assert_eq!(node.remove_dir("photos", 6), Err(NodeError::SystemError(SystemError::PathNotUnicode)));
         assert!(!node.is_file("photos"));
         assert!(!node.is_dir("photos"));
     }
@@ -1136,6 +1143,8 @@ mod test
         assert_eq!(list, vec!["more_images".to_string()]);
     }
 
+    /*  Create a directory, plant an errorfile inside, then list the directory.
+        That should succeed.  Only accessing the content of an error file triggers the error. */
     #[test]
     fn add_and_list_dir_containing_error_node()
     {
@@ -1145,7 +1154,7 @@ mod test
 
         // Merely listing the name of the error node is not an error.
         let list = node.list_dir("photos").unwrap();
-        assert_eq!(list, vec!["photos/more_photos".to_string()]);
+        assert_eq!(list, vec!["more_photos".to_string()]);
     }
 
     #[test]
@@ -1153,7 +1162,7 @@ mod test
     {
         let mut node = Node::empty_dir(14);
         node.create_error_file("photos", SystemError::MetadataNotFound).unwrap();
-        assert_eq!(node.list_dir("photos"), Err(NodeError::Error(SystemError::MetadataNotFound)));
+        assert_eq!(node.list_dir("photos"), Err(NodeError::SystemError(SystemError::MetadataNotFound)));
     }
 
     #[test]
@@ -1579,6 +1588,9 @@ mod test
         assert_eq!(recursive_timestamp, 15);
     }
 
+    /*  Create a file inside a directory, let some time pass, then write to that file.
+        Check that the timestamp of the file up to date, but the timestamp of the directory
+        remains the same. */
     #[test]
     fn get_timetstamp_recursive_on_directory_with_one_file_then_write()
     {

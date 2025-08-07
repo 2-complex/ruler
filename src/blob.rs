@@ -466,20 +466,6 @@ impl FileStateVec
     {
         self.infos.iter().map(|info|{info.ticket.human_readable()}).collect::<Vec<String>>().join("\n")
     }
-
-    #[allow(dead_code)]
-    pub fn get_html(&self) -> String
-    {
-        let mut out = "<div>".to_string();
-        for info in self.infos.iter()
-        {
-            out.push_str("    ");
-            out.push_str(&info.ticket.human_readable());
-            out.push_str("\n");
-        }
-        out.push_str("</div>");
-        out
-    }
 }
 
 /*  Takes a system, a path, and an assumed FileState, obtains a ticket for the file described.

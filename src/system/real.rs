@@ -6,7 +6,6 @@ use crate::system::
     CommandLineOutput,
 };
 use std::fs;
-use std::fs::ReadDir;
 use std::ffi::OsString;
 use std::io::ErrorKind;
 use std::path::Path;
