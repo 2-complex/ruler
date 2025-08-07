@@ -1273,26 +1273,19 @@ mod test
                 )
             });
 
-        match handle_rule_node(info, rule_ext)
+        let result = handle_rule_node(info, rule_ext).unwrap();
+        match result.work_option
         {
-            Ok(result) =>
+            WorkOption::Resolutions(resolutions) =>
             {
-                match result.work_option
+                assert_eq!(resolutions.len(), 1);
+                match resolutions[0]
                 {
-                    WorkOption::Resolutions(resolutions) =>
-                    {
-                        assert_eq!(resolutions.len(), 1);
-
-                        match resolutions[0]
-                        {
-                            FileResolution::AlreadyCorrect => {},
-                            _ => panic!("Expected poem to already be correct, was some other work option"),
-                        }
-                    },
-                    _ => panic!("Expected poem to already be resolved, was: {:?}", result.work_option),
+                    FileResolution::AlreadyCorrect => {},
+                    _ => panic!("Expected poem to already be correct, was some other work option"),
                 }
             },
-            Err(err) => panic!("Command failed: {}", err),
+            _ => panic!("Expected poem to already be resolved, was: {:?}", result.work_option),
         }
     }
 }
