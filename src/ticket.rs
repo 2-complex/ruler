@@ -15,7 +15,6 @@ use serde::{Serialize, Deserialize};
 use crate::system::
 {
     System,
-    ReadWriteError,
     SystemError,
 };
 use std::fmt;
@@ -186,31 +185,25 @@ impl TicketFactory
         path : &str
     )
     ->
-    Result<TicketFactory, ReadWriteError>
+    Result<TicketFactory, SystemError>
     {
-        match file_system.open(path)
+        let mut reader = file_system.open(path)?;
+        let mut buffer = [0u8; 256];
+        let mut dig = Sha256::new();
+        loop
         {
-            Ok(mut reader) =>
+            match reader.read(&mut buffer)
             {
-                let mut buffer = [0u8; 256];
-                let mut dig = Sha256::new();
-                loop
+                Ok(0) =>
                 {
-                    match reader.read(&mut buffer)
-                    {
-                        Ok(0) =>
-                        {
-                            return Ok(TicketFactory{dig : dig});
-                        }
-                        Ok(size) =>
-                        {
-                            dig.input(&buffer[..size]);
-                        },
-                        Err(error) => return Err(ReadWriteError::IOError(format!("{}", error))),
-                    }
+                    return Ok(TicketFactory{dig : dig});
                 }
-            },
-            Err(error) => return Err(ReadWriteError::SystemError(error)),
+                Ok(size) =>
+                {
+                    dig.input(&buffer[..size]);
+                },
+                Err(error) => return Err(SystemError::IOError(format!("{}", error))),
+            }
         }
     }
 
@@ -221,13 +214,13 @@ impl TicketFactory
         path : &str
     )
     ->
-    Result<TicketFactory, ReadWriteError>
+    Result<TicketFactory, SystemError>
     {
         let path_list : Vec<String> =
         match system.list_dir(path)
         {
             Ok(path_list) => path_list,
-            Err(_error) => return Err(ReadWriteError::SystemError(SystemError::NotFound)),
+            Err(_error) => return Err(SystemError::NotFound),
         }.iter().map(|name|{format!("{}/{}", path, name)}).collect();
 
         let mut factory = TicketFactory::from_str(&path_list.join("\n"));
@@ -255,7 +248,7 @@ impl TicketFactory
             }
             else
             {
-                return Err(ReadWriteError::SystemError(SystemError::NotFound));
+                return Err(SystemError::NotFound);
             }
         }
 
@@ -344,7 +337,7 @@ impl Ticket
         path : &str
     )
     ->
-    Result<Option<Ticket>, ReadWriteError>
+    Result<Option<Ticket>, SystemError>
     {
         if file_system.is_file(path)
         {

@@ -9,8 +9,7 @@ use crate::ticket::TicketFactory;
 use crate::system::
 {
     System,
-    SystemError,
-    ReadWriteError,
+    SystemError
 };
 
 #[cfg(test)]
@@ -128,7 +127,7 @@ impl<SystemType : System> std::io::Write for InboxFile<SystemType>
 #[cfg(test)]
 impl<SystemType : System> InboxFile<SystemType>
 {
-    pub fn finish(mut self) -> Result<Ticket, ReadWriteError>
+    pub fn finish(mut self) -> Result<Ticket, SystemError>
     {
         drop(self.file);
         let ticket = self.ticket_factory.result();
@@ -316,15 +315,12 @@ impl<SystemType : System> SysCache<SystemType>
         target_path : &str
     )
     ->
-    Result<(), ReadWriteError>
+    Result<(), SystemError>
     {
         let system = &mut (*self.system_box);
         let cache_path = format!("{}/files/{}", self.path, ticket.human_readable());
-        match system.rename(&target_path, &cache_path)
-        {
-            Ok(_) => Ok(()),
-            Err(error) => Err(ReadWriteError::SystemError(error)),
-        }
+        system.rename(&target_path, &cache_path)?;
+        Ok(())
     }
 
     pub fn back_up_file
@@ -333,7 +329,7 @@ impl<SystemType : System> SysCache<SystemType>
         target_path : &str
     )
     ->
-    Result<Ticket, ReadWriteError>
+    Result<Ticket, SystemError>
     {
         let system = &mut (*self.system_box);
         let ticket = TicketFactory::from_file(system, target_path)?.result();

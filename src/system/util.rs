@@ -1,10 +1,9 @@
-use crate::system::SystemError;
+use crate::system::
+{
+    System,
+    SystemError,
+};
 use std::io;
-
-#[cfg(test)]
-use crate::system::ReadWriteError;
-
-use crate::system::System;
 
 #[cfg(test)]
 use std::io::Read;
@@ -28,22 +27,13 @@ pub fn write_str_to_file
     file_path : &str,
     content : &str
 )
--> Result<(), ReadWriteError>
+-> Result<(), SystemError>
 {
-    match system.create_file(file_path)
+    let mut file = system.create_file(file_path)?;
+    match file.write_all(content.as_bytes())
     {
-        Ok(mut file) =>
-        {
-            match file.write_all(content.as_bytes())
-            {
-                Ok(_) => Ok(()),
-                Err(error) => Err(ReadWriteError::IOError(format!("{}", error))),
-            }
-        }
-        Err(error) => 
-        {
-            Err(ReadWriteError::SystemError(error))
-        }
+        Ok(_) => Ok(()),
+        Err(error) => Err(SystemError::IOError(format!("{}", error))),
     }
 }
 
@@ -59,23 +49,17 @@ pub fn read_file
     system : &F,
     path : &str
 )
--> Result<Vec<u8>, ReadWriteError>
+-> Result<Vec<u8>, SystemError>
 {
-    match system.open(path)
+    let mut file = system.open(path)?;
+    let mut content = Vec::new();
+    match file.read_to_end(&mut content)
     {
-        Ok(mut file) =>
+        Ok(_size) =>
         {
-            let mut content = Vec::new();
-            match file.read_to_end(&mut content)
-            {
-                Ok(_size) =>
-                {
-                    return Ok(content);
-                }
-                Err(error) => Err(ReadWriteError::IOError(format!("{}", error))),
-            }
+            return Ok(content);
         }
-        Err(error) => Err(ReadWriteError::SystemError(error)),
+        Err(error) => Err(SystemError::IOError(format!("{}", error))),
     }
 }
 

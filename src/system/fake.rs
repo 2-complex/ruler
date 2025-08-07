@@ -986,7 +986,6 @@ mod test
     {
         System,
         SystemError,
-        ReadWriteError,
         CommandLineOutput,
         to_command_script
     };
@@ -1390,7 +1389,7 @@ mod test
     {
         let mut system = FakeSystem::new(10);
         system.create_error_file("fruit_file.txt", SystemError::PathNotUnicode).unwrap();
-        assert_eq!(write_str_to_file(&mut system, "fruit_file.txt", "cantaloupe"), Err(ReadWriteError::SystemError(SystemError::CreateOverExisting)));
+        assert_eq!(write_str_to_file(&mut system, "fruit_file.txt", "cantaloupe"), Err(SystemError::CreateOverExisting));
     }
 
     #[test]
@@ -1398,7 +1397,7 @@ mod test
     {
         let mut system = FakeSystem::new(10);
         system.create_error_file("fruit_file.txt", SystemError::PathNotUnicode).unwrap();
-        assert_eq!(read_file(&system, "fruit_file.txt"), Err(ReadWriteError::SystemError(SystemError::PathNotUnicode)));
+        assert_eq!(read_file(&system, "fruit_file.txt"), Err(SystemError::PathNotUnicode));
     }
 
     #[test]

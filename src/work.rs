@@ -3,7 +3,6 @@ use crate::ticket::Ticket;
 use crate::system::
 {
     CommandLineOutput,
-    ReadWriteError,
     System,
     SystemError,
     to_command_script
@@ -53,14 +52,14 @@ pub struct WorkResult
 #[derive(Debug, PartialEq)]
 pub enum WorkError
 {
-    TicketAlignmentError(ReadWriteError),
+    TicketAlignmentError(SystemError),
     PathInvalid(String),
     FileNotFound(String),
     TargetFileNotGenerated(String),
     TargetDirectoryFailedToCreate(String, SystemError),
     TargetDirectoryInterruptedByFile(String),
-    FileNotAvailableToCache(String, ReadWriteError),
-    ReadWriteError(String, ReadWriteError),
+    FileNotAvailableToCache(String, SystemError),
+    SystemError(String, SystemError),
     ResolutionError(ResolutionError),
     GetCurrentFileInfoError(GetCurrentFileInfoError),
     CommandExecutedButErrored,
@@ -97,7 +96,7 @@ impl fmt::Display for WorkError
             WorkError::FileNotAvailableToCache(path, error) =>
                 write!(formatter, "File not available to be cached: {} : {}", path, error),
 
-            WorkError::ReadWriteError(path, error) =>
+            WorkError::SystemError(path, error) =>
                 write!(formatter, "Error reading file: {}: {}", path, error),
 
             WorkError::ResolutionError(error) =>
@@ -146,7 +145,7 @@ Result<WorkResult, WorkError>
     {
         Ok(tickets) => tickets,
         Err(GetFileStateError::FileNotFound(path)) => return Err(WorkError::FileNotFound(path)),
-        Err(GetFileStateError::ReadWriteError(path, error)) => return Err(WorkError::ReadWriteError(path, error)),
+        Err(GetFileStateError::SystemError(path, error)) => return Err(WorkError::SystemError(path, error)),
     };
 
     Ok(
@@ -432,7 +431,7 @@ Result<WorkResult, WorkError>
                 {
                     Ok(file_state_vec) => file_state_vec,
                     Err(GetFileStateError::FileNotFound(path)) => return Err(WorkError::FileNotFound(path)),
-                    Err(GetFileStateError::ReadWriteError(path, error)) => return Err(WorkError::ReadWriteError(path, error)),
+                    Err(GetFileStateError::SystemError(path, error)) => return Err(WorkError::SystemError(path, error)),
                 };
 
                 Ok(
@@ -562,7 +561,7 @@ mod test
                 match TicketFactory::from_file(system, path)
                 {
                     Ok(mut file_factory) => file_factory.result(),
-                    Err(error) => return Err(WorkError::ReadWriteError(path.to_string(), error)),
+                    Err(error) => return Err(WorkError::SystemError(path.to_string(), error)),
                 });
         }
         Ok(factory.result())

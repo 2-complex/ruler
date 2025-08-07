@@ -1,7 +1,7 @@
 use crate::system::
 {
     System,
-    ReadWriteError,
+    SystemError,
 };
 use crate::blob::
 {
@@ -32,19 +32,13 @@ fn write_file
     file_path : &str,
     content : &[u8]
 )
--> Result<(), ReadWriteError>
+-> Result<(), SystemError>
 {
-    match system.create_file(file_path)
+    let mut file = system.create_file(file_path)?;
+    match file.write_all(&content)
     {
-        Ok(mut file) =>
-        {
-            match file.write_all(&content)
-            {
-                Ok(_) => return Ok(()),
-                Err(error) => return Err(ReadWriteError::IOError(format!("{}", error))),
-            }
-        }
-        Err(error) => return Err(ReadWriteError::SystemError(error)),
+        Ok(_) => return Ok(()),
+        Err(error) => return Err(SystemError::IOError(format!("{}", error))),
     }
 }
 

@@ -17,28 +17,6 @@ pub struct CommandLineOutput
     pub success : bool,
 }
 
-#[derive(Debug, PartialEq)]
-pub enum ReadWriteError
-{
-    IOError(String),
-    SystemError(SystemError)
-}
-
-impl fmt::Display for ReadWriteError
-{
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
-    {
-        match self
-        {
-            ReadWriteError::IOError(io_error_message)
-                => write!(formatter, "I/O Error: {}", io_error_message),
-
-            ReadWriteError::SystemError(error)
-                => write!(formatter, "Read/Write Error: {}", error),
-        }
-    }
-}
-
 pub struct CommandScript
 {
     pub lines : Vec<String>
@@ -131,8 +109,7 @@ impl CommandLineOutput
 }
 
 #[allow(dead_code)]
-#[derive(Debug, PartialEq)]
-#[derive(Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum SystemError
 {
     NotFound,
@@ -151,6 +128,7 @@ pub enum SystemError
     ModifiedInvalid,
     CreateOverExisting,
     CommandExecutationFailed(String),
+    IOError(String),
     Weird(String),
 }
 
@@ -207,6 +185,9 @@ impl fmt::Display for SystemError
 
             SystemError::CommandExecutationFailed(message)
                 => write!(formatter, "{}", message),
+
+            SystemError::IOError(io_error_message)
+                => write!(formatter, "I/O Error: {}", io_error_message),
 
             SystemError::Weird(message)
                 => write!(formatter, "Weird error, this happens when internal logic fails in a way the programmer didn't think was possible.  Message: {}", message),

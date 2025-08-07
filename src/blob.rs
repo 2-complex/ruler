@@ -2,7 +2,6 @@ use crate::system::
 {
     System,
     SystemError,
-    ReadWriteError,
 };
 use crate::system::util::get_dir_path_and_name;
 use crate::cache::
@@ -94,7 +93,7 @@ pub struct FileInfo
 pub enum GetFileStateError
 {
     FileNotFound(String),
-    ReadWriteError(String, ReadWriteError),
+    SystemError(String, SystemError),
 }
 
 #[derive(Debug)]
@@ -150,7 +149,7 @@ impl Blob
                         None => return Err(GetFileStateError::FileNotFound(target_info.path.clone())),
                     }
                 },
-                Err(error) => return Err(GetFileStateError::ReadWriteError(target_info.path.clone(), error)),
+                Err(error) => return Err(GetFileStateError::SystemError(target_info.path.clone(), error)),
             }
         }
 
@@ -477,7 +476,7 @@ pub fn get_file_ticket<SystemType: System>
     path : &str,
     assumed_file_state : &FileState,
 )
--> Result<Option<Ticket>, ReadWriteError>
+-> Result<Option<Ticket>, SystemError>
 {
     /*  The body of this match looks like it has unhandled errors.  What's happening is:
         if any error occurs with the timestamp optimization, we skip the optimization. */
@@ -500,7 +499,7 @@ pub fn get_file_ticket<SystemType: System>
 pub enum GetCurrentFileInfoError
 {
     ErrorGettingFilePermissions(String, SystemError),
-    ErrorGettingTicketForFile(String, ReadWriteError),
+    ErrorGettingTicketForFile(String, SystemError),
     TargetFileNotFound(String, SystemError),
 }
 
@@ -589,10 +588,10 @@ pub fn get_actual_file_state<SystemType: System>
 #[derive(Debug, PartialEq)]
 pub enum ResolutionError
 {
-    FileNotAvailableToCache(String, ReadWriteError),
+    FileNotAvailableToCache(String, SystemError),
     CacheDirectoryMissing,
     CacheMalfunction(SystemError),
-    TicketAlignmentError(ReadWriteError),
+    TicketAlignmentError(SystemError),
 }
 
 impl fmt::Display for ResolutionError
@@ -784,8 +783,7 @@ mod test
     {
         fake::FakeSystem,
         System,
-        SystemError,
-        ReadWriteError
+        SystemError
     };
     use crate::system::util::
     {
@@ -1122,7 +1120,7 @@ mod test
         // with timestamp 11.  Check that it gives the ticket for the C++ code.
         assert_eq!(
             get_file_ticket(&system, "game.cpp", &FileState::new(ticket, 16)),
-            Err(ReadWriteError::SystemError(SystemError::RemoveFileFoundDir)));
+            Err(SystemError::RemoveFileFoundDir));
     }
 
     /*  Create a directory, and then call get_file_ticket.  Use a new timestamp
