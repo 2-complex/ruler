@@ -95,18 +95,6 @@ fn get_file_name(path : &Path) -> Result<String, SystemError>
     }
 }
 
-fn to_path_str(path : &Path) -> Result<String, SystemError>
-{
-    let mut result = Vec::new();
-    for component in path.components()
-    {
-        result.push(to_file_name_str(component.as_os_str().to_os_string())?);
-    }
-
-    result.retain(|s| s != ".");
-    Ok(result[..].join("/"))
-}
-
 #[derive(Debug, PartialEq)]
 pub enum GetTimestampError
 {

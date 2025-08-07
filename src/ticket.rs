@@ -162,6 +162,7 @@ impl TicketFactory
         self.dig.input(input.as_bytes());
     }
 
+    #[cfg(test)]
     pub fn input_bytes(&mut self, input: &[u8])
     {
         self.dig.input(input);

@@ -1,5 +1,7 @@
 use std::boxed::Box;
 use std::fmt;
+
+#[cfg(test)]
 use rand::prelude::*;
 
 use crate::ticket::Ticket;
@@ -10,6 +12,8 @@ use crate::system::
     SystemError,
     ReadWriteError,
 };
+
+#[cfg(test)]
 use crate::system::util::get_dir_path_and_name;
 
 use crate::downloader::
@@ -97,6 +101,7 @@ impl DownloaderCache
     }
 }
 
+#[cfg(test)]
 pub struct InboxFile<SystemType : System>
 {
     pub cache : SysCache<SystemType>,
@@ -105,6 +110,7 @@ pub struct InboxFile<SystemType : System>
     pub ticket_factory : TicketFactory,
 }
 
+#[cfg(test)]
 impl<SystemType : System> std::io::Write for InboxFile<SystemType>
 {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize>
@@ -119,6 +125,7 @@ impl<SystemType : System> std::io::Write for InboxFile<SystemType>
     }
 }
 
+#[cfg(test)]
 impl<SystemType : System> InboxFile<SystemType>
 {
     pub fn finish(mut self) -> Result<Ticket, ReadWriteError>
@@ -139,6 +146,7 @@ pub struct SysCache<SystemType : System>
     path : String,
 }
 
+#[cfg(test)]
 fn random_filename() -> String
 {
     const ALPHABET : [u8; 62] = [
@@ -227,6 +235,7 @@ impl<SystemType : System> SysCache<SystemType>
         }
     }
 
+    #[cfg(test)]
     pub fn open_inbox_file(&mut self) -> Result<InboxFile<SystemType>, OpenError>
     {
         let system = &mut (*self.system_box);
@@ -265,6 +274,7 @@ impl<SystemType : System> SysCache<SystemType>
         })
     }
 
+    #[cfg(test)]
     pub fn list(&self, start: usize, length: usize) -> Result<Vec<String>, OpenError>
     {
         let system = &(*self.system_box);

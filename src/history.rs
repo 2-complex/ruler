@@ -139,11 +139,6 @@ impl RuleHistory
     {
         self.source_to_targets.get(source_ticket)
     }
-
-    pub fn get_source_to_targets(&self) -> HashMap<Ticket, FileStateVec>
-    {
-        return self.source_to_targets.clone()
-    }
 }
 
 impl fmt::Display for RuleHistory
@@ -178,9 +173,10 @@ pub struct History<SystemType : System>
 /*  When accessing History, a few things can go wrong.  History is stored in a file, so that file could be unreadable or
     corrupt.  These would mean that user has tried to modify files that ruler depends on to to work.  Serialization
     of an empty history could fail, which would indicate a logical error in this source code. */
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum HistoryError
 {
+    #[cfg(test)]
     CannotFindHistory,
     CannotReadRuleHistoryFile(String),
     CannotInterpretRuleHistoryFile(String),
@@ -196,6 +192,7 @@ impl fmt::Display for HistoryError
     {
         match self
         {
+            #[cfg(test)]
             HistoryError::CannotFindHistory =>
                 write!(formatter, "Cannot find history"),
 
@@ -285,6 +282,8 @@ impl<SystemType : System> History<SystemType>
         }
     }
 
+    /*  List of all the files known to the hisotry by filename */
+    #[cfg(test)]
     pub fn list(&self) -> Result<Vec<String>, HistoryError>
     {
         let system = &(*self.system_box);
@@ -498,47 +497,24 @@ mod test
         ]);
 
         let mut system = FakeSystem::new(10);
-        match system.create_dir("history")
-        {
-            Ok(()) => {},
-            Err(error) => panic!("Failed to initialize file situation: {}", error),
-        }
-        let mut history = History::new(system.clone(), "history");
+        system.create_dir("history").unwrap();
 
+        let mut history = History::new(system.clone(), "history");
         let mut rule_history =
-        match history.read_rule_history(&rule_ticket)
-        {
-            Ok(rule_history) => rule_history,
-            Err(error) => panic!("History failed to create RuleHistory: {}", error),
-        };
+        history.read_rule_history(&rule_ticket).unwrap();
 
         assert_eq!(rule_history, RuleHistory::new());
-        match rule_history.insert(source_ticket.clone(), file_state_vec.clone())
-        {
-            Ok(()) => {},
-            Err(error) => panic!("RuleHisotry failed to insert source / target-ticket pair: {}", error),
-        }
-        match history.write_rule_history(rule_ticket.clone(), rule_history.clone())
-        {
-            Ok(()) => {},
-            Err(error) => panic!("Failed to write rule history: {}", error),
-        }
+        rule_history.insert(source_ticket.clone(), file_state_vec.clone()).unwrap();
+        history.write_rule_history(rule_ticket.clone(), rule_history.clone()).unwrap();
+
         drop(history);
 
         let history2 = History::new(system, "history");
         let rule_history2 =
-        match history2.read_rule_history(&rule_ticket)
-        {
-            Ok(rule_history) => rule_history,
-            Err(error) => panic!("History failed to retrieve RuleHistory: {}", error),
-        };
+        history2.read_rule_history(&rule_ticket).unwrap();
 
         assert_eq!(rule_history, rule_history2);
-        let file_state_vec2 = match rule_history.get_file_state_vec(&source_ticket)
-        {
-            Some(file_state_vec) => file_state_vec,
-            None => panic!("RuleHistory retrieved from History failed to produce expected TargetTicket"),
-        };
+        let file_state_vec2 = rule_history.get_file_state_vec(&source_ticket).unwrap();
 
         assert_eq!(file_state_vec, *file_state_vec2);
     }
@@ -548,26 +524,12 @@ mod test
     fn history_with_file_tampering()
     {
         let mut system = FakeSystem::new(10);
-        match system.create_dir("history")
-        {
-            Ok(()) => {},
-            Err(error) => panic!("Failed to initialize file situation: {}", error),
-        }
+        system.create_dir("history").unwrap();
 
         let rule_ticket = TicketFactory::from_str("rule").result();
         let path = format!("history/{}", rule_ticket.human_readable());
-        let mut file =
-        match system.create_file(&path)
-        {
-            Ok(file) => file,
-            Err(error) => panic!("File system refused to create file: {}", error),
-        };
-
-        match file.write_all(&[1u8,2u8])
-        {
-            Ok(_) => {},
-            Err(error) => panic!("Could not write to file: {}", error),
-        }
+        let mut file = system.create_file(&path).unwrap();
+        file.write_all(&[1u8,2u8]).unwrap();
 
         let history = History::new(system.clone(), "history");
         match history.read_rule_history(&rule_ticket)
@@ -579,5 +541,13 @@ mod test
             },
             Err(error) => panic!("Reading RuleHistory errored but with the wrong error: {}", error),
         }
+    }
+
+    /*  Attempt to create a history object with a non-existent directory. */
+    #[test]
+    fn history_with_nonexistent_directory()
+    {
+        let history = History::new(FakeSystem::new(10), "history");
+        assert_eq!(history.list(), Err(HistoryError::CannotFindHistory));
     }
 }
