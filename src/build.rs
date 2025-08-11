@@ -599,7 +599,7 @@ pub fn build
                         match handle_rule_node(info, RuleExt
                             {
                                 sources_ticket : sources_ticket,
-                                command : node.command,
+                                command_script : to_command_script(node.command),
                                 rule_history : rule_history,
                                 cache : cache_clone,
                                 downloader_cache_opt : Some(downloader_cache_clone),

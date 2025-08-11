@@ -1,6 +1,5 @@
 use std::fmt;
 
-use crate::ticket::Ticket;
 use crate::bundle::
 {
     self,
@@ -13,11 +12,6 @@ pub struct Rule
     pub targets : Vec<String>,
     pub sources : Vec<String>,
     pub command : Vec<String>,
-}
-
-fn is_sorted(data: &Vec<String>) -> bool
-{
-    data.windows(2).all(|w| w[0] <= w[1])
 }
 
 /*  When a rule is first parsed, it goes into this struct, the targets,
@@ -37,20 +31,6 @@ impl Rule
             command: command
         }
     }
-}
-
-pub fn get_ticket(rule: &Rule) -> Ticket
-{
-    if is_sorted(&rule.targets) && is_sorted(&rule.sources)
-    {
-        return Ticket::from_strings(&rule.targets, &rule.sources, &rule.command);
-    }
-
-    let mut t = rule.targets.clone();
-    let mut s = rule.sources.clone();
-    t.sort();
-    s.sort();
-    Ticket::from_strings(&t, &s, &rule.command)
 }
 
 impl fmt::Display for Rule
@@ -245,58 +225,8 @@ mod tests
         Rule,
         parse,
         parse_all,
-        ParseError,
-        get_ticket
+        ParseError
     };
-
-    #[test]
-    fn rule_tickets_for_same_rule_same()
-    {
-        let z = Rule::new(vec!["a".to_string()], vec!["b".to_string()], vec!["c".to_string()]);
-        let a = Rule::new(vec!["a".to_string()], vec!["b".to_string()], vec!["c".to_string()]);
-        assert_eq!(get_ticket(&z), get_ticket(&a));
-    }
-
-    #[test]
-    fn rule_command_argument_whitespace_does_not_affect_ticket()
-    {
-        let z = Rule::new(vec!["a".to_string()], vec!["b".to_string()], vec!["c  d".to_string()]);
-        let a = Rule::new(vec!["a".to_string()], vec!["b".to_string()], vec!["c\nd".to_string()]);
-        assert_eq!(get_ticket(&z), get_ticket(&a));
-    }
-
-    #[test]
-    fn rule_tickets_for_different_rules_differ()
-    {
-        let z = Rule::new(vec!["".to_string()], vec!["".to_string()], vec!["".to_string()]);
-        let a = Rule::new(vec!["a".to_string()], vec!["".to_string()], vec!["".to_string()]);
-        let b = Rule::new(vec!["".to_string()], vec!["b".to_string()], vec!["".to_string()]);
-        let c = Rule::new(vec!["".to_string()], vec!["".to_string()], vec!["c".to_string()]);
-
-        assert_ne!(get_ticket(&z), get_ticket(&a));
-        assert_ne!(get_ticket(&z), get_ticket(&b));
-        assert_ne!(get_ticket(&z), get_ticket(&c));
-
-        assert_ne!(get_ticket(&a), get_ticket(&b));
-        assert_ne!(get_ticket(&a), get_ticket(&c));
-
-        assert_ne!(get_ticket(&b), get_ticket(&c));
-    }
-
-    #[test]
-    fn rule_target_orders_do_not_affect_ticket()
-    {
-        assert_eq!(
-            get_ticket(&Rule::new(
-                vec!["".to_string()],
-                vec!["apples".to_string(), "bananas".to_string()],
-                vec!["".to_string()])),
-            get_ticket(&Rule::new(
-                vec!["".to_string()],
-                vec!["bananas".to_string(), "apples".to_string()],
-                vec!["".to_string()]))
-        );
-    }
 
     /*  Call parse on an empty string, check that the rule list is empty. */
     #[test]
