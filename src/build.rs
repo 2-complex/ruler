@@ -560,7 +560,7 @@ pub fn build
         let downloader_history = DownloaderHistory::new(downloader_history_urls);
         let system_clone = system.clone();
 
-        let rule_history = match elements.history.read_rule_history(&node.rule_ticket)
+        let rule_history = match elements.history.read_rule_history(&node.get_rule_ticket())
         {
             Ok(rule_history) => rule_history,
             Err(history_error) => return Err(BuildError::HistoryError(history_error)),
@@ -568,11 +568,11 @@ pub fn build
 
         let cache_clone = elements.cache.clone();
         let downloader_cache_clone = downloader_cache.clone();
-        let downloader_rule_history = downloader_history.get_rule_history(&node.rule_ticket);
+        let downloader_rule_history = downloader_history.get_rule_history(&node.get_rule_ticket());
 
         handles.push(
             (
-                Some(node.rule_ticket.clone()),
+                Some(node.get_rule_ticket().clone()),
                 thread::spawn(
                     move || -> Result<WorkResult, BuildError>
                     {

@@ -1,11 +1,13 @@
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use crate::ticket::Ticket;
-use crate::rule::Rule;
-
 use std::fmt;
-
+use crate::rule::Rule;
+use crate::ticket::
+{
+    Ticket,
+    TicketFactory,
+};
 
 /*  When rules are converted into leaves and nodes as part of the topological sort step,
     This enum gets used to allow each Node to reference its sources either in the vec of nodes.  */
@@ -33,7 +35,7 @@ pub struct Node
     pub targets: Vec<String>,
     pub source_indices: Vec<SourceIndex>,
     pub command : Vec<String>,
-    pub rule_ticket : Ticket,
+    pub sources_ticket : Ticket,
 }
 
 impl fmt::Display for Node
@@ -45,7 +47,7 @@ impl fmt::Display for Node
         {
             write!(f, "{}\n", t)?;
         }
-        write!(f, "{}\n\n", self.rule_ticket)?;
+        write!(f, "{}\n\n", self.sources_ticket)?;
         write!(f, "")
     }
 }
@@ -55,18 +57,28 @@ fn is_sorted(data: &Vec<String>) -> bool
     data.windows(2).all(|w| w[0] <= w[1])
 }
 
-pub fn get_ticket(rule: &Rule) -> Ticket
+fn get_path_list_ticket(path_list: &Vec<String>) -> Ticket
 {
-    if is_sorted(&rule.targets) && is_sorted(&rule.sources)
+    if is_sorted(&path_list)
     {
-        return Ticket::from_strings(&rule.targets, &rule.sources, &rule.command);
+        return Ticket::from_string_vec(&path_list);
     }
 
-    let mut t = rule.targets.clone();
-    let mut s = rule.sources.clone();
+    let mut t = path_list.clone();
     t.sort();
-    s.sort();
-    Ticket::from_strings(&t, &s, &rule.command)
+    Ticket::from_string_vec(&t)
+}
+
+impl Node
+{
+    pub fn get_rule_ticket(&self) -> Ticket
+    {
+        let mut factory = TicketFactory::new();
+        factory.input_ticket(get_path_list_ticket(&self.targets));
+        factory.input_ticket(self.sources_ticket.clone());
+        factory.input_ticket(get_path_list_ticket(&self.command));
+        factory.result()
+    }
 }
 
 #[derive(PartialEq, Debug)]
@@ -75,7 +87,6 @@ struct Frame
     targets: Vec<String>,
     sources: Vec<String>,
     command: Vec<String>,
-    rule_ticket: Ticket,
     index: usize,
     sub_index: usize,
     visited: bool,
@@ -85,13 +96,11 @@ impl Frame
 {
     fn from_rule_and_index(rule : Rule, index : usize) -> Frame
     {
-        let ticket = get_ticket(&rule);
         Frame
         {
             targets: rule.targets,
             sources: rule.sources,
             command: rule.command,
-            rule_ticket: ticket,
             index: index,
             sub_index: 0,
             visited: false,
@@ -105,7 +114,6 @@ impl Frame
             targets: self.targets,
             sources: self.sources,
             command: self.command,
-            rule_ticket: self.rule_ticket,
             index: self.index,
             sub_index: self.sub_index,
             visited: true
@@ -352,6 +360,7 @@ impl TopologicalSortMachine
 
         for mut frame in self.frames_in_order.drain(..)
         {
+            let sources_ticket = get_path_list_ticket(&frame.sources);
             let mut source_indices = vec![];
             for source in frame.sources.drain(..)
             {
@@ -375,8 +384,8 @@ impl TopologicalSortMachine
                 {
                     targets: frame.targets,
                     source_indices: source_indices,
+                    sources_ticket: sources_ticket,
                     command: frame.command,
-                    rule_ticket: frame.rule_ticket,
                 }
             );
         }
@@ -468,8 +477,20 @@ mod tests
         topological_sort,
         topological_sort_all,
         TopologicalSortError,
-        get_ticket
+        get_path_list_ticket
     };
+    use crate::ticket::Ticket;
+
+    fn get_ticket(rule: &Rule) -> Ticket
+    {   
+        Node
+        {
+            targets: rule.targets.clone(),
+            source_indices: vec![],
+            command : rule.command.clone(),
+            sources_ticket : get_path_list_ticket(&rule.sources),
+        }.get_rule_ticket()
+    }
 
     #[test]
     fn rule_tickets_for_same_rule_same()
@@ -506,7 +527,7 @@ mod tests
     }
 
     #[test]
-    fn rule_target_orders_do_not_affect_ticket()
+    fn rule_source_orders_do_not_affect_ticket()
     {
         assert_eq!(
             get_ticket(&Rule::new(
@@ -516,6 +537,21 @@ mod tests
             get_ticket(&Rule::new(
                 vec!["".to_string()],
                 vec!["bananas".to_string(), "apples".to_string()],
+                vec!["".to_string()]))
+        );
+    }
+
+    #[test]
+    fn rule_target_orders_do_not_affect_ticket()
+    {
+        assert_eq!(
+            get_ticket(&Rule::new(
+                vec!["apples".to_string(), "bananas".to_string()],
+                vec!["".to_string()],
+                vec!["".to_string()])),
+            get_ticket(&Rule::new(
+                vec!["bananas".to_string(), "apples".to_string()],
+                vec!["".to_string()],
                 vec!["".to_string()]))
         );
     }
@@ -704,7 +740,7 @@ mod tests
                         targets: vec!["plant".to_string()],
                         source_indices: vec![],
                         command : vec![],
-                        rule_ticket : get_ticket(&rule),
+                        sources_ticket : get_path_list_ticket(&rule.sources),
                     }
                 ]
             ))
@@ -731,7 +767,7 @@ mod tests
                         targets: vec!["plant".to_string()],
                         source_indices: vec![],
                         command: vec![],
-                        rule_ticket : get_ticket(&rule),
+                        sources_ticket : get_path_list_ticket(&rule.sources),
                     }
                 ]
             ))
@@ -767,13 +803,13 @@ mod tests
                     targets: vec!["plant".to_string()],
                     source_indices: vec![],
                     command: vec![],
-                    rule_ticket : get_ticket(&plant_rule),
+                    sources_ticket : get_path_list_ticket(&plant_rule.sources),
                 },
                 Node{
                     targets: vec!["fruit".to_string()],
                     source_indices: vec![SourceIndex::Pair(0, 0)],
                     command: vec!["pick occasionally".to_string()],
-                    rule_ticket : get_ticket(&fruit_rule),
+                    sources_ticket : get_path_list_ticket(&fruit_rule.sources),
                 },
             ])
         ));
@@ -810,14 +846,14 @@ mod tests
                     {
                         targets: vec!["plant".to_string()],
                         source_indices: vec![],
-                        rule_ticket: get_ticket(&plant_rule),
+                        sources_ticket : get_path_list_ticket(&plant_rule.sources),
                         command: vec!["take care of plant".to_string()],
                     },
                     Node
                     {
                         targets: vec!["fruit".to_string()],
                         source_indices: vec![SourceIndex::Pair(0,0)],
-                        rule_ticket: get_ticket(&fruit_rule),
+                        sources_ticket : get_path_list_ticket(&fruit_rule.sources),
                         command: vec!["pick occasionally".to_string()],
                     },
                 ]
@@ -870,28 +906,28 @@ mod tests
                     {
                         targets: vec!["math".to_string()],
                         source_indices: vec![],
-                        rule_ticket: get_ticket(&math_rule),
+                        sources_ticket : get_path_list_ticket(&math_rule.sources),
                         command: vec!["build math".to_string()],
                     },
                     Node
                     {
                         targets: vec!["graphics".to_string()],
                         source_indices: vec![SourceIndex::Pair(0, 0)],
-                        rule_ticket: get_ticket(&graphics_rule),
+                        sources_ticket : get_path_list_ticket(&graphics_rule.sources),
                         command: vec!["build graphics".to_string()],
                     },
                     Node
                     {
                         targets: vec!["physics".to_string()],
                         source_indices: vec![SourceIndex::Pair(0, 0)],
-                        rule_ticket: get_ticket(&physics_rule),
+                        sources_ticket : get_path_list_ticket(&physics_rule.sources),
                         command: vec!["build physics".to_string()],
                     },
                     Node
                     {
                         targets: vec!["game".to_string()],
                         source_indices: vec![SourceIndex::Pair(1, 0), SourceIndex::Pair(2, 0),],
-                        rule_ticket: get_ticket(&game_rule),
+                        sources_ticket : get_path_list_ticket(&game_rule.sources),
                         command: vec!["build game".to_string()],
                     },
                 ]
@@ -943,28 +979,28 @@ mod tests
                     {
                         targets: vec!["math".to_string()],
                         source_indices: vec![],
-                        rule_ticket: get_ticket(&math_rule),
+                        sources_ticket : get_path_list_ticket(&math_rule.sources),
                         command: vec!["build math".to_string()],
                     },
                     Node
                     {
                         targets: vec!["graphics".to_string()],
                         source_indices: vec![SourceIndex::Pair(0, 0)],
-                        rule_ticket: get_ticket(&graphics_rule),
+                        sources_ticket : get_path_list_ticket(&graphics_rule.sources),
                         command: vec!["build graphics".to_string()],
                     },
                     Node
                     {
                         targets: vec!["physics".to_string()],
                         source_indices: vec![SourceIndex::Pair(0, 0)],
-                        rule_ticket: get_ticket(&physics_rule),
+                        sources_ticket : get_path_list_ticket(&physics_rule.sources),
                         command: vec!["build physics".to_string()],
                     },
                     Node
                     {
                         targets: vec!["game".to_string()],
                         source_indices: vec![SourceIndex::Pair(1, 0), SourceIndex::Pair(2, 0),],
-                        rule_ticket: get_ticket(&game_rule),
+                        sources_ticket : get_path_list_ticket(&game_rule.sources),
                         command: vec!["build game".to_string()],
                     },
                 ]
@@ -1017,21 +1053,21 @@ mod tests
                         targets: vec!["stanza1".to_string()],
                         source_indices: vec![SourceIndex::Leaf(0), SourceIndex::Leaf(1)],
                         command: vec!["poemcat verse1 chorus".to_string()],
-                        rule_ticket: get_ticket(&stanza1_rule),
+                        sources_ticket : get_path_list_ticket(&stanza1_rule.sources),
                     },
                     Node
                     {
                         targets: vec!["stanza2".to_string()],
                         source_indices: vec![SourceIndex::Leaf(0), SourceIndex::Leaf(2)],
                         command: vec!["poemcat verse2 chorus".to_string()],
-                        rule_ticket: get_ticket(&stanza2_rule),
+                        sources_ticket : get_path_list_ticket(&stanza2_rule.sources),
                     },
                     Node
                     {
                         targets: vec!["poem".to_string()],
                         source_indices: vec![SourceIndex::Pair(0, 0), SourceIndex::Pair(1, 0)],
                         command: vec!["poemcat stanza1 stanza2".to_string()],
-                        rule_ticket: get_ticket(&poem_rule),
+                        sources_ticket : get_path_list_ticket(&poem_rule.sources),
                     }
                 ]
             ))
@@ -1079,21 +1115,21 @@ mod tests
                         targets: vec!["stanza1".to_string()],
                         source_indices: vec![SourceIndex::Leaf(0), SourceIndex::Leaf(1)],
                         command: vec!["poemcat verse1 chorus".to_string()],
-                        rule_ticket: get_ticket(&stanza1_rule),
+                        sources_ticket : get_path_list_ticket(&stanza1_rule.sources),
                     },
                     Node
                     {
                         targets: vec!["stanza2".to_string()],
                         source_indices: vec![SourceIndex::Leaf(0), SourceIndex::Leaf(2)],
                         command: vec!["poemcat verse2 chorus".to_string()],
-                        rule_ticket: get_ticket(&stanza2_rule),
+                        sources_ticket : get_path_list_ticket(&stanza2_rule.sources),
                     },
                     Node
                     {
                         targets: vec!["poem".to_string()],
                         source_indices: vec![SourceIndex::Pair(0, 0), SourceIndex::Pair(1, 0)],
                         command: vec!["poemcat stanza1 stanza2".to_string()],
-                        rule_ticket: get_ticket(&poem_rule),
+                        sources_ticket : get_path_list_ticket(&poem_rule.sources),
                     }
                 ]
             ))
@@ -1141,21 +1177,21 @@ mod tests
                         targets: vec!["stanza1".to_string()],
                         source_indices: vec![SourceIndex::Leaf(0), SourceIndex::Leaf(1)],
                         command: vec!["poemcat verse1 chorus".to_string()],
-                        rule_ticket: get_ticket(&stanza1_rule),
+                        sources_ticket : get_path_list_ticket(&stanza1_rule.sources),
                     },
                     Node
                     {
                         targets: vec!["stanza2".to_string()],
                         source_indices: vec![SourceIndex::Leaf(0), SourceIndex::Leaf(2)],
                         command: vec!["poemcat verse2 chorus".to_string()],
-                        rule_ticket: get_ticket(&stanza2_rule),
+                        sources_ticket : get_path_list_ticket(&stanza2_rule.sources),
                     },
                     Node
                     {
                         targets: vec!["poem".to_string()],
                         source_indices: vec![SourceIndex::Pair(0, 0), SourceIndex::Pair(1, 0)],
                         command: vec!["poemcat stanza1 stanza2".to_string()],
-                        rule_ticket: get_ticket(&poem_rule),
+                        sources_ticket : get_path_list_ticket(&poem_rule.sources),
                     }
                 ]
             ))
@@ -1194,14 +1230,14 @@ mod tests
                         targets: vec!["cookies".to_string()],
                         source_indices: vec![SourceIndex::Leaf(0)],
                         command: vec!["bake cookies".to_string()],
-                        rule_ticket: get_ticket(&cookie_rule),
+                        sources_ticket : get_path_list_ticket(&cookie_rule.sources),
                     },
                     Node
                     {
                         targets: vec!["poem".to_string()],
                         source_indices: vec![SourceIndex::Leaf(1)],
                         command: vec!["poemcat stanza1".to_string()],
-                        rule_ticket: get_ticket(&poem_rule),
+                        sources_ticket : get_path_list_ticket(&poem_rule.sources),
                     }
                 ]
             ))
@@ -1239,7 +1275,7 @@ mod tests
                         targets: vec!["poem".to_string()],
                         source_indices: vec![SourceIndex::Leaf(0)],
                         command: vec!["poemcat stanza1".to_string()],
-                        rule_ticket: get_ticket(&poem_rule),
+                        sources_ticket : get_path_list_ticket(&poem_rule.sources),
                     }
                 ]
             ))
@@ -1359,14 +1395,14 @@ mod tests
                             SourceIndex::Leaf(2),
                             SourceIndex::Leaf(3)
                         ],
-                        rule_ticket: get_ticket(&plant_rule),
+                        sources_ticket : get_path_list_ticket(&plant_rule.sources),
                         command: vec!["take care of plant".to_string()],
                     },
                     Node
                     {
                         targets: vec!["fruit".to_string()],
                         source_indices: vec![SourceIndex::Pair(0, 0)],
-                        rule_ticket: get_ticket(&fruit_rule),
+                        sources_ticket : get_path_list_ticket(&fruit_rule.sources),
                         command: vec!["pick occasionally".to_string()],
                     },
                 ]
