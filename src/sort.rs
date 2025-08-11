@@ -40,12 +40,12 @@ impl fmt::Display for Node
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result
     {
-        write!(f, "\n").unwrap();
+        write!(f, "\n")?;
         for t in self.targets.iter()
         {
-            write!(f, "{}\n", t).unwrap();
+            write!(f, "{}\n", t)?;
         }
-        write!(f, "{}\n\n", self.rule_ticket).unwrap();
+        write!(f, "{}\n\n", self.rule_ticket)?;
         write!(f, "")
     }
 }
