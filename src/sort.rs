@@ -10,7 +10,7 @@ use crate::ticket::
 };
 
 /*  When rules are converted into leaves and nodes as part of the topological sort step,
-    This enum gets used to allow each Node to reference its sources either in the vec of nodes.  */
+    This enum gets used to allow each Node to reference its sources either in the vec of nodes. */
 #[derive(Debug, PartialEq)]
 pub enum SourceIndex
 {
@@ -21,6 +21,35 @@ pub enum SourceIndex
         .0 = the index in nodes to find the source node S
         .1 = the index in the target list of S (often named sub_index in code) */
     Pair(usize, usize),
+}
+
+pub fn parse_commands(mut in_lines : Vec<String>) -> Vec<String>
+{
+    let mut out_lines = vec![];
+    let mut command_lines : Vec<String> = vec![];
+
+    for line in in_lines.drain(..)
+    {
+        match line.as_ref()
+        {
+            ";" =>
+            {
+                out_lines.push(command_lines.join(" "));
+                command_lines = vec![];
+            },
+            _ =>
+            {
+                command_lines.push(line);
+            }
+        }
+    }
+
+    if command_lines.len() != 0
+    {
+        out_lines.push(command_lines.join(" "));
+    }
+
+    out_lines
 }
 
 /*  Once the rules are topologically sorted, the data in them gets put into
@@ -385,7 +414,7 @@ impl TopologicalSortMachine
                     targets: frame.targets,
                     source_indices: source_indices,
                     sources_ticket: sources_ticket,
-                    command: frame.command,
+                    command: parse_commands(frame.command),
                 }
             );
         }

@@ -987,9 +987,8 @@ mod test
         System,
         SystemError,
         CommandLineOutput,
-        to_command_script
+        CommandScript
     };
-
 
     use crate::system::fake::
     {
@@ -1325,11 +1324,7 @@ mod test
         let mut system = FakeSystem::new(10);
         system.create_file("file.txt").unwrap();
         assert!(system.is_file("file.txt"));
-        system.execute_command(to_command_script(vec![
-            "rm".to_string(),
-            "file.txt".to_string()
-        ]));
-
+        system.execute_command(CommandScript::from_single_line("rm file.txt"));
         assert!(!system.is_file("file.txt"));
         assert!(!system.exists("file.txt"));
         assert!(!system.is_dir("file.txt"));
@@ -1653,7 +1648,7 @@ mod test
     {
         let mut system = FakeSystem::new(10);
         assert_eq!(
-            system.execute_command(to_command_script(vec!["error".to_string()])),
+            system.execute_command(CommandScript::from_single_line("error")),
             vec![
                 Ok(CommandLineOutput
                 {
@@ -1676,11 +1671,7 @@ mod test
         write_str_to_file(&mut system, "line2.txt", "Love to dance\n").unwrap();
 
         assert_eq!(
-            system.execute_command(to_command_script(vec![
-                "mycat".to_string(),
-                "line1.txt".to_string(),
-                "line2.txt".to_string(),
-                "poem.txt".to_string()])),
+            system.execute_command(CommandScript::from_single_line("mycat line1.txt line2.txt poem.txt")),
             vec![
                 Ok(CommandLineOutput
                 {
@@ -1703,13 +1694,8 @@ mod test
         write_str_to_file(&mut system, "line1.txt", "Ants\n").unwrap();
         system.create_file("line2.txt").unwrap();
         write_str_to_file(&mut system, "line2.txt", "Love to dance\n").unwrap();
-        assert_eq!(system.execute_command(
-            to_command_script(vec![
-                "mycat2".to_string(),
-                "line1.txt".to_string(),
-                "line2.txt".to_string(),
-                "poem.txt".to_string(),
-                "poem-backup.txt".to_string()])),
+        assert_eq!(system.execute_command(CommandScript::from_single_line(
+            "mycat2 line1.txt line2.txt poem.txt poem-backup.txt")),
             vec![
                 Ok(CommandLineOutput
                 {
@@ -1732,11 +1718,7 @@ mod test
         system.create_file("terrible-file.txt").unwrap();
         assert!(system.is_file("terrible-file.txt"));
         assert_eq!(
-            system.execute_command(
-                to_command_script(vec![
-                    "rm".to_string(),
-                    "terrible-file.txt".to_string()
-                ])),
+            system.execute_command(CommandScript::from_single_line("rm terrible-file.txt")),
             vec![
                 Ok(CommandLineOutput
                 {

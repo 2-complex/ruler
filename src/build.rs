@@ -81,7 +81,7 @@ use crate::system::
 {
     System,
     SystemError,
-    to_command_script
+    CommandScript
 };
 use crate::system::util::
 {
@@ -599,7 +599,7 @@ pub fn build
                         match handle_rule_node(info, RuleExt
                             {
                                 sources_ticket : sources_ticket,
-                                command_script : to_command_script(node.command),
+                                command_script : CommandScript::from_string_vec(node.command),
                                 rule_history : rule_history,
                                 cache : cache_clone,
                                 downloader_cache_opt : Some(downloader_cache_clone),
@@ -794,7 +794,7 @@ pub fn run
     let mut all = vec![format!("./{}", executable)];
     all.append(&mut extra_args);
 
-    for result in system.execute_command(to_command_script(all))
+    for result in system.execute_command(CommandScript::from_string_vec(all))
     {
         match result
         {
@@ -954,8 +954,6 @@ poem.txt
         write_str_to_file(&mut system, "verse1.txt", "Roses are red.\n").unwrap();
         write_str_to_file(&mut system, "verse2.txt", "Violets are violet.\n").unwrap();
         write_str_to_file(&mut system, "build.rules", rules).unwrap();
-
-
 
         build(
             system.clone(),

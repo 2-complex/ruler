@@ -30,35 +30,18 @@ impl fmt::Display for CommandScript
     }
 }
 
-pub fn to_command_script(mut all_lines : Vec<String>) -> CommandScript
+impl CommandScript
 {
-    let mut command_script = CommandScript{lines:vec![]};
-    let mut command_lines : Vec<String> = vec![];
-
-    for line in all_lines.drain(..)
+    pub fn from_single_line(line: &str) -> CommandScript
     {
-        match line.as_ref()
-        {
-            ";" =>
-            {
-                command_script.lines.push(command_lines.join(" "));
-                command_lines = vec![];
-            },
-            _ =>
-            {
-                command_lines.push(line);
-            }
-        }
+        CommandScript{lines:vec![line.to_string()]}
     }
 
-    if command_lines.len() != 0
+    pub fn from_string_vec(all_lines: Vec<String>) -> CommandScript
     {
-        command_script.lines.push(command_lines.join(" "));
+        CommandScript{lines:all_lines}
     }
-
-    command_script
 }
-
 
 impl CommandLineOutput
 {
