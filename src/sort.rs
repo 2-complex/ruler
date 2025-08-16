@@ -42,19 +42,19 @@ impl CommandLines
             {
                 ";" =>
                 {
-                    out_lines.push(command_lines.join(" "));
+                    out_lines.push(command_lines.join(" ").split_whitespace().collect::<Vec<&str>>().join(" "));
                     command_lines = vec![];
                 },
                 _ =>
                 {
-                    command_lines.push(line.split_whitespace().collect::<Vec<&str>>().join(" "));
+                    command_lines.push(line);
                 }
             }
         }
 
         if command_lines.len() != 0
         {
-            out_lines.push(command_lines.join(" "));
+            out_lines.push(command_lines.join(" ").split_whitespace().collect::<Vec<&str>>().join(" "));
         }
 
         CommandLines{lines: out_lines}
@@ -531,6 +531,52 @@ mod tests
     };
     use crate::ticket::Ticket;
 
+    #[test]
+    fn command_lines_parse_one_line()
+    {
+        let command_lines = CommandLines::parse(vec!["a b".to_string()]);
+        assert_eq!(command_lines, CommandLines
+        {
+            lines: vec!["a b".to_string()]
+        });
+    }
+
+    #[test]
+    fn command_lines_parse_two_lines()
+    {
+        let command_lines = CommandLines::parse(vec!["a".to_string(), "b".to_string()]);
+        assert_eq!(command_lines, CommandLines
+        {
+            lines: vec!["a b".to_string()]
+        });
+    }
+
+    #[test]
+    fn command_lines_parse_odd_whitespace()
+    {
+        let command_lines = CommandLines::parse(vec!["   a".to_string(), " b    ".to_string(), "   ".to_string()]);
+        assert_eq!(command_lines, CommandLines
+        {
+            lines: vec!["a b".to_string()]
+        });
+    }
+
+    #[test]
+    fn command_lines_parse_with_semicolon_and_whitespace()
+    {
+        let command_lines = CommandLines::parse(vec![
+            "   a".to_string(),
+            " b    ".to_string(),
+            "   ".to_string(),
+            ";".to_string(),
+            " c  d   ".to_string()
+        ]);
+        assert_eq!(command_lines, CommandLines
+        {
+            lines: vec!["a b".to_string(), "c d".to_string()]
+        });
+    }
+
     fn get_ticket(rule: &Rule) -> Ticket
     {   
         Node
@@ -551,17 +597,9 @@ mod tests
     }
 
     #[test]
-    fn rule_command_argument_whitespace_does_not_affect_ticket_1()
+    fn rule_command_argument_whitespace_does_not_affect_ticket()
     {
         let z = Rule::new(vec!["a".to_string()], vec!["b".to_string()], vec!["c d".to_string()]);
-        let a = Rule::new(vec!["a".to_string()], vec!["b".to_string()], vec!["c".to_string(), "d".to_string()]);
-        assert_eq!(get_ticket(&z), get_ticket(&a));
-    }
-
-    #[test]
-    fn rule_command_argument_whitespace_does_not_affect_ticket_2()
-    {
-        let z = Rule::new(vec!["a".to_string()], vec!["b".to_string()], vec!["c       d".to_string()]);
         let a = Rule::new(vec!["a".to_string()], vec!["b".to_string()], vec!["c".to_string(), "d".to_string()]);
         assert_eq!(get_ticket(&z), get_ticket(&a));
     }

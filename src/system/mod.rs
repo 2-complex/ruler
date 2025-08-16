@@ -32,6 +32,7 @@ impl fmt::Display for CommandScript
 
 impl CommandScript
 {
+    #[cfg(test)]
     pub fn from_single_line(line: &str) -> CommandScript
     {
         CommandScript{lines:vec![line.to_string()]}
