@@ -73,19 +73,19 @@ impl fmt::Display for ParseError
         match self
         {
             ParseError::UnexpectedEmptyLine(filename, line_number) =>
-                write!(formatter, "Unexpected empty line {}:{}", filename, line_number),
+                write!(formatter, "{}:{} Unexpected empty line", filename, line_number),
 
             ParseError::UnexpectedExtraColon(filename, line_number) =>
-                write!(formatter, "Unexpected extra ':' on line {}:{}", filename, line_number),
+                write!(formatter, "{}:{} Unexpected extra ':'", filename, line_number),
 
             ParseError::UnexpectedEndOfFileMidTargets(filename, line_number) =>
-                write!(formatter, "Unexpected end of file mid-targets line {}:{}", filename, line_number),
+                write!(formatter, "{}:{} Unexpected end of file mid-targets line", filename, line_number),
 
             ParseError::UnexpectedEndOfFileMidSources(filename, line_number) =>
-                write!(formatter, "Unexpected end of file mid-sources line {}:{}", filename, line_number),
+                write!(formatter, "{}:{} Unexpected end of file mid-sources line", filename, line_number),
 
             ParseError::UnexpectedEndOfFileMidCommand(filename, line_number) =>
-                write!(formatter, "Unexpected end of file mid-command line {}:{}", filename, line_number),
+                write!(formatter, "{}:{} Unexpected end of file mid-command line", filename, line_number),
 
             ParseError::BundleError(filename, bundle_error) =>
                 write!(formatter, "Bundle parse error {}:{}", filename, bundle_error),
@@ -172,7 +172,6 @@ pub fn parse(filename : String, content : String)
             {
                 match line
                 {
-                    "" => return Err(ParseError::UnexpectedEmptyLine(filename, line_number)),
                     ":" =>
                     {
                         mode = Mode::Pending;
@@ -627,7 +626,7 @@ d
 :
 e
 :
-".to_string()), Err(ParseError::UnexpectedEmptyLine("green.rules".to_string(), 12)));
+".to_string()), Err(ParseError::UnexpectedEndOfFileMidCommand("green.rules".to_string(), 13)));
     }
 
     /*  Call parse on improperly formatted rules, check the error. */
@@ -649,7 +648,7 @@ d
 e
 :
 ".to_string()),
-        Err(ParseError::UnexpectedEmptyLine("sunset.rules".to_string(), 12)));
+        Err(ParseError::UnexpectedEndOfFileMidCommand("sunset.rules".to_string(), 13)));
     }
 
     /*  Call parse on improperly formatted rules, check the error. */

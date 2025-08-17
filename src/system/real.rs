@@ -283,8 +283,7 @@ impl System for RealSystem
         let mut result = vec![];
         for element in command_script.lines.into_iter()
         {
-            let mut cmd = execute::shell(element);
-            match cmd.execute_output()
+            match execute::shell(element).execute_output()
             {
                 Ok(output) => result.push(Ok(CommandLineOutput::from_output(output))),
                 Err(error) =>
@@ -297,4 +296,3 @@ impl System for RealSystem
         result
     }
 }
-
