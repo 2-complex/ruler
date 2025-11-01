@@ -54,7 +54,8 @@ impl CommandLineInvocation
 #[derive(Debug, PartialEq)]
 pub enum ParseError
 {
-    Empty
+    Empty,
+    UnclosedQuote
 }
 
 fn is_whitespace(c: char) -> bool
@@ -81,6 +82,7 @@ fn normal_push(result: &mut Vec<CommandLineInvocation>, current_command: Command
     CommandLineInvocation::new()
 }
 
+#[derive(PartialEq)]
 enum Mode
 {
     Normal,
@@ -89,7 +91,7 @@ enum Mode
 
 /*  Reads in a .rules file content as a String, and creates a vector of Rule
     objects. */
-pub fn parse(_filename : String, content : String)
+pub fn parse(content : String)
 -> Result<Vec<CommandLineInvocation>, ParseError>
 {
     let mut result = Vec::new();
@@ -133,6 +135,11 @@ pub fn parse(_filename : String, content : String)
         }
     }
 
+    if mode == Mode::Quote
+    {
+        return Err(ParseError::UnclosedQuote);
+    }
+
     current_command.push(&content[start..]);
     normal_push(&mut result, current_command);
 
@@ -159,20 +166,20 @@ mod tests
 
     /*  Call parse on an empty string, check that it errors I guess. */
     #[test]
-    fn parse_empty()
+    fn empty()
     {
         assert_eq!(
-            parse("empty.script".to_string(), "".to_string()),
+            parse("".to_string()),
             Err(ParseError::Empty));
     }
 
     /*  Call parse on just a one word invocation, expect a command with
         standard routinng */
     #[test]
-    fn parse_one_word()
+    fn one_word()
     {
         assert_eq!(
-            parse("empty.script".to_string(), "run".to_string()),
+            parse("run".to_string()),
             Ok(vec![CommandLineInvocation
                 {
                     command: "run".to_string(),
@@ -186,10 +193,10 @@ mod tests
     /*  Call parse on just a one word invocation, expect a command with
         standard routinng */
     #[test]
-    fn parse_one_word_leading_space()
+    fn one_word_leading_space()
     {
         assert_eq!(
-            parse("empty.script".to_string(), " run".to_string()),
+            parse(" run".to_string()),
             Ok(vec![CommandLineInvocation
                 {
                     command: "run".to_string(),
@@ -203,10 +210,10 @@ mod tests
     /*  Call parse on just a one word invocation, expect a command with
         standard routinng */
     #[test]
-    fn parse_one_word_leading_tab()
+    fn one_word_leading_tab()
     {
         assert_eq!(
-            parse("empty.script".to_string(), "\trun".to_string()),
+            parse("\trun".to_string()),
             Ok(vec![CommandLineInvocation
                 {
                     command: "run".to_string(),
@@ -220,10 +227,10 @@ mod tests
     /*  Call parse on just a one word invocation, expect a command with
         standard routinng */
     #[test]
-    fn parse_one_word_trailing_space()
+    fn one_word_trailing_space()
     {
         assert_eq!(
-            parse("empty.script".to_string(), "run ".to_string()),
+            parse("run ".to_string()),
             Ok(vec![CommandLineInvocation
                 {
                     command: "run".to_string(),
@@ -237,10 +244,10 @@ mod tests
     /*  Call parse on just a one word invocation, expect a command with
         standard routinng */
     #[test]
-    fn parse_one_word_trailing_tab()
+    fn one_word_trailing_tab()
     {
         assert_eq!(
-            parse("empty.script".to_string(), "run\t".to_string()),
+            parse("run\t".to_string()),
             Ok(vec![CommandLineInvocation
                 {
                     command: "run".to_string(),
@@ -254,10 +261,10 @@ mod tests
     /*  Call parse on a two word invocation, expect a command with
         standard routing */
     #[test]
-    fn parse_two_words_basic()
+    fn two_words_basic()
     {
         assert_eq!(
-            parse("empty.script".to_string(), "run program".to_string()),
+            parse("run program".to_string()),
             Ok(vec![CommandLineInvocation
                 {
                     command: "run".to_string(),
@@ -271,10 +278,10 @@ mod tests
     /*  Call parse on a two word invocation, expect a command with
         standard routing */
     #[test]
-    fn parse_two_words_extra_semicolons()
+    fn two_words_extra_semicolons()
     {
         assert_eq!(
-            parse("empty.script".to_string(), ";;;run program;;;".to_string()),
+            parse(";;;run program;;;".to_string()),
             Ok(vec![CommandLineInvocation
                 {
                     command: "run".to_string(),
@@ -288,10 +295,10 @@ mod tests
     /*  Call parse on just a two word invocation, throw in some arbitrary whitespace,
         expect a command with standard routing */
     #[test]
-    fn parse_two_words_eccentric_whitespace()
+    fn two_words_eccentric_whitespace()
     {
         assert_eq!(
-            parse("empty.script".to_string(), "\t run\n\nprogram ".to_string()),
+            parse("\t run\n\nprogram ".to_string()),
             Ok(vec![CommandLineInvocation
                 {
                     command: "run".to_string(),
@@ -305,10 +312,10 @@ mod tests
     /*  Call parse on just a two word invocation, throw in some arbitrary whitespace,
         expect a command with standard routing */
     #[test]
-    fn parse_two_commands_separated_by_semicolon()
+    fn two_commands_separated_by_semicolon()
     {
         assert_eq!(
-            parse("empty.script".to_string(), "run program;\nrun another".to_string()),
+            parse("run program;\nrun another".to_string()),
             Ok(vec![
                 CommandLineInvocation
                 {
@@ -330,10 +337,10 @@ mod tests
     /*  Call parse on just a two word invocation, throw in some arbitrary whitespace,
         expect a command with standard routing */
     #[test]
-    fn parse_two_commands_separated_by_semicolon_no_whitespace()
+    fn two_commands_separated_by_semicolon_no_whitespace()
     {
         assert_eq!(
-            parse("empty.script".to_string(), "run program;run another".to_string()),
+            parse("run program;run another".to_string()),
             Ok(vec![
                 CommandLineInvocation
                 {
@@ -355,10 +362,10 @@ mod tests
     /*  Call parse on just a two word invocation, throw in some arbitrary whitespace,
         expect a command with standard routing */
     #[test]
-    fn parse_two_commands_separated_by_semicolon_eccentric_whitespace()
+    fn two_commands_separated_by_semicolon_eccentric_whitespace()
     {
         assert_eq!(
-            parse("empty.script".to_string(), "   run\tprogram;\n \n run another  \n  ".to_string()),
+            parse("   run\tprogram;\n \n run another  \n  ".to_string()),
             Ok(vec![
                 CommandLineInvocation
                 {
@@ -380,10 +387,10 @@ mod tests
     /*  Call parse on just a two word invocation, throw in some arbitrary whitespace,
         expect a command with standard routing */
     #[test]
-    fn parse_two_commands_extra_semicolon_eccentric_whitespace()
+    fn two_commands_extra_semicolon_eccentric_whitespace()
     {
         assert_eq!(
-            parse("empty.script".to_string(), "   run\tprogram;\n \n run another  \n ; \n\n".to_string()),
+            parse("   run\tprogram;\n \n run another  \n ; \n\n".to_string()),
             Ok(vec![
                 CommandLineInvocation
                 {
@@ -405,10 +412,10 @@ mod tests
     /*  Call parse on just a two word invocation, throw in some arbitrary whitespace,
         expect a command with standard routing */
     #[test]
-    fn parse_two_commands_many_extra_semicolon_eccentric_whitespace()
+    fn two_commands_many_extra_semicolon_eccentric_whitespace()
     {
         assert_eq!(
-            parse("empty.script".to_string(), "  ;;; run\tprogram;\n ;\n  ; run another  \n ; \n;\n".to_string()),
+            parse("  ;;; run\tprogram;\n ;\n  ; run another  \n ; \n;\n".to_string()),
             Ok(vec![
                 CommandLineInvocation
                 {
@@ -430,10 +437,10 @@ mod tests
     /*  Call parse on just a one word invocation, in quotes, expect a command with
         standard routinng */
     #[test]
-    fn parse_one_word_in_quotes()
+    fn one_word_in_quotes()
     {
         assert_eq!(
-            parse("empty.script".to_string(), "\"run\"".to_string()),
+            parse("\"run\"".to_string()),
             Ok(vec![CommandLineInvocation
                 {
                     command: "run".to_string(),
@@ -447,10 +454,10 @@ mod tests
     /*  Call parse on just a two word invocation, both words in quotes, the second
         has spaces in it, expect a command with standard routing */
     #[test]
-    fn parse_two_words_in_quotes_whitespace_in_second_quotes()
+    fn two_words_in_quotes_whitespace_in_second_quotes()
     {
         assert_eq!(
-            parse("empty.script".to_string(), "\"run\" \" program \"".to_string()),
+            parse("\"run\" \" program \"".to_string()),
             Ok(vec![CommandLineInvocation
                 {
                     command: "run".to_string(),
@@ -464,10 +471,10 @@ mod tests
     /*  Call parse on just a two word invocation, both words in quotes, the second
         has spaces in it, expect a command with standard routing */
     #[test]
-    fn parse_two_words_in_quotes_semicolon_in_quotes()
+    fn two_words_in_quotes_semicolon_in_quotes()
     {
         assert_eq!(
-            parse("empty.script".to_string(), "\"run\" \"program;\"".to_string()),
+            parse("\"run\" \"program;\"".to_string()),
             Ok(vec![CommandLineInvocation
                 {
                     command: "run".to_string(),
@@ -476,5 +483,25 @@ mod tests
                     err: Destination::StdErr,
                 }
             ]));
+    }
+
+    /*  Call parse on just a two word invocation, both words in quotes, the second
+        has spaces in it, expect a command with standard routing */
+    #[test]
+    fn just_one_quote()
+    {
+        assert_eq!(
+            parse("\"".to_string()),
+            Err(ParseError::UnclosedQuote));
+    }
+
+    /*  Call parse on just a two word invocation, both words in quotes, the second
+        has spaces in it, expect a command with standard routing */
+    #[test]
+    fn three_quotes_with_lots_of_newlines()
+    {
+        assert_eq!(
+            parse("\"\n\n\n\n\"\n\n\n\"".to_string()),
+            Err(ParseError::UnclosedQuote));
     }
 }
