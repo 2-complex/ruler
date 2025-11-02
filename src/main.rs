@@ -55,6 +55,18 @@ struct RunConfig
 }
 
 #[derive(Parser)]
+struct InvokeConfig
+{
+    #[arg(index=1, required=true, value_name = "COMMAND_FILE", help =
+"A path to the script to run.")]
+    command_file : String,
+
+    #[arg(index=2, help=
+"Arguments forwarded to the script when it runs.")]
+    extra_args: Vec<String>,
+}
+
+#[derive(Parser)]
 struct ServeConfig
 {
     #[arg(index=1, value_name = "PORT", default_value="build.rules", help = "An HTTP port number on which to serve")]
@@ -89,6 +101,11 @@ file.")]
 build succeeds, Ruler then invokes the executable passing EXTRA_ARGS as
 command-line arguments.")]
     Run(RunConfig),
+
+    #[command(about="Executes a command script", long_about=
+"Use invoke to test just the command part of a rule or to test upload or
+download scripts.")]
+    Invoke(InvokeConfig),
 
     #[command(about="Caches all targets", long_about =
 "Removes all files and directories specificed as targets in the rules file.
@@ -172,6 +189,9 @@ fn main()
                 Ok(()) => {},
                 Err(error) => eprintln!("{}", error),
             }
+        },
+        RulerSubcommand::Invoke(invoke_config) =>
+        {
         },
         RulerSubcommand::Clean(build_config) =>
         {
