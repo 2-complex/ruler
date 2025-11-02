@@ -2,7 +2,7 @@ use crate::system::
 {
     System,
     SystemError,
-    CommandScript,
+    language::CommandScript,
     CommandLineOutput,
 };
 use std::fs;
@@ -13,6 +13,7 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 use std::fmt;
 
+use std::process::Command;
 use execute::Execute;
 
 #[derive(Debug, Clone)]
@@ -281,9 +282,15 @@ impl System for RealSystem
         Vec<Result<CommandLineOutput, SystemError>>
     {
         let mut result = vec![];
-        for element in command_script.lines.into_iter()
+        for line in command_script.lines.into_iter()
         {
-            match execute::command(element).execute_output()
+            let mut command = Command::new(line.exec);
+            for arg in line.args.iter()
+            {
+                command.arg(&arg);
+            }
+
+            match command.execute_output()
             {
                 Ok(output) => result.push(Ok(CommandLineOutput::from_output(output))),
                 Err(error) =>

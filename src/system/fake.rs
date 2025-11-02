@@ -3,7 +3,13 @@ use crate::system::
     System,
     SystemError,
     CommandLineOutput,
-    CommandScript
+};
+use crate::system::language::
+{
+    CommandScript,
+    CommandLineInvocation,
+    OutDestination,
+    ErrDestination,
 };
 use crate::system::util::
 {
@@ -741,27 +747,20 @@ impl FakeSystem
         }
     }
 
-    fn execute_script_line(&mut self, line : String) -> Result<CommandLineOutput, SystemError>
+    fn execute_script_line(&mut self, line : CommandLineInvocation) -> Result<CommandLineOutput, SystemError>
     {
-        let command_list:Vec<&str> = line.split_whitespace().collect();
 
-        let n = command_list.len();
-        if n <= 0
-        {
-            return Ok(CommandLineOutput::error(format!("Wrong number of arguments")));
-        }
-
-        let mut output = String::new();
-        match command_list[0]
+        match line.exec.as_str()
         {
             "error" =>
             {
-                Ok(CommandLineOutput::error("Failed".to_string()))
+                return Ok(CommandLineOutput::error("Failed".to_string()))
             },
 
-            "mycat" =>
+            "cat" =>
             {
-                for file in command_list[1..(n-1)].iter()
+                let mut output = String::new();
+                for file in line.args.iter()
                 {
                     match read_file(self, file)
                     {
@@ -783,66 +782,34 @@ impl FakeSystem
                     }
                 }
 
-                match write_str_to_file(self, &command_list[n-1], &output)
+                match line.out
                 {
-                    Ok(_) => Ok(CommandLineOutput::new()),
-                    Err(why) =>
+                    OutDestination::StdOut =>
                     {
-                        Ok(CommandLineOutput::error(format!("Failed to cat into file: {} : {}", command_list[n-1], why)))
-                    }
-                }
-            },
-
-            /*  Takes source files followed by two targets, concats the sources and puts the result in both the
-                targets.  For instance:
-
-                mycat2 in1.txt in2.txt out1.txt out2.txt
-
-                concatinates in1.txt in2.txt  puts a copy in out1.txt and out2.txt.*/
-            "mycat2" =>
-            {
-                for file in command_list[1..(n-2)].iter()
-                {
-                    match read_file(self, file)
+                        panic!("What do I put here!?!?!");
+                    },
+                    OutDestination::File(path_string) =>
                     {
-                        Ok(content) =>
+                        match write_str_to_file(self, &path_string, &output)
                         {
-                            match from_utf8(&content)
+                            Ok(_) => Ok(CommandLineOutput::new()),
+                            Err(error) =>
                             {
-                                Ok(content_string) =>
-                                {
-                                    output.push_str(content_string);
-                                }
-                                Err(_) => return Ok(CommandLineOutput::error(
-                                    format!("mycat2: file contained non utf8 bytes: {}", file))),
-                            }
+                                Ok(CommandLineOutput::error(format!("Failed to cat into file: {} : {}",
+                                    path_string, error)))
+                            },
                         }
-                        Err(_) =>
-                        {
-                            return Ok(CommandLineOutput::error(
-                                format!("mycat2: file failed to open: {}", file)));
-                        }
+                    },
+                    OutDestination::Command(command_box) =>
+                    {
+                        self.execute_script_line(*command_box)
                     }
-                }
-
-                match write_str_to_file(self, &command_list[n-2], &output)
-                {
-                    Ok(_) => {},
-                    Err(why) => return Ok(CommandLineOutput::error(
-                        format!("mycat2: failed to cat into file: {}: {}", command_list[n-2], why)))
-                }
-
-                match write_str_to_file(self, &command_list[n-1], &output)
-                {
-                    Ok(_) => Ok(CommandLineOutput::new()),
-                    Err(why) => return Ok(CommandLineOutput::error(
-                        format!("mycat2: failed to cat into file: {}: {}", command_list[n-1], why)))
                 }
             },
 
             "rm" =>
             {
-                for file in command_list[1..n].iter()
+                for file in line.args.iter()
                 {
                     match self.remove_file(file)
                     {
@@ -854,9 +821,9 @@ impl FakeSystem
                     }
                 }
 
-                Ok(CommandLineOutput::new())
+                return Ok(CommandLineOutput::new())
             },
-            _=> Ok(CommandLineOutput::error(format!("Invalid command given: {}", command_list[0])))
+            _=> return Ok(CommandLineOutput::error(format!("Invalid command given: {}", line.exec)))
         }
     }
 }
@@ -986,9 +953,10 @@ mod test
     {
         System,
         SystemError,
-        CommandLineOutput,
-        CommandScript
+        CommandLineOutput
     };
+
+    use crate::system::language::CommandScript;
 
     use crate::system::fake::
     {
@@ -1324,7 +1292,7 @@ mod test
         let mut system = FakeSystem::new(10);
         system.create_file("file.txt").unwrap();
         assert!(system.is_file("file.txt"));
-        system.execute_command(CommandScript::from_single_line("rm file.txt"));
+        system.execute_command(CommandScript::from_str("rm file.txt").unwrap());
         assert!(!system.is_file("file.txt"));
         assert!(!system.exists("file.txt"));
         assert!(!system.is_dir("file.txt"));
@@ -1648,7 +1616,7 @@ mod test
     {
         let mut system = FakeSystem::new(10);
         assert_eq!(
-            system.execute_command(CommandScript::from_single_line("error")),
+            system.execute_command(CommandScript::from_str("error").unwrap()),
             vec![
                 Ok(CommandLineOutput
                 {
@@ -1671,7 +1639,7 @@ mod test
         write_str_to_file(&mut system, "line2.txt", "Love to dance\n").unwrap();
 
         assert_eq!(
-            system.execute_command(CommandScript::from_single_line("mycat line1.txt line2.txt poem.txt")),
+            system.execute_command(CommandScript::from_str("mycat line1.txt line2.txt poem.txt").unwrap()),
             vec![
                 Ok(CommandLineOutput
                 {
@@ -1694,8 +1662,8 @@ mod test
         write_str_to_file(&mut system, "line1.txt", "Ants\n").unwrap();
         system.create_file("line2.txt").unwrap();
         write_str_to_file(&mut system, "line2.txt", "Love to dance\n").unwrap();
-        assert_eq!(system.execute_command(CommandScript::from_single_line(
-            "mycat2 line1.txt line2.txt poem.txt poem-backup.txt")),
+        assert_eq!(system.execute_command(CommandScript::from_str(
+            "mycat2 line1.txt line2.txt poem.txt poem-backup.txt").unwrap()),
             vec![
                 Ok(CommandLineOutput
                 {
@@ -1718,7 +1686,7 @@ mod test
         system.create_file("terrible-file.txt").unwrap();
         assert!(system.is_file("terrible-file.txt"));
         assert_eq!(
-            system.execute_command(CommandScript::from_single_line("rm terrible-file.txt")),
+            system.execute_command(CommandScript::from_str("rm terrible-file.txt").unwrap()),
             vec![
                 Ok(CommandLineOutput
                 {

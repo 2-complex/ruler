@@ -189,7 +189,7 @@ fn main()
                 Err(error) => eprintln!("{}", error),
             }
         },
-        RulerSubcommand::Invoke(invoke_config) =>
+        RulerSubcommand::Invoke(_invoke_config) =>
         {
         },
         RulerSubcommand::Clean(build_config) =>

@@ -81,8 +81,8 @@ use crate::system::
 {
     System,
     SystemError,
-    CommandScript
 };
+use crate::system::language::CommandScript;
 use crate::system::util::
 {
     read_file_to_string,
@@ -599,7 +599,7 @@ pub fn build
                         match handle_rule_node(info, RuleExt
                             {
                                 sources_ticket : sources_ticket,
-                                command_script : CommandScript::from_string_vec(node.command.lines),
+                                command_script : CommandScript::from_string_vec(node.command.lines).unwrap() /*TODO UNWRAP THIS IN ANOTHER PLACE*/,
                                 rule_history : rule_history,
                                 cache : cache_clone,
                                 downloader_cache_opt : Some(downloader_cache_clone),
@@ -794,7 +794,8 @@ pub fn run
     let mut all = vec![format!("./{}", executable)];
     all.append(&mut extra_args);
 
-    for result in system.execute_command(CommandScript::from_string_vec(all))
+    /* TODO unwrap! */
+    for result in system.execute_command(CommandScript::from_string_vec(all).unwrap())
     {
         match result
         {

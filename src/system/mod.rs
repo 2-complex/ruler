@@ -19,33 +19,6 @@ pub struct CommandLineOutput
     pub success : bool,
 }
 
-pub struct CommandScript
-{
-    pub lines : Vec<String>
-}
-
-impl fmt::Display for CommandScript
-{
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
-    {
-        write!(formatter, "{}", self.lines.join("; "))
-    }
-}
-
-impl CommandScript
-{
-    #[cfg(test)]
-    pub fn from_single_line(line: &str) -> CommandScript
-    {
-        CommandScript{lines:vec![line.to_string()]}
-    }
-
-    pub fn from_string_vec(all_lines: Vec<String>) -> CommandScript
-    {
-        CommandScript{lines:all_lines}
-    }
-}
-
 impl CommandLineOutput
 {
     #[cfg(test)]
@@ -223,5 +196,5 @@ pub trait System: Clone + Send + Sync
 
     fn is_executable(&self, path: &str) -> Result<bool, SystemError>;
     fn set_is_executable(&mut self, path: &str, executable : bool) -> Result<(), SystemError>;
-    fn execute_command(&mut self, command_script: CommandScript) -> Vec<Result<CommandLineOutput, SystemError>>;
+    fn execute_command(&mut self, command_script: language::CommandScript) -> Vec<Result<CommandLineOutput, SystemError>>;
 }
