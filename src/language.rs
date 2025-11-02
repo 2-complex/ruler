@@ -55,7 +55,8 @@ impl CommandLineInvocation
 pub enum ParseError
 {
     Empty,
-    UnclosedQuote
+    UnclosedQuote(usize, usize),
+    EmptyEscape(usize, usize)
 }
 
 fn is_whitespace(c: char) -> bool
@@ -73,6 +74,16 @@ fn is_quote(c: char) -> bool
     c == '"'
 }
 
+fn is_newline(c: char) -> bool
+{
+    c == '\n'
+}
+
+fn is_escape(c: char) -> bool
+{
+    c == '\\'
+}
+
 fn normal_push(result: &mut Vec<CommandLineInvocation>, current_command: CommandLineInvocation) -> CommandLineInvocation
 {
     if current_command.non_trivial()
@@ -82,11 +93,12 @@ fn normal_push(result: &mut Vec<CommandLineInvocation>, current_command: Command
     CommandLineInvocation::new()
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 enum Mode
 {
     Normal,
-    Quote
+    Quote(usize, usize),
+    Escape(Box<Mode>, usize, usize)
 }
 
 /*  Reads in a .rules file content as a String, and creates a vector of Rule
@@ -98,6 +110,8 @@ pub fn parse(content : String)
     let mut current_command = CommandLineInvocation::new();
     let mut start = 0;
     let mut mode = Mode::Normal;
+    let mut line_number = 1usize;
+    let mut line_i = 0;
 
     for (i, c) in content.char_indices()
     {
@@ -107,23 +121,24 @@ pub fn parse(content : String)
             {
                 if is_quote(c)
                 {
-                    mode = Mode::Quote;
-                    start = i + c.len_utf8();
-                    continue;
-                }
-
-                if is_end_line_character(c) || is_whitespace(c)
-                {
-                    current_command.push(&content[start..i]);
+                    mode = Mode::Quote(line_number, i-line_i+1);
                     start = i + c.len_utf8();
                 }
-
-                if is_end_line_character(c)
+                else
                 {
-                    current_command = normal_push(&mut result, current_command);
+                    if is_end_line_character(c) || is_whitespace(c)
+                    {
+                        current_command.push(&content[start..i]);
+                        start = i + c.len_utf8();
+                    }
+
+                    if is_end_line_character(c)
+                    {
+                        current_command = normal_push(&mut result, current_command);
+                    }
                 }
             },
-            Mode::Quote => 
+            Mode::Quote(_line_number, _column_number) =>
             {
                 if is_quote(c)
                 {
@@ -131,13 +146,37 @@ pub fn parse(content : String)
                     start = i + c.len_utf8();
                     mode = Mode::Normal;
                 }
+
+                if is_escape(c)
+                {
+                    mode = Mode::Escape(Box::new(mode), line_number, i-line_i+1);
+                    start = i + c.len_utf8();
+                }
+            },
+            Mode::Escape(previous_mode, _line_number, _column_number) =>
+            {
+                mode = *previous_mode;
             }
+        }
+
+        println!("{} {:?}", c, mode);
+
+        if is_newline(c)
+        {
+            line_number += 1;
+            line_i = i+1;
         }
     }
 
-    if mode == Mode::Quote
+    match mode
     {
-        return Err(ParseError::UnclosedQuote);
+        Mode::Escape(_previous_mode, line_number, column_number) =>
+            return Err(ParseError::EmptyEscape(line_number, column_number)),
+
+        Mode::Quote(line_number, column_number) =>
+            return Err(ParseError::UnclosedQuote(line_number, column_number)),
+
+        Mode::Normal => {}
     }
 
     current_command.push(&content[start..]);
@@ -485,23 +524,38 @@ mod tests
             ]));
     }
 
-    /*  Call parse on just a two word invocation, both words in quotes, the second
-        has spaces in it, expect a command with standard routing */
+    /*  Parse just a single quite, expect an error */
     #[test]
     fn just_one_quote()
     {
         assert_eq!(
             parse("\"".to_string()),
-            Err(ParseError::UnclosedQuote));
+            Err(ParseError::UnclosedQuote(1, 1)));
     }
 
-    /*  Call parse on just a two word invocation, both words in quotes, the second
-        has spaces in it, expect a command with standard routing */
+    /*  Parse a single quite with a lot of newlines around it, expect an error */
     #[test]
     fn three_quotes_with_lots_of_newlines()
     {
         assert_eq!(
             parse("\"\n\n\n\n\"\n\n\n\"".to_string()),
-            Err(ParseError::UnclosedQuote));
+            Err(ParseError::UnclosedQuote(8, 1)));
+    }
+
+    /*  Parse a single quite with a lot of newlines around it.
+        Expect a weird command, but successful parse */
+    #[test]
+    fn escaped_quote_as_command()
+    {
+        assert_eq!(
+            parse("\"\\\"\"".to_string()),
+            Ok(vec![CommandLineInvocation
+                {
+                    command: "\"".to_string(),
+                    args: vec![],
+                    out: Destination::StdOut,
+                    err: Destination::StdErr,
+                }
+            ]));
     }
 }
