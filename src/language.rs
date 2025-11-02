@@ -1,4 +1,4 @@
-#[derive(Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq)]
 pub enum Destination
 {
     StdOut,
