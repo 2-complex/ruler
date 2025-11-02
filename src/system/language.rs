@@ -189,7 +189,34 @@ fn is_err_file_indicator(s: &str) -> bool
     s == "2>"
 }
 
-fn normal_push(result: &mut Vec<CommandLineInvocation>, current_command: CommandLineInvocation) -> CommandLineInvocation
+#[derive(Debug, PartialEq)]
+pub struct CommandScript
+{
+    lines: Vec<CommandLineInvocation>
+}
+
+impl CommandScript
+{
+    fn new() -> Self
+    {
+        Self
+        {
+            lines: vec![]
+        }
+    }
+
+    fn push(self: &mut Self, line: CommandLineInvocation)
+    {
+        self.lines.push(line)
+    }
+
+    fn len(self: &Self) -> usize
+    {
+        self.lines.len()
+    }
+}
+
+fn normal_push(result: &mut CommandScript, current_command: CommandLineInvocation) -> CommandLineInvocation
 {
     if current_command.non_trivial()
     {
@@ -209,9 +236,9 @@ enum Mode
 /*  Reads in a .rules file content as a String, and creates a vector of Rule
     objects. */
 pub fn parse(content : String)
--> Result<Vec<CommandLineInvocation>, ParseError>
+-> Result<CommandScript, ParseError>
 {
-    let mut result = Vec::new();
+    let mut result = CommandScript::new();
     let mut current_command = CommandLineInvocation::new();
     let mut start = 0;
     let mut mode = Mode::Normal;
@@ -319,6 +346,7 @@ mod tests
         OutDestination,
         ErrDestination,
         CommandLineInvocation,
+        CommandScript,
         ParseError,
         parse
     };
@@ -339,14 +367,14 @@ mod tests
     {
         assert_eq!(
             parse("run".to_string()),
-            Ok(vec![CommandLineInvocation
+            Ok(CommandScript{lines:vec![CommandLineInvocation
                 {
                     exec: "run".to_string(),
                     args: vec![],
                     out: OutDestination::StdOut,
                     err: ErrDestination::StdErr,
                 }
-            ]));
+            ]}));
     }
 
     /*  Call parse on just a one word invocation, expect a command with
@@ -356,14 +384,14 @@ mod tests
     {
         assert_eq!(
             parse(" run".to_string()),
-            Ok(vec![CommandLineInvocation
+            Ok(CommandScript{lines:vec![CommandLineInvocation
                 {
                     exec: "run".to_string(),
                     args: vec![],
                     out: OutDestination::StdOut,
                     err: ErrDestination::StdErr,
                 }
-            ]));
+            ]}));
     }
 
     /*  Call parse on just a one word invocation, expect a command with
@@ -373,14 +401,14 @@ mod tests
     {
         assert_eq!(
             parse("\trun".to_string()),
-            Ok(vec![CommandLineInvocation
+            Ok(CommandScript{lines:vec![CommandLineInvocation
                 {
                     exec: "run".to_string(),
                     args: vec![],
                     out: OutDestination::StdOut,
                     err: ErrDestination::StdErr,
                 }
-            ]));
+            ]}));
     }
 
     /*  Call parse on just a one word invocation, expect a command with
@@ -390,14 +418,14 @@ mod tests
     {
         assert_eq!(
             parse("run ".to_string()),
-            Ok(vec![CommandLineInvocation
+            Ok(CommandScript{lines:vec![CommandLineInvocation
                 {
                     exec: "run".to_string(),
                     args: vec![],
                     out: OutDestination::StdOut,
                     err: ErrDestination::StdErr,
                 }
-            ]));
+            ]}));
     }
 
     /*  Call parse on just a one word invocation, expect a command with
@@ -407,14 +435,14 @@ mod tests
     {
         assert_eq!(
             parse("run\t".to_string()),
-            Ok(vec![CommandLineInvocation
+            Ok(CommandScript{lines:vec![CommandLineInvocation
                 {
                     exec: "run".to_string(),
                     args: vec![],
                     out: OutDestination::StdOut,
                     err: ErrDestination::StdErr,
                 }
-            ]));
+            ]}));
     }
 
     /*  Call parse on a two word invocation, expect a command with
@@ -424,14 +452,14 @@ mod tests
     {
         assert_eq!(
             parse("run program".to_string()),
-            Ok(vec![CommandLineInvocation
+            Ok(CommandScript{lines:vec![CommandLineInvocation
                 {
                     exec: "run".to_string(),
                     args: vec!["program".to_string()],
                     out: OutDestination::StdOut,
                     err: ErrDestination::StdErr,
                 }
-            ]));
+            ]}));
     }
 
     /*  Call parse on a two word invocation, expect a command with
@@ -441,14 +469,14 @@ mod tests
     {
         assert_eq!(
             parse(";;;run program;;;".to_string()),
-            Ok(vec![CommandLineInvocation
+            Ok(CommandScript{lines:vec![CommandLineInvocation
                 {
                     exec: "run".to_string(),
                     args: vec!["program".to_string()],
                     out: OutDestination::StdOut,
                     err: ErrDestination::StdErr,
                 }
-            ]));
+            ]}));
     }
 
     /*  Call parse on just a two word invocation, throw in some arbitrary whitespace,
@@ -458,14 +486,14 @@ mod tests
     {
         assert_eq!(
             parse("\t run\n\nprogram ".to_string()),
-            Ok(vec![CommandLineInvocation
+            Ok(CommandScript{lines:vec![CommandLineInvocation
                 {
                     exec: "run".to_string(),
                     args: vec!["program".to_string()],
                     out: OutDestination::StdOut,
                     err: ErrDestination::StdErr,
                 }
-            ]));
+            ]}));
     }
 
     /*  Call parse on just a two word invocation, throw in some arbitrary whitespace,
@@ -475,7 +503,7 @@ mod tests
     {
         assert_eq!(
             parse("run program;\nrun another".to_string()),
-            Ok(vec![
+            Ok(CommandScript{lines:vec![
                 CommandLineInvocation
                 {
                     exec: "run".to_string(),
@@ -490,7 +518,7 @@ mod tests
                     out: OutDestination::StdOut,
                     err: ErrDestination::StdErr,
                 }
-            ]));
+            ]}));
     }
 
     /*  Call parse on just a two word invocation, throw in some arbitrary whitespace,
@@ -500,7 +528,7 @@ mod tests
     {
         assert_eq!(
             parse("run program;run another".to_string()),
-            Ok(vec![
+            Ok(CommandScript{lines:vec![
                 CommandLineInvocation
                 {
                     exec: "run".to_string(),
@@ -515,7 +543,7 @@ mod tests
                     out: OutDestination::StdOut,
                     err: ErrDestination::StdErr,
                 }
-            ]));
+            ]}));
     }
 
     /*  Call parse on just a two word invocation, throw in some arbitrary whitespace,
@@ -525,7 +553,7 @@ mod tests
     {
         assert_eq!(
             parse("   run\tprogram;\n \n run another  \n  ".to_string()),
-            Ok(vec![
+            Ok(CommandScript{lines:vec![
                 CommandLineInvocation
                 {
                     exec: "run".to_string(),
@@ -540,7 +568,7 @@ mod tests
                     out: OutDestination::StdOut,
                     err: ErrDestination::StdErr,
                 }
-            ]));
+            ]}));
     }
 
     /*  Call parse on just a two word invocation, throw in some arbitrary whitespace,
@@ -550,7 +578,7 @@ mod tests
     {
         assert_eq!(
             parse("   run\tprogram;\n \n run another  \n ; \n\n".to_string()),
-            Ok(vec![
+            Ok(CommandScript{lines:vec![
                 CommandLineInvocation
                 {
                     exec: "run".to_string(),
@@ -565,7 +593,7 @@ mod tests
                     out: OutDestination::StdOut,
                     err: ErrDestination::StdErr,
                 }
-            ]));
+            ]}));
     }
 
     /*  Call parse on just a two word invocation, throw in some arbitrary whitespace,
@@ -575,7 +603,7 @@ mod tests
     {
         assert_eq!(
             parse("  ;;; run\tprogram;\n ;\n  ; run another  \n ; \n;\n".to_string()),
-            Ok(vec![
+            Ok(CommandScript{lines:vec![
                 CommandLineInvocation
                 {
                     exec: "run".to_string(),
@@ -590,7 +618,7 @@ mod tests
                     out: OutDestination::StdOut,
                     err: ErrDestination::StdErr,
                 }
-            ]));
+            ]}));
     }
 
     /*  Call parse on just a one word invocation, in quotes, expect a command with
@@ -600,14 +628,14 @@ mod tests
     {
         assert_eq!(
             parse("\"run\"".to_string()),
-            Ok(vec![CommandLineInvocation
+            Ok(CommandScript{lines:vec![CommandLineInvocation
                 {
                     exec: "run".to_string(),
                     args: vec![],
                     out: OutDestination::StdOut,
                     err: ErrDestination::StdErr,
                 }
-            ]));
+            ]}));
     }
 
     /*  Call parse on just a two word invocation, both words in quotes, the second
@@ -617,14 +645,14 @@ mod tests
     {
         assert_eq!(
             parse("\"run\" \" program \"".to_string()),
-            Ok(vec![CommandLineInvocation
+            Ok(CommandScript{lines:vec![CommandLineInvocation
                 {
                     exec: "run".to_string(),
                     args: vec![" program ".to_string()],
                     out: OutDestination::StdOut,
                     err: ErrDestination::StdErr,
                 }
-            ]));
+            ]}));
     }
 
     /*  Call parse on just a two word invocation, both words in quotes, the second
@@ -634,14 +662,14 @@ mod tests
     {
         assert_eq!(
             parse("\"run\" \"program;\"".to_string()),
-            Ok(vec![CommandLineInvocation
+            Ok(CommandScript{lines:vec![CommandLineInvocation
                 {
                     exec: "run".to_string(),
                     args: vec!["program;".to_string()],
                     out: OutDestination::StdOut,
                     err: ErrDestination::StdErr,
                 }
-            ]));
+            ]}));
     }
 
     /*  Parse just a single quite, expect an error */
@@ -669,14 +697,14 @@ mod tests
     {
         assert_eq!(
             parse("\"\\\"\"".to_string()),
-            Ok(vec![CommandLineInvocation
+            Ok(CommandScript{lines:vec![CommandLineInvocation
                 {
                     exec: "\"".to_string(),
                     args: vec![],
                     out: OutDestination::StdOut,
                     err: ErrDestination::StdErr,
                 }
-            ]));
+            ]}));
     }
 
     /*  One one-word command piped into another one-word command */
@@ -685,7 +713,7 @@ mod tests
     {
         assert_eq!(
             parse("build | log".to_string()),
-            Ok(vec![CommandLineInvocation
+            Ok(CommandScript{lines:vec![CommandLineInvocation
                 {
                     exec: "build".to_string(),
                     args: vec![],
@@ -700,7 +728,7 @@ mod tests
                     ),
                     err: ErrDestination::StdErr,
                 }
-            ]));
+            ]}));
     }
 
     /*  One one-word command piped into another one-word command */
@@ -709,7 +737,7 @@ mod tests
     {
         assert_eq!(
             parse("build | postprocess | log".to_string()),
-            Ok(vec![CommandLineInvocation
+            Ok(CommandScript{lines:vec![CommandLineInvocation
                 {
                     exec: "build".to_string(),
                     args: vec![],
@@ -732,7 +760,7 @@ mod tests
                     ),
                     err: ErrDestination::StdErr,
                 }
-            ]));
+            ]}));
     }
 
     /*  Two-word invocation piped with output directed to a file */
@@ -741,7 +769,7 @@ mod tests
     {
         assert_eq!(
             parse("python build.py > build/out".to_string()),
-            Ok(vec![
+            Ok(CommandScript{lines:vec![
                 CommandLineInvocation
                 {
                     exec: "python".to_string(),
@@ -749,7 +777,7 @@ mod tests
                     out: OutDestination::File("build/out".to_string()),
                     err: ErrDestination::StdErr,
                 }
-            ]));
+            ]}));
     }
 
     /*  Two-word invocation piped with error directed to a file */
@@ -758,7 +786,7 @@ mod tests
     {
         assert_eq!(
             parse("python build.py 2> build/out.err".to_string()),
-            Ok(vec![
+            Ok(CommandScript{lines:vec![
                 CommandLineInvocation
                 {
                     exec: "python".to_string(),
@@ -766,7 +794,7 @@ mod tests
                     out: OutDestination::StdOut,
                     err: ErrDestination::File("build/out.err".to_string()),
                 }
-            ]));
+            ]}));
     }
 
     /*  Two-word command with output directed to one file and error to another file */
@@ -777,7 +805,7 @@ mod tests
             parse("python build.py 
                 > build/out
                 2> build/err".to_string()),
-            Ok(vec![
+            Ok(CommandScript{lines:vec![
                 CommandLineInvocation
                 {
                     exec: "python".to_string(),
@@ -785,6 +813,6 @@ mod tests
                     out: OutDestination::File("build/out".to_string()),
                     err: ErrDestination::File("build/err".to_string()),
                 }
-            ]));
+            ]}));
     }
 }
