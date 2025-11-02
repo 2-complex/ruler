@@ -1,19 +1,25 @@
 #[derive(Debug, PartialEq)]
-pub enum Destination
+pub enum OutDestination
 {
     StdOut,
+    File(String),
+    Command(Box<CommandLineInvocation>),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum ErrDestination
+{
     StdErr,
-    Exceutable(String),
     File(String),
 }
 
 #[derive(Debug, PartialEq)]
 pub struct CommandLineInvocation
 {
-    command: String,
+    exec: String,
     args: Vec<String>,
-    out: Destination,
-    err: Destination,
+    out: OutDestination,
+    err: ErrDestination,
 }
 
 impl CommandLineInvocation
@@ -22,10 +28,10 @@ impl CommandLineInvocation
     {
         Self
         {
-            command: "".to_string(),
+            exec: "".to_string(),
             args: vec![],
-            out: Destination::StdOut,
-            err: Destination::StdErr,
+            out: OutDestination::StdOut,
+            err: ErrDestination::StdErr,
         }
     }
 
@@ -36,18 +42,51 @@ impl CommandLineInvocation
             return;
         }
 
-        if self.command.len() == 0
+        match &mut self.out
         {
-            self.command = word.to_string();
+            OutDestination::StdOut => {},
+            OutDestination::Command(ref mut command_box) =>
+            {
+                (*command_box).push(word);
+                return;
+            },
+            _=>
+            {
+                // todo:error
+            }
+        }
+
+        if self.exec.len() == 0
+        {
+            self.exec = word.to_string();
             return;
         }
 
         self.args.push(word.to_string());
     }
 
+    fn pipe(self:&mut Self)
+    {
+        match &mut self.out
+        {
+            OutDestination::StdOut =>
+            {
+                self.out = OutDestination::Command(Box::new(CommandLineInvocation::new()));
+            },
+            OutDestination::Command(ref mut command_box) =>
+            {
+                (*command_box).pipe();
+            },
+            _=>
+            {
+                // todo:error
+            }
+        }
+    }
+
     fn non_trivial(self:&Self) -> bool
     {
-        self.command.len() != 0
+        self.exec.len() != 0
     }
 }
 
@@ -84,6 +123,11 @@ fn is_escape(c: char) -> bool
     c == '\\'
 }
 
+fn is_pipe(c: char) -> bool
+{
+    c == '|'
+}
+
 fn normal_push(result: &mut Vec<CommandLineInvocation>, current_command: CommandLineInvocation) -> CommandLineInvocation
 {
     if current_command.non_trivial()
@@ -98,7 +142,7 @@ enum Mode
 {
     Normal,
     Quote(usize, usize),
-    Escape(Box<Mode>, usize, usize)
+    Escape(Box<Mode>, usize, usize),
 }
 
 /*  Reads in a .rules file content as a String, and creates a vector of Rule
@@ -119,7 +163,12 @@ pub fn parse(content : String)
         {
             Mode::Normal =>
             {
-                if is_quote(c)
+                if is_pipe(c)
+                {
+                    current_command.pipe();
+                    start = i + c.len_utf8();
+                }
+                else if is_quote(c)
                 {
                     mode = Mode::Quote(line_number, i-line_i+1);
                     start = i + c.len_utf8();
@@ -159,8 +208,6 @@ pub fn parse(content : String)
             }
         }
 
-        println!("{} {:?}", c, mode);
-
         if is_newline(c)
         {
             line_number += 1;
@@ -176,7 +223,7 @@ pub fn parse(content : String)
         Mode::Quote(line_number, column_number) =>
             return Err(ParseError::UnclosedQuote(line_number, column_number)),
 
-        Mode::Normal => {}
+        _ => {}
     }
 
     current_command.push(&content[start..]);
@@ -197,7 +244,8 @@ mod tests
 {
     use crate::language::
     {
-        Destination,
+        OutDestination,
+        ErrDestination,
         CommandLineInvocation,
         ParseError,
         parse
@@ -221,10 +269,10 @@ mod tests
             parse("run".to_string()),
             Ok(vec![CommandLineInvocation
                 {
-                    command: "run".to_string(),
+                    exec: "run".to_string(),
                     args: vec![],
-                    out: Destination::StdOut,
-                    err: Destination::StdErr,
+                    out: OutDestination::StdOut,
+                    err: ErrDestination::StdErr,
                 }
             ]));
     }
@@ -238,10 +286,10 @@ mod tests
             parse(" run".to_string()),
             Ok(vec![CommandLineInvocation
                 {
-                    command: "run".to_string(),
+                    exec: "run".to_string(),
                     args: vec![],
-                    out: Destination::StdOut,
-                    err: Destination::StdErr,
+                    out: OutDestination::StdOut,
+                    err: ErrDestination::StdErr,
                 }
             ]));
     }
@@ -255,10 +303,10 @@ mod tests
             parse("\trun".to_string()),
             Ok(vec![CommandLineInvocation
                 {
-                    command: "run".to_string(),
+                    exec: "run".to_string(),
                     args: vec![],
-                    out: Destination::StdOut,
-                    err: Destination::StdErr,
+                    out: OutDestination::StdOut,
+                    err: ErrDestination::StdErr,
                 }
             ]));
     }
@@ -272,10 +320,10 @@ mod tests
             parse("run ".to_string()),
             Ok(vec![CommandLineInvocation
                 {
-                    command: "run".to_string(),
+                    exec: "run".to_string(),
                     args: vec![],
-                    out: Destination::StdOut,
-                    err: Destination::StdErr,
+                    out: OutDestination::StdOut,
+                    err: ErrDestination::StdErr,
                 }
             ]));
     }
@@ -289,10 +337,10 @@ mod tests
             parse("run\t".to_string()),
             Ok(vec![CommandLineInvocation
                 {
-                    command: "run".to_string(),
+                    exec: "run".to_string(),
                     args: vec![],
-                    out: Destination::StdOut,
-                    err: Destination::StdErr,
+                    out: OutDestination::StdOut,
+                    err: ErrDestination::StdErr,
                 }
             ]));
     }
@@ -306,10 +354,10 @@ mod tests
             parse("run program".to_string()),
             Ok(vec![CommandLineInvocation
                 {
-                    command: "run".to_string(),
+                    exec: "run".to_string(),
                     args: vec!["program".to_string()],
-                    out: Destination::StdOut,
-                    err: Destination::StdErr,
+                    out: OutDestination::StdOut,
+                    err: ErrDestination::StdErr,
                 }
             ]));
     }
@@ -323,10 +371,10 @@ mod tests
             parse(";;;run program;;;".to_string()),
             Ok(vec![CommandLineInvocation
                 {
-                    command: "run".to_string(),
+                    exec: "run".to_string(),
                     args: vec!["program".to_string()],
-                    out: Destination::StdOut,
-                    err: Destination::StdErr,
+                    out: OutDestination::StdOut,
+                    err: ErrDestination::StdErr,
                 }
             ]));
     }
@@ -340,10 +388,10 @@ mod tests
             parse("\t run\n\nprogram ".to_string()),
             Ok(vec![CommandLineInvocation
                 {
-                    command: "run".to_string(),
+                    exec: "run".to_string(),
                     args: vec!["program".to_string()],
-                    out: Destination::StdOut,
-                    err: Destination::StdErr,
+                    out: OutDestination::StdOut,
+                    err: ErrDestination::StdErr,
                 }
             ]));
     }
@@ -358,17 +406,17 @@ mod tests
             Ok(vec![
                 CommandLineInvocation
                 {
-                    command: "run".to_string(),
+                    exec: "run".to_string(),
                     args: vec!["program".to_string()],
-                    out: Destination::StdOut,
-                    err: Destination::StdErr,
+                    out: OutDestination::StdOut,
+                    err: ErrDestination::StdErr,
                 },
                 CommandLineInvocation
                 {
-                    command: "run".to_string(),
+                    exec: "run".to_string(),
                     args: vec!["another".to_string()],
-                    out: Destination::StdOut,
-                    err: Destination::StdErr,
+                    out: OutDestination::StdOut,
+                    err: ErrDestination::StdErr,
                 }
             ]));
     }
@@ -383,17 +431,17 @@ mod tests
             Ok(vec![
                 CommandLineInvocation
                 {
-                    command: "run".to_string(),
+                    exec: "run".to_string(),
                     args: vec!["program".to_string()],
-                    out: Destination::StdOut,
-                    err: Destination::StdErr,
+                    out: OutDestination::StdOut,
+                    err: ErrDestination::StdErr,
                 },
                 CommandLineInvocation
                 {
-                    command: "run".to_string(),
+                    exec: "run".to_string(),
                     args: vec!["another".to_string()],
-                    out: Destination::StdOut,
-                    err: Destination::StdErr,
+                    out: OutDestination::StdOut,
+                    err: ErrDestination::StdErr,
                 }
             ]));
     }
@@ -408,17 +456,17 @@ mod tests
             Ok(vec![
                 CommandLineInvocation
                 {
-                    command: "run".to_string(),
+                    exec: "run".to_string(),
                     args: vec!["program".to_string()],
-                    out: Destination::StdOut,
-                    err: Destination::StdErr,
+                    out: OutDestination::StdOut,
+                    err: ErrDestination::StdErr,
                 },
                 CommandLineInvocation
                 {
-                    command: "run".to_string(),
+                    exec: "run".to_string(),
                     args: vec!["another".to_string()],
-                    out: Destination::StdOut,
-                    err: Destination::StdErr,
+                    out: OutDestination::StdOut,
+                    err: ErrDestination::StdErr,
                 }
             ]));
     }
@@ -433,17 +481,17 @@ mod tests
             Ok(vec![
                 CommandLineInvocation
                 {
-                    command: "run".to_string(),
+                    exec: "run".to_string(),
                     args: vec!["program".to_string()],
-                    out: Destination::StdOut,
-                    err: Destination::StdErr,
+                    out: OutDestination::StdOut,
+                    err: ErrDestination::StdErr,
                 },
                 CommandLineInvocation
                 {
-                    command: "run".to_string(),
+                    exec: "run".to_string(),
                     args: vec!["another".to_string()],
-                    out: Destination::StdOut,
-                    err: Destination::StdErr,
+                    out: OutDestination::StdOut,
+                    err: ErrDestination::StdErr,
                 }
             ]));
     }
@@ -458,17 +506,17 @@ mod tests
             Ok(vec![
                 CommandLineInvocation
                 {
-                    command: "run".to_string(),
+                    exec: "run".to_string(),
                     args: vec!["program".to_string()],
-                    out: Destination::StdOut,
-                    err: Destination::StdErr,
+                    out: OutDestination::StdOut,
+                    err: ErrDestination::StdErr,
                 },
                 CommandLineInvocation
                 {
-                    command: "run".to_string(),
+                    exec: "run".to_string(),
                     args: vec!["another".to_string()],
-                    out: Destination::StdOut,
-                    err: Destination::StdErr,
+                    out: OutDestination::StdOut,
+                    err: ErrDestination::StdErr,
                 }
             ]));
     }
@@ -482,10 +530,10 @@ mod tests
             parse("\"run\"".to_string()),
             Ok(vec![CommandLineInvocation
                 {
-                    command: "run".to_string(),
+                    exec: "run".to_string(),
                     args: vec![],
-                    out: Destination::StdOut,
-                    err: Destination::StdErr,
+                    out: OutDestination::StdOut,
+                    err: ErrDestination::StdErr,
                 }
             ]));
     }
@@ -499,10 +547,10 @@ mod tests
             parse("\"run\" \" program \"".to_string()),
             Ok(vec![CommandLineInvocation
                 {
-                    command: "run".to_string(),
+                    exec: "run".to_string(),
                     args: vec![" program ".to_string()],
-                    out: Destination::StdOut,
-                    err: Destination::StdErr,
+                    out: OutDestination::StdOut,
+                    err: ErrDestination::StdErr,
                 }
             ]));
     }
@@ -516,10 +564,10 @@ mod tests
             parse("\"run\" \"program;\"".to_string()),
             Ok(vec![CommandLineInvocation
                 {
-                    command: "run".to_string(),
+                    exec: "run".to_string(),
                     args: vec!["program;".to_string()],
-                    out: Destination::StdOut,
-                    err: Destination::StdErr,
+                    out: OutDestination::StdOut,
+                    err: ErrDestination::StdErr,
                 }
             ]));
     }
@@ -551,10 +599,34 @@ mod tests
             parse("\"\\\"\"".to_string()),
             Ok(vec![CommandLineInvocation
                 {
-                    command: "\"".to_string(),
+                    exec: "\"".to_string(),
                     args: vec![],
-                    out: Destination::StdOut,
-                    err: Destination::StdErr,
+                    out: OutDestination::StdOut,
+                    err: ErrDestination::StdErr,
+                }
+            ]));
+    }
+
+    /*  One one-word command piped into another one-word command */
+    #[test]
+    fn pipe_basic()
+    {
+        assert_eq!(
+            parse("build | log".to_string()),
+            Ok(vec![CommandLineInvocation
+                {
+                    exec: "build".to_string(),
+                    args: vec![],
+                    out: OutDestination::Command(
+                        Box::new(CommandLineInvocation
+                        {
+                            exec: "log".to_string(),
+                            args: vec![],
+                            out: OutDestination::StdOut,
+                            err: ErrDestination::StdErr,
+                        })
+                    ),
+                    err: ErrDestination::StdErr,
                 }
             ]));
     }
