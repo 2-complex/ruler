@@ -45,14 +45,31 @@ impl CommandLineInvocation
         match &mut self.out
         {
             OutDestination::StdOut => {},
+            OutDestination::File(path_string) =>
+            {
+                if path_string.len() == 0
+                {
+                    self.out = OutDestination::File(word.to_string());
+                    return;
+                }
+            }
             OutDestination::Command(ref mut command_box) =>
             {
                 (*command_box).push(word);
                 return;
             },
-            _=>
+        }
+
+        match &mut self.err
+        {
+            ErrDestination::StdErr => {},
+            ErrDestination::File(path_string) =>
             {
-                // todo:error
+                if path_string.len() == 0
+                {
+                    self.err = ErrDestination::File(word.to_string());
+                    return;
+                }
             }
         }
 
@@ -78,6 +95,40 @@ impl CommandLineInvocation
                 (*command_box).pipe();
             },
             _=>
+            {
+                // todo:error
+            }
+        }
+    }
+
+    fn out_file(self:&mut Self)
+    {
+        match &mut self.out
+        {
+            OutDestination::StdOut =>
+            {
+                self.out = OutDestination::File("".to_string());
+            },
+            OutDestination::Command(ref mut command_box) =>
+            {
+                (*command_box).out_file();
+            },
+            _=>
+            {
+                // todo:error
+            }
+        }
+    }
+
+    fn err_file(self:&mut Self)
+    {
+        match &mut self.err
+        {
+            ErrDestination::StdErr =>
+            {
+                self.err = ErrDestination::File("".to_string());
+            },
+            ErrDestination::File(_) =>
             {
                 // todo:error
             }
@@ -126,6 +177,16 @@ fn is_escape(c: char) -> bool
 fn is_pipe(c: char) -> bool
 {
     c == '|'
+}
+
+fn is_out_file_indicator(s: &str) -> bool
+{
+    s == ">"
+}
+
+fn is_err_file_indicator(s: &str) -> bool
+{
+    s == "2>"
 }
 
 fn normal_push(result: &mut Vec<CommandLineInvocation>, current_command: CommandLineInvocation) -> CommandLineInvocation
@@ -177,7 +238,18 @@ pub fn parse(content : String)
                 {
                     if is_end_line_character(c) || is_whitespace(c)
                     {
-                        current_command.push(&content[start..i]);
+                        if is_out_file_indicator(&content[start..i])
+                        {
+                            current_command.out_file();
+                        }
+                        else if is_err_file_indicator(&content[start..i])
+                        {
+                            current_command.err_file();
+                        }
+                        else
+                        {
+                            current_command.push(&content[start..i]);
+                        }
                         start = i + c.len_utf8();
                     }
 
@@ -627,6 +699,91 @@ mod tests
                         })
                     ),
                     err: ErrDestination::StdErr,
+                }
+            ]));
+    }
+
+    /*  One one-word command piped into another one-word command */
+    #[test]
+    fn pipe_two_levels()
+    {
+        assert_eq!(
+            parse("build | postprocess | log".to_string()),
+            Ok(vec![CommandLineInvocation
+                {
+                    exec: "build".to_string(),
+                    args: vec![],
+                    out: OutDestination::Command(
+                        Box::new(CommandLineInvocation
+                        {
+                            exec: "postprocess".to_string(),
+                            args: vec![],
+                            out: OutDestination::Command(
+                                Box::new(CommandLineInvocation
+                                {
+                                    exec: "log".to_string(),
+                                    args: vec![],
+                                    out: OutDestination::StdOut,
+                                    err: ErrDestination::StdErr,
+                                })
+                            ),
+                            err: ErrDestination::StdErr,
+                        })
+                    ),
+                    err: ErrDestination::StdErr,
+                }
+            ]));
+    }
+
+    /*  Two-word invocation piped with output directed to a file */
+    #[test]
+    fn out_file_basic()
+    {
+        assert_eq!(
+            parse("python build.py > build/out".to_string()),
+            Ok(vec![
+                CommandLineInvocation
+                {
+                    exec: "python".to_string(),
+                    args: vec!["build.py".to_string()],
+                    out: OutDestination::File("build/out".to_string()),
+                    err: ErrDestination::StdErr,
+                }
+            ]));
+    }
+
+    /*  Two-word invocation piped with error directed to a file */
+    #[test]
+    fn err_file_basic()
+    {
+        assert_eq!(
+            parse("python build.py 2> build/out.err".to_string()),
+            Ok(vec![
+                CommandLineInvocation
+                {
+                    exec: "python".to_string(),
+                    args: vec!["build.py".to_string()],
+                    out: OutDestination::StdOut,
+                    err: ErrDestination::File("build/out.err".to_string()),
+                }
+            ]));
+    }
+
+    /*  Two-word command with output directed to one file and error to another file */
+    #[test]
+    fn err_and_out_each_go_to_a_file()
+    {
+        assert_eq!(
+            parse("python build.py 
+                > build/out
+                2> build/err".to_string()),
+            Ok(vec![
+                CommandLineInvocation
+                {
+                    exec: "python".to_string(),
+                    args: vec!["build.py".to_string()],
+                    out: OutDestination::File("build/out".to_string()),
+                    err: ErrDestination::File("build/err".to_string()),
                 }
             ]));
     }
