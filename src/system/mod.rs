@@ -5,8 +5,10 @@ use std::fmt;
 
 #[cfg(test)]
 pub mod fake;
+
 pub mod util;
 pub mod real;
+pub mod language;
 
 #[derive(Debug, PartialEq)]
 pub struct CommandLineOutput

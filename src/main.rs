@@ -24,7 +24,6 @@ mod history;
 mod packet;
 mod printer;
 mod rule;
-mod language;
 mod server;
 mod sort;
 mod system;
