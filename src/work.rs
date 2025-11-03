@@ -837,12 +837,9 @@ mod test
         write_str_to_file(&mut system, "poem.txt", "Roses are red\nViolets are violet\n").unwrap();
 
         let mut rule_ext = make_rule_ext(&system, sources_ticket);
-        rule_ext.command_script = CommandScript::from_string_vec(vec![
-            "mycat".to_string(),
-            "verse1.txt".to_string(),
-            "verse2.txt".to_string(),
-            "poem.txt".to_string()
-        ]).unwrap();
+        rule_ext.command_script = CommandScript::from_str(
+            "cat verse1.txt verse2.txt > poem.txt"
+        ).unwrap();
         rule_ext.rule_history = rule_history;
 
         match handle_rule_node(make_handle_node_info(system.clone(), vec!["poem.txt".to_string()]), rule_ext)

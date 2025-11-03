@@ -39,7 +39,7 @@ use std::io::
 use std::cmp::min;
 use std::fmt;
 use std::str::from_utf8;
-
+use std::io;
 
 #[derive(Debug, Clone)]
 pub struct Content(Arc<Mutex<Vec<u8>>>);
@@ -820,6 +820,31 @@ impl FakeSystem
                         }
                     }
                 }
+
+                return Ok(CommandLineOutput::new())
+            },
+
+            "cp" =>
+            {
+                if line.args.len() < 2
+                {
+                    return Ok(CommandLineOutput::error("cp: wrong number of arguments".to_string()));
+                }
+
+                io::copy(
+                    &mut match self.open(line.args[0].as_str())
+                    {
+                        Ok(mut file) => file,
+                        Err(error) => return Ok(CommandLineOutput::error(
+                            format!("cp: source file failed to open: {}", line.args[0]))),
+                    },
+                    &mut match self.create_file(line.args[1].as_str())
+                    {
+                        Ok(mut file) => file,
+                        Err(error) => return Ok(CommandLineOutput::error(
+                            format!("cp: destination file failed to open: {}", line.args[1]))),
+                    }
+                );
 
                 return Ok(CommandLineOutput::new())
             },
@@ -1630,7 +1655,7 @@ mod test
     }
 
     #[test]
-    fn executing_mycat_concatinates()
+    fn executing_cat_concatinates()
     {
         let mut system = FakeSystem::new(10);
         system.create_file("line1.txt").unwrap();
@@ -1639,7 +1664,9 @@ mod test
         write_str_to_file(&mut system, "line2.txt", "Love to dance\n").unwrap();
 
         assert_eq!(
-            system.execute_command(CommandScript::from_str("mycat line1.txt line2.txt poem.txt").unwrap()),
+            system.execute_command(CommandScript::from_str(
+                "cat line1.txt line2.txt > poem.txt").unwrap()
+            ),
             vec![
                 Ok(CommandLineOutput
                 {
@@ -1663,7 +1690,7 @@ mod test
         system.create_file("line2.txt").unwrap();
         write_str_to_file(&mut system, "line2.txt", "Love to dance\n").unwrap();
         assert_eq!(system.execute_command(CommandScript::from_str(
-            "mycat2 line1.txt line2.txt poem.txt poem-backup.txt").unwrap()),
+            "cat line1.txt line2.txt > poem.txt; cp poem.txt poem-backup.txt").unwrap()),
             vec![
                 Ok(CommandLineOutput
                 {
@@ -1671,7 +1698,14 @@ mod test
                     err : "".to_string(),
                     code : Some(0),
                     success : true,
-                })
+                }),
+                Ok(CommandLineOutput
+                {
+                    out : "".to_string(),
+                    err : "".to_string(),
+                    code : Some(0),
+                    success : true,
+                }),
             ]
         );
 
