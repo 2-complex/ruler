@@ -599,7 +599,7 @@ pub fn build
                         match handle_rule_node(info, RuleExt
                             {
                                 sources_ticket : sources_ticket,
-                                command_script : CommandScript::from_string_vec(node.command.lines).unwrap() /*TODO UNWRAP THIS IN ANOTHER PLACE*/,
+                                command_script : node.command.script,
                                 rule_history : rule_history,
                                 cache : cache_clone,
                                 downloader_cache_opt : Some(downloader_cache_clone),

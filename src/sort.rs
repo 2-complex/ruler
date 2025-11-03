@@ -8,6 +8,11 @@ use crate::ticket::
     Ticket,
     TicketFactory,
 };
+use crate::system::language::
+{
+    CommandScript,
+    ParseError
+};
 
 /*  When rules are converted into leaves and nodes as part of the topological sort step,
     This enum gets used to allow each Node to reference its sources either in the vec of nodes. */
@@ -26,48 +31,23 @@ pub enum SourceIndex
 #[derive(Debug, PartialEq)]
 pub struct CommandLines
 {
-    pub lines: Vec<String>
+    pub script: CommandScript,
 }
 
 impl CommandLines
 {
-    pub fn parse(mut in_lines : Vec<String>) -> Self
+    pub fn parse(in_lines : Vec<String>) -> Result<Self, ParseError>
     {
-        let mut out_lines = vec![];
-        let mut command_lines : Vec<String> = vec![];
-
-        for line in in_lines.drain(..)
+        Ok(CommandLines
         {
-            match line.as_ref()
-            {
-                ";" =>
-                {
-                    out_lines.push(command_lines.join(" ").split_whitespace().collect::<Vec<&str>>().join(" "));
-                    command_lines = vec![];
-                },
-                _ =>
-                {
-                    command_lines.push(line);
-                }
-            }
-        }
-
-        if command_lines.len() != 0
-        {
-            out_lines.push(command_lines.join(" ").split_whitespace().collect::<Vec<&str>>().join(" "));
-        }
-
-        CommandLines{lines: out_lines}
+            script: CommandScript::from_string_vec(in_lines)?
+        })
     }
 
     pub fn get_ticket(self: &Self) -> Ticket
     {
         let mut factory = TicketFactory::new();
-        for v in self.lines.iter()
-        {
-            factory.input_str(&v);
-            factory.input_str(";");
-        }
+        factory.input_str(format!("{}", self.script).as_str());
         factory.result()
     }
 }
@@ -177,6 +157,7 @@ pub enum TopologicalSortError
     SelfDependentRule(String),
     CircularDependence(Vec<String>),
     TargetInMultipleRules(String),
+    CommandParseError(ParseError),
 }
 
 impl fmt::Display for TopologicalSortError
@@ -204,6 +185,9 @@ impl fmt::Display for TopologicalSortError
 
             TopologicalSortError::TargetInMultipleRules(target) =>
                 write!(formatter, "Target found in more than one rule: {}", target),
+
+            TopologicalSortError::CommandParseError(_error) =>
+                write!(formatter, "Command parse error"), // TODO: incorporate the error
         }
     }
 }
@@ -434,7 +418,11 @@ impl TopologicalSortMachine
                     targets: frame.targets,
                     source_indices: source_indices,
                     sources_ticket: sources_ticket,
-                    command: CommandLines::parse(frame.command),
+                    command: match CommandLines::parse(frame.command)
+                    {
+                        Ok(lines) => lines,
+                        Err(error) => return Err(TopologicalSortError::CommandParseError(error)),
+                    },
                 }
             );
         }
@@ -531,59 +519,13 @@ mod tests
     };
     use crate::ticket::Ticket;
 
-    #[test]
-    fn command_lines_parse_one_line()
-    {
-        let command_lines = CommandLines::parse(vec!["a b".to_string()]);
-        assert_eq!(command_lines, CommandLines
-        {
-            lines: vec!["a b".to_string()]
-        });
-    }
-
-    #[test]
-    fn command_lines_parse_two_lines()
-    {
-        let command_lines = CommandLines::parse(vec!["a".to_string(), "b".to_string()]);
-        assert_eq!(command_lines, CommandLines
-        {
-            lines: vec!["a b".to_string()]
-        });
-    }
-
-    #[test]
-    fn command_lines_parse_odd_whitespace()
-    {
-        let command_lines = CommandLines::parse(vec!["   a".to_string(), " b    ".to_string(), "   ".to_string()]);
-        assert_eq!(command_lines, CommandLines
-        {
-            lines: vec!["a b".to_string()]
-        });
-    }
-
-    #[test]
-    fn command_lines_parse_with_semicolon_and_whitespace()
-    {
-        let command_lines = CommandLines::parse(vec![
-            "   a".to_string(),
-            " b    ".to_string(),
-            "   ".to_string(),
-            ";".to_string(),
-            " c  d   ".to_string()
-        ]);
-        assert_eq!(command_lines, CommandLines
-        {
-            lines: vec!["a b".to_string(), "c d".to_string()]
-        });
-    }
-
     fn get_ticket(rule: &Rule) -> Ticket
     {   
         Node
         {
             targets: rule.targets.clone(),
             source_indices: vec![],
-            command : CommandLines::parse(rule.command.clone()),
+            command : CommandLines::parse(rule.command.clone()).unwrap(),
             sources_ticket : get_path_list_ticket(&rule.sources),
         }.get_rule_ticket()
     }
@@ -835,7 +777,7 @@ mod tests
                     {
                         targets: vec!["plant".to_string()],
                         source_indices: vec![],
-                        command : CommandLines::parse(vec![]),
+                        command : CommandLines::parse(vec![]).unwrap(),
                         sources_ticket : get_path_list_ticket(&rule.sources),
                     }
                 ]
@@ -862,7 +804,7 @@ mod tests
                     {
                         targets: vec!["plant".to_string()],
                         source_indices: vec![],
-                        command: CommandLines::parse(vec![]),
+                        command: CommandLines::parse(vec![]).unwrap(),
                         sources_ticket : get_path_list_ticket(&rule.sources),
                     }
                 ]
@@ -898,13 +840,13 @@ mod tests
                 Node{
                     targets: vec!["plant".to_string()],
                     source_indices: vec![],
-                    command: CommandLines::parse(vec![]),
+                    command: CommandLines::parse(vec![]).unwrap(),
                     sources_ticket : get_path_list_ticket(&plant_rule.sources),
                 },
                 Node{
                     targets: vec!["fruit".to_string()],
                     source_indices: vec![SourceIndex::Pair(0, 0)],
-                    command: CommandLines::parse(vec!["pick occasionally".to_string()]),
+                    command: CommandLines::parse(vec!["pick occasionally".to_string()]).unwrap(),
                     sources_ticket : get_path_list_ticket(&fruit_rule.sources),
                 },
             ])
@@ -943,14 +885,14 @@ mod tests
                         targets: vec!["plant".to_string()],
                         source_indices: vec![],
                         sources_ticket : get_path_list_ticket(&plant_rule.sources),
-                        command: CommandLines::parse(vec!["take care of plant".to_string()]),
+                        command: CommandLines::parse(vec!["take care of plant".to_string()]).unwrap(),
                     },
                     Node
                     {
                         targets: vec!["fruit".to_string()],
                         source_indices: vec![SourceIndex::Pair(0,0)],
                         sources_ticket : get_path_list_ticket(&fruit_rule.sources),
-                        command: CommandLines::parse(vec!["pick occasionally".to_string()]),
+                        command: CommandLines::parse(vec!["pick occasionally".to_string()]).unwrap(),
                     },
                 ]
             ))
@@ -1003,28 +945,28 @@ mod tests
                         targets: vec!["math".to_string()],
                         source_indices: vec![],
                         sources_ticket : get_path_list_ticket(&math_rule.sources),
-                        command: CommandLines::parse(vec!["build math".to_string()]),
+                        command: CommandLines::parse(vec!["build math".to_string()]).unwrap(),
                     },
                     Node
                     {
                         targets: vec!["graphics".to_string()],
                         source_indices: vec![SourceIndex::Pair(0, 0)],
                         sources_ticket : get_path_list_ticket(&graphics_rule.sources),
-                        command: CommandLines::parse(vec!["build graphics".to_string()]),
+                        command: CommandLines::parse(vec!["build graphics".to_string()]).unwrap(),
                     },
                     Node
                     {
                         targets: vec!["physics".to_string()],
                         source_indices: vec![SourceIndex::Pair(0, 0)],
                         sources_ticket : get_path_list_ticket(&physics_rule.sources),
-                        command: CommandLines::parse(vec!["build physics".to_string()]),
+                        command: CommandLines::parse(vec!["build physics".to_string()]).unwrap(),
                     },
                     Node
                     {
                         targets: vec!["game".to_string()],
                         source_indices: vec![SourceIndex::Pair(1, 0), SourceIndex::Pair(2, 0),],
                         sources_ticket : get_path_list_ticket(&game_rule.sources),
-                        command: CommandLines::parse(vec!["build game".to_string()]),
+                        command: CommandLines::parse(vec!["build game".to_string()]).unwrap(),
                     },
                 ]
             )
@@ -1076,28 +1018,28 @@ mod tests
                         targets: vec!["math".to_string()],
                         source_indices: vec![],
                         sources_ticket : get_path_list_ticket(&math_rule.sources),
-                        command: CommandLines::parse(vec!["build math".to_string()]),
+                        command: CommandLines::parse(vec!["build math".to_string()]).unwrap(),
                     },
                     Node
                     {
                         targets: vec!["graphics".to_string()],
                         source_indices: vec![SourceIndex::Pair(0, 0)],
                         sources_ticket : get_path_list_ticket(&graphics_rule.sources),
-                        command: CommandLines::parse(vec!["build graphics".to_string()]),
+                        command: CommandLines::parse(vec!["build graphics".to_string()]).unwrap(),
                     },
                     Node
                     {
                         targets: vec!["physics".to_string()],
                         source_indices: vec![SourceIndex::Pair(0, 0)],
                         sources_ticket : get_path_list_ticket(&physics_rule.sources),
-                        command: CommandLines::parse(vec!["build physics".to_string()]),
+                        command: CommandLines::parse(vec!["build physics".to_string()]).unwrap(),
                     },
                     Node
                     {
                         targets: vec!["game".to_string()],
                         source_indices: vec![SourceIndex::Pair(1, 0), SourceIndex::Pair(2, 0),],
                         sources_ticket : get_path_list_ticket(&game_rule.sources),
-                        command: CommandLines::parse(vec!["build game".to_string()]),
+                        command: CommandLines::parse(vec!["build game".to_string()]).unwrap(),
                     },
                 ]
             )
@@ -1148,21 +1090,21 @@ mod tests
                     {
                         targets: vec!["stanza1".to_string()],
                         source_indices: vec![SourceIndex::Leaf(0), SourceIndex::Leaf(1)],
-                        command: CommandLines::parse(vec!["poemcat verse1 chorus".to_string()]),
+                        command: CommandLines::parse(vec!["poemcat verse1 chorus".to_string()]).unwrap(),
                         sources_ticket : get_path_list_ticket(&stanza1_rule.sources),
                     },
                     Node
                     {
                         targets: vec!["stanza2".to_string()],
                         source_indices: vec![SourceIndex::Leaf(0), SourceIndex::Leaf(2)],
-                        command: CommandLines::parse(vec!["poemcat verse2 chorus".to_string()]),
+                        command: CommandLines::parse(vec!["poemcat verse2 chorus".to_string()]).unwrap(),
                         sources_ticket : get_path_list_ticket(&stanza2_rule.sources),
                     },
                     Node
                     {
                         targets: vec!["poem".to_string()],
                         source_indices: vec![SourceIndex::Pair(0, 0), SourceIndex::Pair(1, 0)],
-                        command: CommandLines::parse(vec!["poemcat stanza1 stanza2".to_string()]),
+                        command: CommandLines::parse(vec!["poemcat stanza1 stanza2".to_string()]).unwrap(),
                         sources_ticket : get_path_list_ticket(&poem_rule.sources),
                     }
                 ]
@@ -1210,21 +1152,21 @@ mod tests
                     {
                         targets: vec!["stanza1".to_string()],
                         source_indices: vec![SourceIndex::Leaf(0), SourceIndex::Leaf(1)],
-                        command: CommandLines::parse(vec!["poemcat verse1 chorus".to_string()]),
+                        command: CommandLines::parse(vec!["poemcat verse1 chorus".to_string()]).unwrap(),
                         sources_ticket : get_path_list_ticket(&stanza1_rule.sources),
                     },
                     Node
                     {
                         targets: vec!["stanza2".to_string()],
                         source_indices: vec![SourceIndex::Leaf(0), SourceIndex::Leaf(2)],
-                        command: CommandLines::parse(vec!["poemcat verse2 chorus".to_string()]),
+                        command: CommandLines::parse(vec!["poemcat verse2 chorus".to_string()]).unwrap(),
                         sources_ticket : get_path_list_ticket(&stanza2_rule.sources),
                     },
                     Node
                     {
                         targets: vec!["poem".to_string()],
                         source_indices: vec![SourceIndex::Pair(0, 0), SourceIndex::Pair(1, 0)],
-                        command: CommandLines::parse(vec!["poemcat stanza1 stanza2".to_string()]),
+                        command: CommandLines::parse(vec!["poemcat stanza1 stanza2".to_string()]).unwrap(),
                         sources_ticket : get_path_list_ticket(&poem_rule.sources),
                     }
                 ]
@@ -1272,21 +1214,21 @@ mod tests
                     {
                         targets: vec!["stanza1".to_string()],
                         source_indices: vec![SourceIndex::Leaf(0), SourceIndex::Leaf(1)],
-                        command: CommandLines::parse(vec!["poemcat verse1 chorus".to_string()]),
+                        command: CommandLines::parse(vec!["poemcat verse1 chorus".to_string()]).unwrap(),
                         sources_ticket : get_path_list_ticket(&stanza1_rule.sources),
                     },
                     Node
                     {
                         targets: vec!["stanza2".to_string()],
                         source_indices: vec![SourceIndex::Leaf(0), SourceIndex::Leaf(2)],
-                        command: CommandLines::parse(vec!["poemcat verse2 chorus".to_string()]),
+                        command: CommandLines::parse(vec!["poemcat verse2 chorus".to_string()]).unwrap(),
                         sources_ticket : get_path_list_ticket(&stanza2_rule.sources),
                     },
                     Node
                     {
                         targets: vec!["poem".to_string()],
                         source_indices: vec![SourceIndex::Pair(0, 0), SourceIndex::Pair(1, 0)],
-                        command: CommandLines::parse(vec!["poemcat stanza1 stanza2".to_string()]),
+                        command: CommandLines::parse(vec!["poemcat stanza1 stanza2".to_string()]).unwrap(),
                         sources_ticket : get_path_list_ticket(&poem_rule.sources),
                     }
                 ]
@@ -1325,14 +1267,14 @@ mod tests
                     {
                         targets: vec!["cookies".to_string()],
                         source_indices: vec![SourceIndex::Leaf(0)],
-                        command: CommandLines::parse(vec!["bake cookies".to_string()]),
+                        command: CommandLines::parse(vec!["bake cookies".to_string()]).unwrap(),
                         sources_ticket : get_path_list_ticket(&cookie_rule.sources),
                     },
                     Node
                     {
                         targets: vec!["poem".to_string()],
                         source_indices: vec![SourceIndex::Leaf(1)],
-                        command: CommandLines::parse(vec!["poemcat stanza1".to_string()]),
+                        command: CommandLines::parse(vec!["poemcat stanza1".to_string()]).unwrap(),
                         sources_ticket : get_path_list_ticket(&poem_rule.sources),
                     }
                 ]
@@ -1370,7 +1312,7 @@ mod tests
                     {
                         targets: vec!["poem".to_string()],
                         source_indices: vec![SourceIndex::Leaf(0)],
-                        command: CommandLines::parse(vec!["poemcat stanza1".to_string()]),
+                        command: CommandLines::parse(vec!["poemcat stanza1".to_string()]).unwrap(),
                         sources_ticket : get_path_list_ticket(&poem_rule.sources),
                     }
                 ]
@@ -1492,14 +1434,14 @@ mod tests
                             SourceIndex::Leaf(3)
                         ],
                         sources_ticket : get_path_list_ticket(&plant_rule.sources),
-                        command: CommandLines::parse(vec!["take care of plant".to_string()]),
+                        command: CommandLines::parse(vec!["take care of plant".to_string()]).unwrap(),
                     },
                     Node
                     {
                         targets: vec!["fruit".to_string()],
                         source_indices: vec![SourceIndex::Pair(0, 0)],
                         sources_ticket : get_path_list_ticket(&fruit_rule.sources),
-                        command: CommandLines::parse(vec!["pick occasionally".to_string()]),
+                        command: CommandLines::parse(vec!["pick occasionally".to_string()]).unwrap(),
                     },
                 ]
             ))
