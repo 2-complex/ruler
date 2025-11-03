@@ -688,7 +688,7 @@ mod test
         ticket_factory.input_ticket(TicketFactory::from_str("bananas").result());
 
         let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache").unwrap(), ticket_factory.result());
-        rule_ext.command_script = CommandScript::from_str("mycat A-source.txt A.txt").unwrap();
+        rule_ext.command_script = CommandScript::from_str("cp A-source.txt A.txt").unwrap();
 
         match handle_rule_node(make_handle_node_info(system.clone(), vec!["A.txt".to_string()]), rule_ext)
         {
@@ -750,7 +750,7 @@ mod test
         ticket_factory.input_ticket(TicketFactory::from_str("Violets are violet\n").result());
 
         let mut rule_ext = make_rule_ext(&system, ticket_factory.result());
-        rule_ext.command_script = CommandScript::from_str("mycat verse1.txt verse2.txt wrong.txt").unwrap();
+        rule_ext.command_script = CommandScript::from_str("cat verse1.txt verse2.txt > wrong.txt").unwrap();
 
         match handle_rule_node(make_handle_node_info(system.clone(), vec!["poem.txt".to_string()]), rule_ext)
         {
@@ -777,7 +777,7 @@ mod test
         ticket_factory.input_ticket(TicketFactory::from_str("Violets are violet\n").result());
 
         let mut rule_ext = make_rule_ext(&system, ticket_factory.result());
-        rule_ext.command_script = CommandScript::from_str("mycat verse1.txt verse2.txt poem.txt").unwrap();
+        rule_ext.command_script = CommandScript::from_str("cat verse1.txt verse2.txt > poem.txt").unwrap();
 
         match handle_rule_node(make_handle_node_info(system.clone(), vec!["poem.txt".to_string()]), rule_ext)
         {
@@ -901,7 +901,7 @@ mod test
         write_str_to_file(&mut system, "poem.txt", "Arbitrary content").unwrap();
 
         let mut rule_ext = make_rule_ext(&system, sources_ticket);
-        rule_ext.command_script = CommandScript::from_str("mycat verse1.txt verse2.txt poem.txt").unwrap();
+        rule_ext.command_script = CommandScript::from_str("cat verse1.txt verse2.txt > poem.txt").unwrap();
         rule_ext.rule_history = rule_history;
 
         match handle_rule_node(make_handle_node_info(system.clone(), vec!["poem.txt".to_string()]), rule_ext)
@@ -943,7 +943,7 @@ mod test
         let sources_ticket = factory.result();
 
         let mut rule_ext = make_rule_ext(&system, sources_ticket);
-        rule_ext.command_script = CommandScript::from_str("mycat verse1.txt verse2.txt poem.txt").unwrap();
+        rule_ext.command_script = CommandScript::from_str("cat verse1.txt verse2.txt > poem.txt").unwrap();
         rule_ext.rule_history = RuleHistory::new();
 
         match handle_rule_node(make_handle_node_info(system.clone(), vec!["poem.txt".to_string()]), rule_ext)
@@ -1044,7 +1044,7 @@ mod test
             Err(WorkError::CommandExecutedButErrored));
     }
 
-    /*  Use the fake command mycat2 to generate a poem and a copy of that poem.  Put one poem in place, with incorrect
+    /*  Use a cat and then a cp to generate a poem and a copy of that poem.  Put one poem in place, with incorrect
         content.  Handle the node.  Check for the presence of both poems and check the command logs  */
     #[test]
     fn two_targets_one_already_present()
@@ -1061,7 +1061,7 @@ mod test
         let sources_ticket = factory.result();
 
         let mut rule_ext = make_rule_ext(&system, sources_ticket);
-        rule_ext.command_script = CommandScript::from_str("mycat2 verse1.txt verse2.txt poem.txt poem_copy.txt").unwrap();
+        rule_ext.command_script = CommandScript::from_str("cat verse1.txt verse2.txt > poem.txt; cp poem.txt poem_copy.txt").unwrap();
         rule_ext.rule_history = RuleHistory::new();
 
         match handle_rule_node(make_handle_node_info(system.clone(),
@@ -1091,7 +1091,7 @@ mod test
 
         let command_log = system.get_command_log();
         assert_eq!(command_log.len(), 1);
-        assert_eq!(command_log[0], "mycat2 verse1.txt verse2.txt poem.txt poem_copy.txt");
+        assert_eq!(command_log[0], "cat verse1.txt verse2.txt > poem.txt;\ncp poem.txt poem_copy.txt");
     }
 
 
@@ -1111,7 +1111,7 @@ mod test
         let sources_ticket = factory.result();
 
         let mut rule_ext = make_rule_ext(&system, sources_ticket);
-        rule_ext.command_script = CommandScript::from_str("mycat verse1.txt verse2.txt poem.txt").unwrap();
+        rule_ext.command_script = CommandScript::from_str("cat verse1.txt verse2.txt > poem.txt").unwrap();
         rule_ext.rule_history = RuleHistory::new();
 
         match handle_rule_node(make_handle_node_info(system.clone(), vec![

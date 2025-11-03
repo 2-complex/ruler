@@ -765,7 +765,7 @@ mod tests
         let rule = Rule::new(
             vec!["plant".to_string()],
             vec![],
-            vec![],
+            vec!["do".to_string()],
         );
 
         assert_eq!(
@@ -777,7 +777,7 @@ mod tests
                     {
                         targets: vec!["plant".to_string()],
                         source_indices: vec![],
-                        command : CommandLines::parse(vec![]).unwrap(),
+                        command : CommandLines::parse(vec!["do".to_string()]).unwrap(),
                         sources_ticket : get_path_list_ticket(&rule.sources),
                     }
                 ]
@@ -793,7 +793,7 @@ mod tests
         let rule = Rule::new(
             vec!["plant".to_string()],
             vec![],
-            vec![]
+            vec!["wait".to_string()]
         );
 
         assert_eq!(topological_sort_all(vec![rule.clone()]),
@@ -804,7 +804,7 @@ mod tests
                     {
                         targets: vec!["plant".to_string()],
                         source_indices: vec![],
-                        command: CommandLines::parse(vec![]).unwrap(),
+                        command: CommandLines::parse(vec!["wait".to_string()]).unwrap(),
                         sources_ticket : get_path_list_ticket(&rule.sources),
                     }
                 ]
@@ -825,7 +825,7 @@ mod tests
         let plant_rule = Rule::new(
             vec!["plant".to_string()],
             vec![],
-            vec![],
+            vec!["wait".to_string()],
         );
 
         assert_eq!(topological_sort(
@@ -840,7 +840,7 @@ mod tests
                 Node{
                     targets: vec!["plant".to_string()],
                     source_indices: vec![],
-                    command: CommandLines::parse(vec![]).unwrap(),
+                    command: CommandLines::parse(vec!["wait".to_string()]).unwrap(),
                     sources_ticket : get_path_list_ticket(&plant_rule.sources),
                 },
                 Node{

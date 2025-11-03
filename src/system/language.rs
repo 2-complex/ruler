@@ -179,7 +179,6 @@ impl fmt::Display for CommandLineInvocation
 #[derive(Debug, PartialEq)]
 pub enum ParseError
 {
-    Empty,
     UnclosedQuote(usize, usize),
     EmptyEscape(usize, usize)
 }
@@ -355,15 +354,7 @@ impl CommandScript
 
         current_command.push(&content[start..]);
         result.push(current_command);
-
-        if result.len() == 0
-        {
-            Err(ParseError::Empty)
-        }
-        else
-        {
-            Ok(result)
-        }
+        Ok(result)
     }
 }
 
@@ -403,7 +394,7 @@ mod tests
     {
         assert_eq!(
             CommandScript::parse("".to_string()),
-            Err(ParseError::Empty));
+            Ok(CommandScript::new()));
     }
 
     /*  Call parse on just a one word invocation, expect a command with
