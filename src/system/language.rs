@@ -5,7 +5,7 @@ pub enum OutDestination
 {
     StdOut,
     File(String),
-    Command(Box<CommandLineInvocation>),
+    Command(Box<CommandScriptLine>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -16,7 +16,7 @@ pub enum ErrDestination
 }
 
 #[derive(Debug, PartialEq)]
-pub struct CommandLineInvocation
+pub struct CommandScriptLine
 {
     pub exec: String,
     pub args: Vec<String>,
@@ -24,7 +24,7 @@ pub struct CommandLineInvocation
     pub err: ErrDestination,
 }
 
-impl CommandLineInvocation
+impl CommandScriptLine
 {
     fn new() -> Self
     {
@@ -90,7 +90,7 @@ impl CommandLineInvocation
         {
             OutDestination::StdOut =>
             {
-                self.out = OutDestination::Command(Box::new(CommandLineInvocation::new()));
+                self.out = OutDestination::Command(Box::new(CommandScriptLine::new()));
             },
             OutDestination::Command(ref mut command_box) =>
             {
@@ -98,7 +98,7 @@ impl CommandLineInvocation
             },
             _=>
             {
-                // todo:error
+                // todo:error?
             }
         }
     }
@@ -143,19 +143,19 @@ impl CommandLineInvocation
     }
 }
 
-impl fmt::Display for CommandLineInvocation
+impl fmt::Display for CommandScriptLine
 {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
     {
-        write!(formatter, "{}", self.exec);
-        write!(formatter, " {}", self.args.join(" "));
+        write!(formatter, "{}", self.exec)?;
+        write!(formatter, " {}", self.args.join(" "))?;
 
         match &self.err
         {
             ErrDestination::StdErr => {},
             ErrDestination::File(path_string) =>
             {
-                write!(formatter, " 2> {}", path_string); // TODO: escape the string
+                write!(formatter, " 2> {}", path_string)?; // TODO: escape the string
             },
         }
 
@@ -164,11 +164,11 @@ impl fmt::Display for CommandLineInvocation
             OutDestination::StdOut => {},
             OutDestination::File(path_string) =>
             {
-                write!(formatter, " > {}", path_string);
+                write!(formatter, " > {}", path_string)?;
             },
             OutDestination::Command(command_box) =>
             {
-                write!(formatter, " | {}", command_box);
+                write!(formatter, " | {}", command_box)?;
             }
         }
 
@@ -226,7 +226,7 @@ fn is_err_file_indicator(s: &str) -> bool
 #[derive(Debug, PartialEq)]
 pub struct CommandScript
 {
-    pub lines: Vec<CommandLineInvocation>
+    pub lines: Vec<CommandScriptLine>
 }
 
 impl CommandScript
@@ -249,13 +249,13 @@ impl CommandScript
         Self::parse(lines.to_string())
     }
 
-    fn push(self: &mut Self, line: CommandLineInvocation) -> CommandLineInvocation
+    fn push(self: &mut Self, line: CommandScriptLine) -> CommandScriptLine
     {
         if line.non_trivial()
         {
             self.lines.push(line)
         }
-        CommandLineInvocation::new()
+        CommandScriptLine::new()
     }
 
     fn len(self: &Self) -> usize
@@ -266,7 +266,7 @@ impl CommandScript
     pub fn parse(content : String) -> Result<Self, ParseError>
     {
         let mut result = Self::new();
-        let mut current_command = CommandLineInvocation::new();
+        let mut current_command = CommandScriptLine::new();
         let mut start = 0;
         let mut mode = Mode::Normal;
         let mut line_number = 1usize;
@@ -363,7 +363,7 @@ impl fmt::Display for CommandScript
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
     {
 
-        write!(formatter, "{}", self.lines.iter().map(|item|{format!("{}", item)}).collect::<Vec<String>>().join(";\n"));
+        write!(formatter, "{}", self.lines.iter().map(|item|{format!("{}", item)}).collect::<Vec<String>>().join(";\n"))?;
         Ok(())
     }
 }
@@ -383,7 +383,7 @@ mod tests
     {
         OutDestination,
         ErrDestination,
-        CommandLineInvocation,
+        CommandScriptLine,
         CommandScript,
         ParseError,
     };
@@ -404,7 +404,7 @@ mod tests
     {
         assert_eq!(
             CommandScript::parse("run".to_string()),
-            Ok(CommandScript{lines:vec![CommandLineInvocation
+            Ok(CommandScript{lines:vec![CommandScriptLine
                 {
                     exec: "run".to_string(),
                     args: vec![],
@@ -421,7 +421,7 @@ mod tests
     {
         assert_eq!(
             CommandScript::parse(" run".to_string()),
-            Ok(CommandScript{lines:vec![CommandLineInvocation
+            Ok(CommandScript{lines:vec![CommandScriptLine
                 {
                     exec: "run".to_string(),
                     args: vec![],
@@ -438,7 +438,7 @@ mod tests
     {
         assert_eq!(
             CommandScript::parse("\trun".to_string()),
-            Ok(CommandScript{lines:vec![CommandLineInvocation
+            Ok(CommandScript{lines:vec![CommandScriptLine
                 {
                     exec: "run".to_string(),
                     args: vec![],
@@ -455,7 +455,7 @@ mod tests
     {
         assert_eq!(
             CommandScript::parse("run ".to_string()),
-            Ok(CommandScript{lines:vec![CommandLineInvocation
+            Ok(CommandScript{lines:vec![CommandScriptLine
                 {
                     exec: "run".to_string(),
                     args: vec![],
@@ -472,7 +472,7 @@ mod tests
     {
         assert_eq!(
             CommandScript::parse("run\t".to_string()),
-            Ok(CommandScript{lines:vec![CommandLineInvocation
+            Ok(CommandScript{lines:vec![CommandScriptLine
                 {
                     exec: "run".to_string(),
                     args: vec![],
@@ -489,7 +489,7 @@ mod tests
     {
         assert_eq!(
             CommandScript::parse("run program".to_string()),
-            Ok(CommandScript{lines:vec![CommandLineInvocation
+            Ok(CommandScript{lines:vec![CommandScriptLine
                 {
                     exec: "run".to_string(),
                     args: vec!["program".to_string()],
@@ -506,7 +506,7 @@ mod tests
     {
         assert_eq!(
             CommandScript::parse(";;;run program;;;".to_string()),
-            Ok(CommandScript{lines:vec![CommandLineInvocation
+            Ok(CommandScript{lines:vec![CommandScriptLine
                 {
                     exec: "run".to_string(),
                     args: vec!["program".to_string()],
@@ -523,7 +523,7 @@ mod tests
     {
         assert_eq!(
             CommandScript::parse("\t run\n\nprogram ".to_string()),
-            Ok(CommandScript{lines:vec![CommandLineInvocation
+            Ok(CommandScript{lines:vec![CommandScriptLine
                 {
                     exec: "run".to_string(),
                     args: vec!["program".to_string()],
@@ -541,14 +541,14 @@ mod tests
         assert_eq!(
             CommandScript::parse("run program;\nrun another".to_string()),
             Ok(CommandScript{lines:vec![
-                CommandLineInvocation
+                CommandScriptLine
                 {
                     exec: "run".to_string(),
                     args: vec!["program".to_string()],
                     out: OutDestination::StdOut,
                     err: ErrDestination::StdErr,
                 },
-                CommandLineInvocation
+                CommandScriptLine
                 {
                     exec: "run".to_string(),
                     args: vec!["another".to_string()],
@@ -566,14 +566,14 @@ mod tests
         assert_eq!(
             CommandScript::parse("run program;run another".to_string()),
             Ok(CommandScript{lines:vec![
-                CommandLineInvocation
+                CommandScriptLine
                 {
                     exec: "run".to_string(),
                     args: vec!["program".to_string()],
                     out: OutDestination::StdOut,
                     err: ErrDestination::StdErr,
                 },
-                CommandLineInvocation
+                CommandScriptLine
                 {
                     exec: "run".to_string(),
                     args: vec!["another".to_string()],
@@ -591,14 +591,14 @@ mod tests
         assert_eq!(
             CommandScript::parse("   run\tprogram;\n \n run another  \n  ".to_string()),
             Ok(CommandScript{lines:vec![
-                CommandLineInvocation
+                CommandScriptLine
                 {
                     exec: "run".to_string(),
                     args: vec!["program".to_string()],
                     out: OutDestination::StdOut,
                     err: ErrDestination::StdErr,
                 },
-                CommandLineInvocation
+                CommandScriptLine
                 {
                     exec: "run".to_string(),
                     args: vec!["another".to_string()],
@@ -616,14 +616,14 @@ mod tests
         assert_eq!(
             CommandScript::parse("   run\tprogram;\n \n run another  \n ; \n\n".to_string()),
             Ok(CommandScript{lines:vec![
-                CommandLineInvocation
+                CommandScriptLine
                 {
                     exec: "run".to_string(),
                     args: vec!["program".to_string()],
                     out: OutDestination::StdOut,
                     err: ErrDestination::StdErr,
                 },
-                CommandLineInvocation
+                CommandScriptLine
                 {
                     exec: "run".to_string(),
                     args: vec!["another".to_string()],
@@ -641,14 +641,14 @@ mod tests
         assert_eq!(
             CommandScript::parse("  ;;; run\tprogram;\n ;\n  ; run another  \n ; \n;\n".to_string()),
             Ok(CommandScript{lines:vec![
-                CommandLineInvocation
+                CommandScriptLine
                 {
                     exec: "run".to_string(),
                     args: vec!["program".to_string()],
                     out: OutDestination::StdOut,
                     err: ErrDestination::StdErr,
                 },
-                CommandLineInvocation
+                CommandScriptLine
                 {
                     exec: "run".to_string(),
                     args: vec!["another".to_string()],
@@ -665,7 +665,7 @@ mod tests
     {
         assert_eq!(
             CommandScript::parse("\"run\"".to_string()),
-            Ok(CommandScript{lines:vec![CommandLineInvocation
+            Ok(CommandScript{lines:vec![CommandScriptLine
                 {
                     exec: "run".to_string(),
                     args: vec![],
@@ -682,7 +682,7 @@ mod tests
     {
         assert_eq!(
             CommandScript::parse("\"run\" \" program \"".to_string()),
-            Ok(CommandScript{lines:vec![CommandLineInvocation
+            Ok(CommandScript{lines:vec![CommandScriptLine
                 {
                     exec: "run".to_string(),
                     args: vec![" program ".to_string()],
@@ -699,7 +699,7 @@ mod tests
     {
         assert_eq!(
             CommandScript::parse("\"run\" \"program;\"".to_string()),
-            Ok(CommandScript{lines:vec![CommandLineInvocation
+            Ok(CommandScript{lines:vec![CommandScriptLine
                 {
                     exec: "run".to_string(),
                     args: vec!["program;".to_string()],
@@ -734,7 +734,7 @@ mod tests
     {
         assert_eq!(
             CommandScript::parse("\"\\\"\"".to_string()),
-            Ok(CommandScript{lines:vec![CommandLineInvocation
+            Ok(CommandScript{lines:vec![CommandScriptLine
                 {
                     exec: "\"".to_string(),
                     args: vec![],
@@ -750,12 +750,12 @@ mod tests
     {
         assert_eq!(
             CommandScript::parse("build | log".to_string()),
-            Ok(CommandScript{lines:vec![CommandLineInvocation
+            Ok(CommandScript{lines:vec![CommandScriptLine
                 {
                     exec: "build".to_string(),
                     args: vec![],
                     out: OutDestination::Command(
-                        Box::new(CommandLineInvocation
+                        Box::new(CommandScriptLine
                         {
                             exec: "log".to_string(),
                             args: vec![],
@@ -774,17 +774,17 @@ mod tests
     {
         assert_eq!(
             CommandScript::parse("build | postprocess | log".to_string()),
-            Ok(CommandScript{lines:vec![CommandLineInvocation
+            Ok(CommandScript{lines:vec![CommandScriptLine
                 {
                     exec: "build".to_string(),
                     args: vec![],
                     out: OutDestination::Command(
-                        Box::new(CommandLineInvocation
+                        Box::new(CommandScriptLine
                         {
                             exec: "postprocess".to_string(),
                             args: vec![],
                             out: OutDestination::Command(
-                                Box::new(CommandLineInvocation
+                                Box::new(CommandScriptLine
                                 {
                                     exec: "log".to_string(),
                                     args: vec![],
@@ -807,7 +807,7 @@ mod tests
         assert_eq!(
             CommandScript::parse("python build.py > build/out".to_string()),
             Ok(CommandScript{lines:vec![
-                CommandLineInvocation
+                CommandScriptLine
                 {
                     exec: "python".to_string(),
                     args: vec!["build.py".to_string()],
@@ -824,7 +824,7 @@ mod tests
         assert_eq!(
             CommandScript::parse("python build.py 2> build/out.err".to_string()),
             Ok(CommandScript{lines:vec![
-                CommandLineInvocation
+                CommandScriptLine
                 {
                     exec: "python".to_string(),
                     args: vec!["build.py".to_string()],
@@ -843,7 +843,7 @@ mod tests
                 > build/out
                 2> build/err".to_string()),
             Ok(CommandScript{lines:vec![
-                CommandLineInvocation
+                CommandScriptLine
                 {
                     exec: "python".to_string(),
                     args: vec!["build.py".to_string()],

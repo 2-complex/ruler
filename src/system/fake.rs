@@ -7,7 +7,7 @@ use crate::system::
 use crate::system::language::
 {
     CommandScript,
-    CommandLineInvocation,
+    CommandScriptLine,
     OutDestination,
     ErrDestination,
 };
@@ -747,7 +747,7 @@ impl FakeSystem
         }
     }
 
-    fn execute_script_line(&mut self, line : CommandLineInvocation) -> Result<CommandLineOutput, SystemError>
+    fn execute_script_line(&mut self, line : CommandScriptLine) -> Result<CommandLineOutput, SystemError>
     {
 
         match line.exec.as_str()
