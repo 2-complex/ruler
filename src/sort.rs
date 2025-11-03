@@ -571,11 +571,11 @@ mod tests
             get_ticket(&Rule::new(
                 vec!["".to_string()],
                 vec!["apples".to_string(), "bananas".to_string()],
-                vec!["".to_string()])),
+                vec!["do".to_string()])),
             get_ticket(&Rule::new(
                 vec!["".to_string()],
                 vec!["bananas".to_string(), "apples".to_string()],
-                vec!["".to_string()]))
+                vec!["do".to_string()]))
         );
     }
 
@@ -586,11 +586,11 @@ mod tests
             get_ticket(&Rule::new(
                 vec!["apples".to_string(), "bananas".to_string()],
                 vec!["".to_string()],
-                vec!["".to_string()])),
+                vec!["do".to_string()])),
             get_ticket(&Rule::new(
                 vec!["bananas".to_string(), "apples".to_string()],
                 vec!["".to_string()],
-                vec!["".to_string()]))
+                vec!["do".to_string()]))
         );
     }
 
