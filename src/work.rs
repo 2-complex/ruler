@@ -1258,7 +1258,7 @@ mod test
 
         let mut rule_ext = make_rule_ext(&system, sources_ticket);
         rule_ext.command_script = CommandScript::from_string_vec(
-            vec!["mycat".to_string(), "verse1.txt".to_string(), "verse2.txt".to_string(), "poem.txt".to_string()]).unwrap();
+            vec!["cat".to_string(), "verse1.txt".to_string(), "verse2.txt".to_string(), "> poem.txt".to_string()]).unwrap();
         rule_ext.rule_history = rule_history;
 
         let mut info = HandleNodeInfo::new(system.clone());

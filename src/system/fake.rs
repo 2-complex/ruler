@@ -1682,7 +1682,7 @@ mod test
     }
 
     #[test]
-    fn executing_mycat2_concatinates_and_dupes()
+    fn executing_cat_concatinates_and_dupes()
     {
         let mut system = FakeSystem::new(10);
         system.create_file("line1.txt").unwrap();
