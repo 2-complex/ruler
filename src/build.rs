@@ -944,10 +944,10 @@ poem.txt
 verse1.txt
 verse2.txt
 :
-mycat
+cat
 verse1.txt
 verse2.txt
-poem.txt
+> poem.txt
 :
 ";
         let mut system = FakeSystem::new(10);
@@ -977,10 +977,10 @@ poem.txt
 verse1.txt
 verse2.txt
 :
-mycat
+cat
 verse1.txt
 verse2.txt
-poem.txt
+> poem.txt
 :
 ";
         let mut system = FakeSystem::new(10);
@@ -1015,18 +1015,18 @@ stanza1.txt
 :
 verse1.txt
 :
-mycat
+cat
 verse1.txt
-stanza1.txt
+> stanza1.txt
 :
 
 poem.txt
 :
 stanza1.txt
 :
-mycat
+cat
 stanza1.txt
-poem.txt
+> poem.txt
 :
 ";
         let mut system = FakeSystem::new(10);
@@ -1059,18 +1059,18 @@ stanza1.txt
 :
 verse1.txt
 :
-mycat
+cat
 verse1.txt
-stanza1.txt
+> stanza1.txt
 :
 
 poem.txt
 :
 stanza1.txt
 :
-mycat
+cat
 stanza1.txt
-poem.txt
+> poem.txt
 :
 ";
         let mut system = FakeSystem::new(10);
@@ -1106,10 +1106,10 @@ stanza1.txt
 verse1.txt
 refrain.txt
 :
-mycat
+cat
 verse1.txt
 refrain.txt
-stanza1.txt
+> stanza1.txt
 :
 
 stanza2.txt
@@ -1117,10 +1117,10 @@ stanza2.txt
 verse2.txt
 refrain.txt
 :
-mycat
+cat
 verse2.txt
 refrain.txt
-stanza2.txt
+> stanza2.txt
 :
 
 poem.txt
@@ -1128,10 +1128,10 @@ poem.txt
 stanza1.txt
 stanza2.txt
 :
-mycat
+cat
 stanza1.txt
 stanza2.txt
-poem.txt
+> poem.txt
 :
 ";
         for omit_me in ["verse1.txt", "verse2.txt", "refrain.txt"]
@@ -1209,10 +1209,10 @@ poem.txt
 :
 verse1.txt
 :
-mycat
+cat
 verse1.txt
 verse2.txt
-poem.txt
+> poem.txt
 :
 ";
         let mut system = FakeSystem::new(10);
@@ -1271,10 +1271,10 @@ poem.txt
 verse1.txt
 verse2.txt
 :
-mycat
+cat
 verse1.txt
 verse2.txt
-poem.txt
+> poem.txt
 :
 ";
         let mut system = FakeSystem::new(10);
@@ -1337,10 +1337,10 @@ poem.txt
 verse1.txt
 verse2.txt
 :
-mycat
+cat
 verse1.txt
 verse2.txt
-someotherpoem.txt
+> someotherpoem.txt
 :
 ";
         let mut system = FakeSystem::new(10);
@@ -1382,10 +1382,10 @@ poem.txt
 verse1.txt
 verse2.txt
 :
-mycat
+cat
 verse1.txt
 verse2.txt
-poem.txt
+> poem.txt
 :
 ";
         let mut system = FakeSystem::new(17);
@@ -1429,10 +1429,10 @@ poem.txt
 verse1.txt
 verse2.txt
 :
-mycat
+cat
 verse1.txt
 verse2.txt
-poem.txt
+> poem.txt
 :
 ";
         let mut system = FakeSystem::new(19);
