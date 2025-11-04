@@ -258,11 +258,6 @@ impl CommandScript
         CommandScriptLine::new()
     }
 
-    fn len(self: &Self) -> usize
-    {
-        self.lines.len()
-    }
-
     pub fn parse(content : String) -> Result<Self, ParseError>
     {
         let mut result = Self::new();

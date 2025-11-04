@@ -9,7 +9,6 @@ use crate::system::language::
     CommandScript,
     CommandScriptLine,
     OutDestination,
-    ErrDestination,
 };
 use crate::system::util::
 {
@@ -749,7 +748,6 @@ impl FakeSystem
 
     fn execute_script_line(&mut self, line : CommandScriptLine) -> Result<CommandLineOutput, SystemError>
     {
-
         match line.exec.as_str()
         {
             "error" =>
@@ -826,27 +824,37 @@ impl FakeSystem
 
             "cp" =>
             {
-                if line.args.len() < 2
+                let mut iter = line.args.iter();
+                let src = match iter.next()
                 {
-                    return Ok(CommandLineOutput::error("cp: wrong number of arguments".to_string()));
-                }
+                    Some(src) => src.as_str(),
+                    None => return Ok(CommandLineOutput::error("cp: wrong number of arguments".to_string())),
+                };
 
-                io::copy(
-                    &mut match self.open(line.args[0].as_str())
+                let dst = match iter.next()
+                {
+                    Some(dst) => dst.as_str(),
+                    None => return Ok(CommandLineOutput::error("cp: wrong number of arguments".to_string())),
+                };
+
+                match io::copy(
+                    &mut match self.open(src)
                     {
                         Ok(mut file) => file,
                         Err(error) => return Ok(CommandLineOutput::error(
-                            format!("cp: source file failed to open: {}", line.args[0]))),
+                            format!("cp: source file failed to open: {} with error: {}", src, error))),
                     },
-                    &mut match self.create_file(line.args[1].as_str())
+                    &mut match self.create_file(dst)
                     {
                         Ok(mut file) => file,
                         Err(error) => return Ok(CommandLineOutput::error(
-                            format!("cp: destination file failed to open: {}", line.args[1]))),
-                    }
-                );
-
-                return Ok(CommandLineOutput::new())
+                            format!("cp: source file failed to open: {} with error: {}", dst, error))),
+                    })
+                {
+                    Ok(_) => Ok(CommandLineOutput::new()),
+                    Err(error) => Ok(CommandLineOutput::error(
+                        format!("cp: stream failed: {}", error))),
+                }
             },
             _=> return Ok(CommandLineOutput::error(format!("Invalid command given: {}", line.exec)))
         }

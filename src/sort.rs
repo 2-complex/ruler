@@ -43,13 +43,13 @@ impl CommandLines
             script: CommandScript::from_string_vec(in_lines)?
         })
     }
+}
 
-    pub fn get_ticket(self: &Self) -> Ticket
-    {
-        let mut factory = TicketFactory::new();
-        factory.input_str(format!("{}", self.script).as_str());
-        factory.result()
-    }
+pub fn lines_to_ticket(lines: &CommandLines) -> Ticket
+{
+    let mut factory = TicketFactory::new();
+    factory.input_str(format!("{}", lines.script).as_str());
+    factory.result()
 }
 
 /*  Once the rules are topologically sorted, the data in them gets put into
@@ -105,7 +105,7 @@ impl Node
         let mut factory = TicketFactory::new();
         factory.input_ticket(get_path_list_ticket(&self.targets));
         factory.input_ticket(self.sources_ticket.clone());
-        factory.input_ticket(self.command.get_ticket());
+        factory.input_ticket(lines_to_ticket(&self.command));
         factory.result()
     }
 }
