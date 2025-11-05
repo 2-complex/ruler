@@ -239,6 +239,101 @@ pub fn parse(filename : String, content : String)
     }
 }
 
+/*  Reads in a .rules file content as a String, and creates a vector of Rule
+    objects. */
+pub fn new_parse(filename : String, content : String)
+-> Result<Vec<Rule>, ParseError>
+{
+    enum Mode
+    {
+        Pending,
+        Targets,
+        Sources,
+        Command,
+    }
+
+    let mut rules = Vec::new();
+    let mut mode = Mode::Pending;
+    let mut line_number = 0;
+    let mut section_start = 0usize;
+    let mut triple = ('\n', '\n', '\n');
+
+    let mut source_bundle = None;
+    let mut target_bundle = None;
+
+    for (i, c) in content.char_indices()
+    {
+        triple = (triple.1, triple.2, c);
+        if c == '\n'
+        {
+            line_number += 1;
+        }
+
+        match mode
+        {
+            Mode::Pending =>
+            {
+                if triple.2 != '\n'
+                {
+                    section_start = i;
+                    mode = Mode::Targets;
+                }
+            },
+            Mode::Targets =>
+            {
+                if triple == ('\n', ':', '\n')
+                {
+                    let section = &content[section_start..(i-1)];
+                    section_start = i;
+                    target_bundle = Some(match PathBundle::parse(section)
+                    {
+                        Ok(bundle) => bundle,
+                        Err(error) => return Err(ParseError::BundleError(filename, error)),
+                    });
+                    mode = Mode::Sources;
+                }
+            },
+            Mode::Sources =>
+            {
+                if triple == ('\n', ':', '\n')
+                {
+                    let section = &content[section_start..(i-1)];
+                    section_start = i;
+                    source_bundle = Some(match PathBundle::parse(section)
+                    {
+                        Ok(bundle) => bundle,
+                        Err(error) => return Err(ParseError::BundleError(filename, error)),
+                    });
+                    mode = Mode::Command;
+                }
+            },
+            Mode::Command =>
+            {
+                if triple == ('\n', ':', '\n')
+                {
+                    let section = &content[section_start..(i-1)];
+                    section_start = i;
+
+                    rules.push(Rule::new(
+                        target_bundle.take().unwrap().get_path_strings('/'),
+                        source_bundle.take().unwrap().get_path_strings('/'),
+                        content[section_start..(i-1)].split('\n').map(|s|{s.to_string()}).collect::<Vec<String>>()));
+
+                    mode = Mode::Pending
+                }
+            }
+        }
+    }
+
+    match mode
+    {
+        Mode::Pending => return Ok(rules),
+        Mode::Targets => return Err(ParseError::UnexpectedEndOfFileMidTargets(filename, line_number)),
+        Mode::Sources => return Err(ParseError::UnexpectedEndOfFileMidSources(filename, line_number)),
+        Mode::Command => return Err(ParseError::UnexpectedEndOfFileMidCommand(filename, line_number)),
+    }
+}
+
 #[cfg(test)]
 mod tests
 {
@@ -246,6 +341,7 @@ mod tests
     {
         Rule,
         parse,
+        new_parse,
         parse_all,
         ParseError,
     };
@@ -296,7 +392,7 @@ mod tests
     #[test]
     fn parse_one_rule()
     {
-        let result = parse(
+        let result = new_parse(
             "one.rules".to_string(),
             "a\n:\nb\n:\nc\n:\n".to_string());
 

@@ -1460,5 +1460,4 @@ poem.txt
             Err(_) => panic!("Unexpected error trying to access cache after first build"),
         }
     }
-
 }
