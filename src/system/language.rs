@@ -1,4 +1,5 @@
 use std::fmt;
+use std::iter::once;
 
 #[derive(Debug, PartialEq)]
 pub enum OutDestination
@@ -143,19 +144,47 @@ impl CommandScriptLine
     }
 }
 
+fn escape_string(s: &str) -> String
+{
+    fn should_use_quites(s: &str) -> bool
+    {
+        for c in s.chars()
+        {
+            if is_whitespace(c) || c == '\"'
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    if ! should_use_quites(s)
+    {
+        return s.to_string()
+    }
+
+    once("\"".to_string()).chain(
+        s.chars().map(|c|
+        {
+            if c=='\"' {"\\\"".to_string()} else {c.to_string()}
+        }))
+        .chain(once("\"".to_string()))
+        .collect::<Vec<String>>().join("")
+}
+
 impl fmt::Display for CommandScriptLine
 {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
     {
         write!(formatter, "{}", self.exec)?;
-        write!(formatter, " {}", self.args.join(" "))?;
+        write!(formatter, " {}", self.args.iter().map(|s|{escape_string(s.as_str())}).collect::<Vec<String>>().join(" "))?;
 
         match &self.err
         {
             ErrDestination::StdErr => {},
             ErrDestination::File(path_string) =>
             {
-                write!(formatter, " 2> {}", path_string)?; // TODO: escape the string
+                write!(formatter, " 2> {}", escape_string(path_string))?;
             },
         }
 
@@ -164,7 +193,7 @@ impl fmt::Display for CommandScriptLine
             OutDestination::StdOut => {},
             OutDestination::File(path_string) =>
             {
-                write!(formatter, " > {}", path_string)?;
+                write!(formatter, " > {}", escape_string(path_string))?;
             },
             OutDestination::Command(command_box) =>
             {
@@ -181,6 +210,21 @@ pub enum ParseError
 {
     UnclosedQuote(usize, usize),
     EmptyEscape(usize, usize)
+}
+
+impl fmt::Display for ParseError
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
+    {
+        match self
+        {
+            ParseError::UnclosedQuote(line_number, column_number) =>
+                write!(formatter, "Unclosed quote line {} column {}", line_number, column_number),
+
+            ParseError::EmptyEscape(line_number, column_number) =>
+                write!(formatter, "Empty escape line {} column {}", line_number, column_number),
+        }
+    }
 }
 
 fn is_whitespace(c: char) -> bool
@@ -371,7 +415,44 @@ mod tests
         CommandScriptLine,
         CommandScript,
         ParseError,
+        escape_string
     };
+
+    #[test]
+    fn escape_string_empty()
+    {
+        assert_eq!(escape_string("one"), "one".to_string());
+    }
+
+    #[test]
+    fn escape_string_basic()
+    {
+        assert_eq!(escape_string("one"), "one".to_string());
+    }
+
+    #[test]
+    fn escape_string_space()
+    {
+        assert_eq!(escape_string("one two"), "\"one two\"".to_string());
+    }
+
+    #[test]
+    fn escape_string_newline()
+    {
+        assert_eq!(escape_string("one\ntwo"), "\"one\ntwo\"".to_string());
+    }
+
+    #[test]
+    fn escape_string_mix_quote_and_space()
+    {
+        assert_eq!(escape_string("one\" two"), "\"one\\\" two\"".to_string())
+    }
+
+    #[test]
+    fn escape_string_mix_quote_and_newline()
+    {
+        assert_eq!(escape_string("one\"\ntwo"), "\"one\\\"\ntwo\"".to_string())
+    }
 
     /*  Call parse on an empty string, check that it errors I guess. */
     #[test]
@@ -653,6 +734,22 @@ mod tests
             Ok(CommandScript{lines:vec![CommandScriptLine
                 {
                     exec: "run".to_string(),
+                    args: vec![],
+                    out: OutDestination::StdOut,
+                    err: ErrDestination::StdErr,
+                }
+            ]}));
+    }
+
+    /*  Call parse on two words in quotes with a an escaped quote */
+    #[test]
+    fn one_two_words_one_escaped_quote()
+    {
+        assert_eq!(
+            CommandScript::parse("\"one\\\" two\""),
+            Ok(CommandScript{lines:vec![CommandScriptLine
+                {
+                    exec: "one\" two".to_string(),
                     args: vec![],
                     out: OutDestination::StdOut,
                     err: ErrDestination::StdErr,

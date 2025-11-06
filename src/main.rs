@@ -11,8 +11,10 @@ use clap_derive::
     Subcommand,
 };
 use crate::system::real::RealSystem;
+use crate::system::util::read_file_to_string;
 use crate::printer::StandardPrinter;
 use crate::ticket::Ticket;
+use crate::system::language::CommandScript;
 
 mod blob;
 mod bundle;
@@ -58,7 +60,7 @@ struct InvokeConfig
 {
     #[arg(index=1, required=true, value_name = "COMMAND_FILE", help =
 "A path to the script to run.")]
-    command_file : String,
+    path : String,
 
     #[arg(index=2, help=
 "Arguments forwarded to the script when it runs.")]
@@ -189,8 +191,29 @@ fn main()
                 Err(error) => eprintln!("{}", error),
             }
         },
-        RulerSubcommand::Invoke(_invoke_config) =>
+        RulerSubcommand::Invoke(invoke_config) =>
         {
+            let system = RealSystem::new();
+            let content = match read_file_to_string(&system, &invoke_config.path)
+            {
+                Ok(content) => content,
+                Err(error) =>
+                {
+                    eprintln!("{}", error);
+                    return;
+                }
+            };
+
+            let command_script = match CommandScript::parse(&content)
+            {
+                Ok(command_script) => command_script,
+                Err(error) =>
+                {
+                    eprintln!("Parse error: {}", error);
+                    return;
+                }
+            };
+            println!("Script:\n{}", command_script);
         },
         RulerSubcommand::Clean(build_config) =>
         {
