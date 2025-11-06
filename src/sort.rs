@@ -98,7 +98,7 @@ struct Frame
 {
     targets: Vec<String>,
     sources: Vec<String>,
-    command: Vec<String>,
+    command: String,
     index: usize,
     sub_index: usize,
     visited: bool,
@@ -112,7 +112,7 @@ impl Frame
         {
             targets: rule.targets,
             sources: rule.sources,
-            command: rule.command.split('\n').map(|s|{s.to_string()}).collect::<Vec<String>>(),
+            command: rule.command,
             index: index,
             sub_index: 0,
             visited: false,
@@ -401,7 +401,7 @@ impl TopologicalSortMachine
                     targets: frame.targets,
                     source_indices: source_indices,
                     sources_ticket: sources_ticket,
-                    command: match CommandScript::from_string_vec_after_join(frame.command)
+                    command: match CommandScript::from_str(&frame.command)
                     {
                         Ok(lines) => lines,
                         Err(error) => return Err(TopologicalSortError::CommandParseError(error)),
@@ -652,14 +652,7 @@ mod tests
                         assert_eq!(frame.targets[*target_index], "tangerine");
                         assert_eq!(frame.sources[0], "seed");
                         assert_eq!(frame.sources[1], "soil");
-                        match frame.command.first()
-                        {
-                            Some(command) =>
-                            {
-                                assert_eq!(command, "water every day");
-                            },
-                            None => panic!("Expected some command found None"),
-                        }
+                        assert_eq!(frame.command, "water every day".to_string());
                     }
                     None => panic!("Expected some node found None"),
                 }
