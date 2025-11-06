@@ -239,7 +239,7 @@ impl CommandScript
         }
     }
 
-    pub fn from_string_vec(lines: Vec<String>) -> Result<Self, ParseError>
+    pub fn from_string_vec_after_join(lines: Vec<String>) -> Result<Self, ParseError>
     {
         Self::parse(lines.join("\n"))
     }
