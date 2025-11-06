@@ -11,7 +11,7 @@ pub struct Rule
 {
     pub targets : Vec<String>,
     pub sources : Vec<String>,
-    pub command : Vec<String>,
+    pub command : String,
 }
 
 /*  When a rule is first parsed, it goes into this struct, the targets,
@@ -22,7 +22,7 @@ impl Rule
     pub fn new(
         targets : Vec<String>,
         sources : Vec<String>,
-        command : Vec<String>) -> Rule
+        command : String) -> Rule
     {
         Rule
         {
@@ -47,10 +47,7 @@ impl fmt::Display for Rule
             write!(f, "{}\n", t).unwrap();
         }
         write!(f, ":\n").unwrap();
-        for t in self.command.iter()
-        {
-            write!(f, "{}\n", t).unwrap();
-        }
+        write!(f, "{}", self.command).unwrap();
         write!(f, ":\n")
     }
 }
@@ -201,7 +198,7 @@ pub fn parse(filename : String, content : String)
                     rules.push(Rule::new(
                         target_bundle.take().unwrap().get_path_strings('/'),
                         source_bundle.take().unwrap().get_path_strings('/'),
-                        section.split('\n').map(|s|{s.to_string()}).collect::<Vec<String>>()));
+                        section.to_string()));
 
                     mode = Mode::Pending
                 }
@@ -252,7 +249,7 @@ mod tests
                 assert_eq!(v.len(), 1);
                 assert_eq!(v[0].targets, vec!["a".to_string()]);
                 assert_eq!(v[0].sources, vec!["b".to_string()]);
-                assert_eq!(v[0].command, vec!["c".to_string()]);
+                assert_eq!(v[0].command, "c".to_string());
             },
             Err(why) => panic!("Expected success, got: {}", why),
         };
@@ -272,10 +269,10 @@ mod tests
                 assert_eq!(v.len(), 2);
                 assert_eq!(v[0].targets, vec!["a".to_string()]);
                 assert_eq!(v[0].sources, vec!["b".to_string()]);
-                assert_eq!(v[0].command, vec!["c".to_string()]);
+                assert_eq!(v[0].command, "c".to_string());
                 assert_eq!(v[1].targets, vec!["d".to_string()]);
                 assert_eq!(v[1].sources, vec!["e".to_string()]);
-                assert_eq!(v[1].command, vec!["f".to_string()]);
+                assert_eq!(v[1].command, "f".to_string());
             },
             Err(why) => panic!("Expected success, got: {}", why),
         };
@@ -305,9 +302,7 @@ c++ -c math.cpp -o build/math.o
                         "cpp/math.cpp".to_string(),
                         "cpp/math.h".to_string(),
                     ],
-                    command: vec![
-                        "c++ -c math.cpp -o build/math.o".to_string()
-                    ]
+                    command: "c++ -c math.cpp -o build/math.o".to_string()
                 }
             ])
         );
@@ -336,7 +331,7 @@ c++ -c math.cpp -o build/math.o
                 assert_eq!(v.len(), 1);
                 assert_eq!(v[0].targets, vec!["a".to_string()]);
                 assert_eq!(v[0].sources, vec!["b".to_string()]);
-                assert_eq!(v[0].command, vec!["c".to_string()]);
+                assert_eq!(v[0].command, "c".to_string());
             },
             Err(why) => panic!("Expected success, got: {}", why),
         };
@@ -356,10 +351,10 @@ c++ -c math.cpp -o build/math.o
                 assert_eq!(v.len(), 2);
                 assert_eq!(v[0].targets, vec!["a".to_string()]);
                 assert_eq!(v[0].sources, vec!["b".to_string()]);
-                assert_eq!(v[0].command, vec!["c".to_string()]);
+                assert_eq!(v[0].command, "c".to_string());
                 assert_eq!(v[1].targets, vec!["d".to_string()]);
                 assert_eq!(v[1].sources, vec!["e".to_string()]);
-                assert_eq!(v[1].command, vec!["f".to_string()]);
+                assert_eq!(v[1].command, "f".to_string());
             },
             Err(why) => panic!("Expected success, got: {}", why),
         };

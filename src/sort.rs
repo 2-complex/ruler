@@ -112,7 +112,7 @@ impl Frame
         {
             targets: rule.targets,
             sources: rule.sources,
-            command: rule.command,
+            command: rule.command.split('\n').map(|s|{s.to_string()}).collect::<Vec<String>>(),
             index: index,
             sub_index: 0,
             visited: false,
@@ -508,7 +508,7 @@ mod tests
         {
             targets: rule.targets.clone(),
             source_indices: vec![],
-            command : CommandScript::from_string_vec_after_join(rule.command.clone()).unwrap(),
+            command: CommandScript::from_str(&rule.command).unwrap(),
             sources_ticket : get_path_list_ticket(&rule.sources),
         }.get_rule_ticket()
     }
@@ -516,26 +516,26 @@ mod tests
     #[test]
     fn rule_tickets_for_same_rule_same()
     {
-        let z = Rule::new(vec!["a".to_string()], vec!["b".to_string()], vec!["c".to_string()]);
-        let a = Rule::new(vec!["a".to_string()], vec!["b".to_string()], vec!["c".to_string()]);
+        let z = Rule::new(vec!["a".to_string()], vec!["b".to_string()], "c".to_string());
+        let a = Rule::new(vec!["a".to_string()], vec!["b".to_string()], "c".to_string());
         assert_eq!(get_ticket(&z), get_ticket(&a));
     }
 
     #[test]
     fn rule_command_argument_whitespace_does_not_affect_ticket()
     {
-        let z = Rule::new(vec!["a".to_string()], vec!["b".to_string()], vec!["c d".to_string()]);
-        let a = Rule::new(vec!["a".to_string()], vec!["b".to_string()], vec!["c".to_string(), "d".to_string()]);
+        let z = Rule::new(vec!["a".to_string()], vec!["b".to_string()], "c d".to_string());
+        let a = Rule::new(vec!["a".to_string()], vec!["b".to_string()], "c\nd".to_string());
         assert_eq!(get_ticket(&z), get_ticket(&a));
     }
 
     #[test]
     fn rule_tickets_for_different_rules_differ()
     {
-        let z = Rule::new(vec!["".to_string()], vec!["".to_string()], vec!["".to_string()]);
-        let a = Rule::new(vec!["a".to_string()], vec!["".to_string()], vec!["".to_string()]);
-        let b = Rule::new(vec!["".to_string()], vec!["b".to_string()], vec!["".to_string()]);
-        let c = Rule::new(vec!["".to_string()], vec!["".to_string()], vec!["c".to_string()]);
+        let z = Rule::new(vec!["".to_string()], vec!["".to_string()], "".to_string());
+        let a = Rule::new(vec!["a".to_string()], vec!["".to_string()], "".to_string());
+        let b = Rule::new(vec!["".to_string()], vec!["b".to_string()], "".to_string());
+        let c = Rule::new(vec!["".to_string()], vec!["".to_string()], "c".to_string());
 
         assert_ne!(get_ticket(&z), get_ticket(&a));
         assert_ne!(get_ticket(&z), get_ticket(&b));
@@ -554,11 +554,11 @@ mod tests
             get_ticket(&Rule::new(
                 vec!["".to_string()],
                 vec!["apples".to_string(), "bananas".to_string()],
-                vec!["do".to_string()])),
+                "do".to_string())),
             get_ticket(&Rule::new(
                 vec!["".to_string()],
                 vec!["bananas".to_string(), "apples".to_string()],
-                vec!["do".to_string()]))
+                "do".to_string()))
         );
     }
 
@@ -569,11 +569,11 @@ mod tests
             get_ticket(&Rule::new(
                 vec!["apples".to_string(), "bananas".to_string()],
                 vec!["".to_string()],
-                vec!["do".to_string()])),
+                "do".to_string())),
             get_ticket(&Rule::new(
                 vec!["bananas".to_string(), "apples".to_string()],
                 vec!["".to_string()],
-                vec!["do".to_string()]))
+                "do".to_string()))
         );
     }
 
@@ -604,7 +604,7 @@ mod tests
                     {
                         targets: vec!["plant".to_string(), "tangerine".to_string()],
                         sources: vec!["seed".to_string(), "soil".to_string()],
-                        command: vec!["water every day".to_string()],
+                        command: "water every day".to_string(),
                     },
                 ]
             )
@@ -680,13 +680,13 @@ mod tests
                 {
                     targets: vec!["fruit".to_string()],
                     sources: vec!["plant".to_string()],
-                    command: vec!["pick occasionally".to_string()],
+                    command: "pick occasionally".to_string(),
                 },
                 Rule
                 {
                     targets: vec!["plant".to_string()],
                     sources: vec!["soil".to_string(), "seed".to_string()],
-                    command: vec!["water every day".to_string()],
+                    command: "water every day".to_string(),
                 },
             ]
         )
@@ -714,13 +714,13 @@ mod tests
                 {
                     targets: vec!["fruit".to_string()],
                     sources: vec!["plant".to_string()],
-                    command: vec!["pick occasionally".to_string()],
+                    command: "pick occasionally".to_string(),
                 },
                 Rule
                 {
                     targets: vec!["plant".to_string(), "fruit".to_string()],
                     sources: vec!["soil".to_string(), "seed".to_string()],
-                    command: vec!["water every day".to_string()],
+                    command: "water every day".to_string(),
                 },
             ]
         ), Err(TopologicalSortError::TargetInMultipleRules("fruit".to_string())));
@@ -748,7 +748,7 @@ mod tests
         let rule = Rule::new(
             vec!["plant".to_string()],
             vec![],
-            vec!["do".to_string()],
+            "do".to_string(),
         );
 
         assert_eq!(
@@ -776,7 +776,7 @@ mod tests
         let rule = Rule::new(
             vec!["plant".to_string()],
             vec![],
-            vec!["wait".to_string()]
+            "wait".to_string()
         );
 
         assert_eq!(topological_sort_all(vec![rule.clone()]),
@@ -803,12 +803,12 @@ mod tests
         let fruit_rule = Rule::new(
             vec!["fruit".to_string()],
             vec!["plant".to_string()],
-            vec!["pick occasionally".to_string()],
+            "pick occasionally".to_string(),
         );
         let plant_rule = Rule::new(
             vec!["plant".to_string()],
             vec![],
-            vec!["wait".to_string()],
+            "wait".to_string(),
         );
 
         assert_eq!(topological_sort(
@@ -845,14 +845,14 @@ mod tests
         {
             targets: vec!["fruit".to_string()],
             sources: vec!["plant".to_string()],
-            command: vec!["pick occasionally".to_string()],
+            command: "pick occasionally".to_string(),
         };
 
         let plant_rule = Rule
         {
             targets: vec!["plant".to_string()],
             sources: vec![],
-            command: vec!["take care of plant".to_string()],
+            command: "take care of plant".to_string(),
         };
 
         assert_eq!(topological_sort_all(
@@ -891,25 +891,25 @@ mod tests
         {
             targets: vec!["math".to_string()],
             sources: vec![],
-            command: vec!["build math".to_string()],
+            command: "build math".to_string(),
         };
         let graphics_rule = Rule
         {
             targets: vec!["graphics".to_string()],
             sources: vec!["math".to_string()],
-            command: vec!["build graphics".to_string()],
+            command: "build graphics".to_string(),
         };
         let physics_rule = Rule
         {
             targets: vec!["physics".to_string()],
             sources: vec!["math".to_string()],
-            command: vec!["build physics".to_string()],
+            command: "build physics".to_string(),
         };
         let game_rule = Rule
         {
             targets: vec!["game".to_string()],
             sources: vec!["graphics".to_string(), "physics".to_string()],
-            command: vec!["build game".to_string()],
+            command: "build game".to_string(),
         };
 
         assert_eq!(topological_sort(
@@ -967,22 +967,22 @@ mod tests
         let math_rule = Rule::new(
             vec!["math".to_string()],
             vec![],
-            vec!["build math".to_string()],
+            "build math".to_string(),
         );
         let graphics_rule = Rule::new(
             vec!["graphics".to_string()],
             vec!["math".to_string()],
-            vec!["build graphics".to_string()],
+            "build graphics".to_string(),
         );
         let physics_rule = Rule::new(
             vec!["physics".to_string()],
             vec!["math".to_string()],
-            vec!["build physics".to_string()],
+            "build physics".to_string(),
         );
         let game_rule = Rule::new(
             vec!["game".to_string()],
             vec!["physics".to_string(), "graphics".to_string()],
-            vec!["build game".to_string()],
+            "build game".to_string(),
         );
 
         assert_eq!(topological_sort(
@@ -1041,19 +1041,19 @@ mod tests
         let poem_rule = Rule::new(
             vec!["poem".to_string()],
             vec!["stanza1".to_string(), "stanza2".to_string()],
-            vec!["poemcat stanza1 stanza2".to_string()],
+            "poemcat stanza1 stanza2".to_string(),
         );
 
         let stanza1_rule = Rule::new(
             vec!["stanza1".to_string()],
             vec!["chorus".to_string(), "verse1".to_string()],
-            vec!["poemcat verse1 chorus".to_string()],
+            "poemcat verse1 chorus".to_string(),
         );
 
         let stanza2_rule = Rule::new(
             vec!["stanza2".to_string()],
             vec!["chorus".to_string(), "verse2".to_string()],
-            vec!["poemcat verse2 chorus".to_string()],
+            "poemcat verse2 chorus".to_string(),
         );
 
         assert_eq!(topological_sort(
@@ -1103,19 +1103,19 @@ mod tests
         let poem_rule = Rule::new(
             vec!["poem".to_string()],
             vec!["stanza2".to_string(), "stanza1".to_string()],
-            vec!["poemcat stanza1 stanza2".to_string()],
+            "poemcat stanza1 stanza2".to_string(),
         );
 
         let stanza1_rule = Rule::new(
             vec!["stanza1".to_string()],
             vec!["verse1".to_string(), "chorus".to_string()],
-            vec!["poemcat verse1 chorus".to_string()],
+            "poemcat verse1 chorus".to_string(),
         );
 
         let stanza2_rule = Rule::new(
             vec!["stanza2".to_string()],
             vec!["verse2".to_string(), "chorus".to_string()],
-            vec!["poemcat verse2 chorus".to_string()],
+            "poemcat verse2 chorus".to_string(),
         );
 
         assert_eq!(topological_sort(
@@ -1165,19 +1165,19 @@ mod tests
         let poem_rule = Rule::new(
             vec!["poem".to_string()],
             vec!["stanza2".to_string(), "stanza1".to_string()],
-            vec!["poemcat stanza1 stanza2".to_string()],
+            "poemcat stanza1 stanza2".to_string(),
         );
 
         let stanza1_rule = Rule::new(
             vec!["stanza1".to_string()],
             vec!["verse1".to_string(), "chorus".to_string()],
-            vec!["poemcat verse1 chorus".to_string()],
+            "poemcat verse1 chorus".to_string(),
         );
 
         let stanza2_rule = Rule::new(
             vec!["stanza2".to_string()],
             vec!["verse2".to_string(), "chorus".to_string()],
-            vec!["poemcat verse2 chorus".to_string()],
+            "poemcat verse2 chorus".to_string(),
         );
 
         assert_eq!(topological_sort_all(
@@ -1226,13 +1226,13 @@ mod tests
         let poem_rule = Rule::new(
             vec!["poem".to_string()],
             vec!["imagination".to_string()],
-            vec!["poemcat stanza1".to_string()],
+            "poemcat stanza1".to_string(),
         );
 
         let cookie_rule = Rule::new(
             vec!["cookies".to_string()],
             vec!["cookie recipe".to_string()],
-            vec!["bake cookies".to_string()],
+            "bake cookies".to_string(),
         );
 
         assert_eq!(topological_sort_all(
@@ -1272,13 +1272,13 @@ mod tests
         let poem_rule = Rule::new(
             vec!["poem".to_string()],
             vec!["imagination".to_string()],
-            vec!["poemcat stanza1".to_string()],
+            "poemcat stanza1".to_string(),
         );
 
         let cookie_rule = Rule::new(
             vec!["cookies".to_string()],
             vec!["cookie recipe".to_string()],
-            vec!["bake cookies".to_string()],
+            "bake cookies".to_string(),
         );
 
         assert_eq!(topological_sort(
@@ -1314,13 +1314,13 @@ mod tests
                 {
                     targets: vec!["Quine".to_string(), "SomethingElse".to_string()],
                     sources: vec!["Hofstadter".to_string()],
-                    command: vec!["poemcat Hofstadter".to_string()],
+                    command: "poemcat Hofstadter".to_string(),
                 },
                 Rule
                 {
                     targets: vec!["AnotherThing".to_string(), "Hofstadter".to_string()],
                     sources: vec!["Quine".to_string()],
-                    command: vec!["poemcat Quine".to_string()],
+                    command: "poemcat Quine".to_string(),
                 },
             ],
             "Quine")
@@ -1352,7 +1352,7 @@ mod tests
                 {
                     targets: vec!["Hofstadter".to_string()],
                     sources: vec!["Hofstadter".to_string()],
-                    command: vec!["poemcat Hofstadter".to_string()],
+                    command: "poemcat Hofstadter".to_string(),
                 },
             ],
             "Hofstadter")
@@ -1378,7 +1378,7 @@ mod tests
         {
             targets: vec!["fruit".to_string()],
             sources: vec!["plant".to_string()],
-            command: vec!["pick occasionally".to_string()],
+            command: "pick occasionally".to_string(),
         };
 
         let plant_rule = Rule
@@ -1390,7 +1390,7 @@ mod tests
                 "sunlight".to_string(),
                 "water".to_string(),
             ],
-            command: vec!["take care of plant".to_string()],
+            command: "take care of plant".to_string(),
         };
 
         assert_eq!(topological_sort(
