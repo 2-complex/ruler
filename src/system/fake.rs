@@ -1325,7 +1325,7 @@ mod test
         let mut system = FakeSystem::new(10);
         system.create_file("file.txt").unwrap();
         assert!(system.is_file("file.txt"));
-        system.execute_command(CommandScript::from_str("rm file.txt").unwrap());
+        system.execute_command(CommandScript::parse("rm file.txt").unwrap());
         assert!(!system.is_file("file.txt"));
         assert!(!system.exists("file.txt"));
         assert!(!system.is_dir("file.txt"));
@@ -1649,7 +1649,7 @@ mod test
     {
         let mut system = FakeSystem::new(10);
         assert_eq!(
-            system.execute_command(CommandScript::from_str("error").unwrap()),
+            system.execute_command(CommandScript::parse("error").unwrap()),
             vec![
                 Ok(CommandLineOutput
                 {
@@ -1672,7 +1672,7 @@ mod test
         write_str_to_file(&mut system, "line2.txt", "Love to dance\n").unwrap();
 
         assert_eq!(
-            system.execute_command(CommandScript::from_str(
+            system.execute_command(CommandScript::parse(
                 "cat line1.txt line2.txt > poem.txt").unwrap()
             ),
             vec![
@@ -1697,7 +1697,7 @@ mod test
         write_str_to_file(&mut system, "line1.txt", "Ants\n").unwrap();
         system.create_file("line2.txt").unwrap();
         write_str_to_file(&mut system, "line2.txt", "Love to dance\n").unwrap();
-        assert_eq!(system.execute_command(CommandScript::from_str(
+        assert_eq!(system.execute_command(CommandScript::parse(
             "cat line1.txt line2.txt > poem.txt; cp poem.txt poem-backup.txt").unwrap()),
             vec![
                 Ok(CommandLineOutput
@@ -1728,7 +1728,7 @@ mod test
         system.create_file("terrible-file.txt").unwrap();
         assert!(system.is_file("terrible-file.txt"));
         assert_eq!(
-            system.execute_command(CommandScript::from_str("rm terrible-file.txt").unwrap()),
+            system.execute_command(CommandScript::parse("rm terrible-file.txt").unwrap()),
             vec![
                 Ok(CommandLineOutput
                 {

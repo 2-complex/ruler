@@ -795,7 +795,7 @@ pub fn run
     all.append(&mut extra_args);
 
     /* TODO unwrap! */
-    for result in system.execute_command(CommandScript::from_string_vec_after_join(all).unwrap())
+    for result in system.execute_command(CommandScript::parse(&all.join("\n")).unwrap())
     {
         match result
         {

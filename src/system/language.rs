@@ -239,16 +239,6 @@ impl CommandScript
         }
     }
 
-    pub fn from_string_vec_after_join(lines: Vec<String>) -> Result<Self, ParseError>
-    {
-        Self::parse(lines.join("\n"))
-    }
-
-    pub fn from_str(lines: &str) -> Result<Self, ParseError>
-    {
-        Self::parse(lines.to_string())
-    }
-
     fn push(self: &mut Self, line: CommandScriptLine) -> CommandScriptLine
     {
         if line.non_trivial()
@@ -258,7 +248,7 @@ impl CommandScript
         CommandScriptLine::new()
     }
 
-    pub fn parse(content : String) -> Result<Self, ParseError>
+    pub fn parse(content : &str) -> Result<Self, ParseError>
     {
         let mut result = Self::new();
         let mut current_command = CommandScriptLine::new();
@@ -388,7 +378,7 @@ mod tests
     fn empty()
     {
         assert_eq!(
-            CommandScript::parse("".to_string()),
+            CommandScript::parse(""),
             Ok(CommandScript::new()));
     }
 
@@ -398,7 +388,7 @@ mod tests
     fn one_word()
     {
         assert_eq!(
-            CommandScript::parse("run".to_string()),
+            CommandScript::parse("run"),
             Ok(CommandScript{lines:vec![CommandScriptLine
                 {
                     exec: "run".to_string(),
@@ -415,7 +405,7 @@ mod tests
     fn one_word_leading_space()
     {
         assert_eq!(
-            CommandScript::parse(" run".to_string()),
+            CommandScript::parse(" run"),
             Ok(CommandScript{lines:vec![CommandScriptLine
                 {
                     exec: "run".to_string(),
@@ -432,7 +422,7 @@ mod tests
     fn one_word_leading_tab()
     {
         assert_eq!(
-            CommandScript::parse("\trun".to_string()),
+            CommandScript::parse("\trun"),
             Ok(CommandScript{lines:vec![CommandScriptLine
                 {
                     exec: "run".to_string(),
@@ -449,7 +439,7 @@ mod tests
     fn one_word_trailing_space()
     {
         assert_eq!(
-            CommandScript::parse("run ".to_string()),
+            CommandScript::parse("run "),
             Ok(CommandScript{lines:vec![CommandScriptLine
                 {
                     exec: "run".to_string(),
@@ -466,7 +456,7 @@ mod tests
     fn one_word_trailing_tab()
     {
         assert_eq!(
-            CommandScript::parse("run\t".to_string()),
+            CommandScript::parse("run\t"),
             Ok(CommandScript{lines:vec![CommandScriptLine
                 {
                     exec: "run".to_string(),
@@ -483,7 +473,7 @@ mod tests
     fn two_words_basic()
     {
         assert_eq!(
-            CommandScript::parse("run program".to_string()),
+            CommandScript::parse("run program"),
             Ok(CommandScript{lines:vec![CommandScriptLine
                 {
                     exec: "run".to_string(),
@@ -500,7 +490,7 @@ mod tests
     fn two_words_extra_semicolons()
     {
         assert_eq!(
-            CommandScript::parse(";;;run program;;;".to_string()),
+            CommandScript::parse(";;;run program;;;"),
             Ok(CommandScript{lines:vec![CommandScriptLine
                 {
                     exec: "run".to_string(),
@@ -517,7 +507,7 @@ mod tests
     fn two_words_eccentric_whitespace()
     {
         assert_eq!(
-            CommandScript::parse("\t run\n\nprogram ".to_string()),
+            CommandScript::parse("\t run\n\nprogram "),
             Ok(CommandScript{lines:vec![CommandScriptLine
                 {
                     exec: "run".to_string(),
@@ -534,7 +524,7 @@ mod tests
     fn two_commands_separated_by_semicolon()
     {
         assert_eq!(
-            CommandScript::parse("run program;\nrun another".to_string()),
+            CommandScript::parse("run program;\nrun another"),
             Ok(CommandScript{lines:vec![
                 CommandScriptLine
                 {
@@ -559,7 +549,7 @@ mod tests
     fn two_commands_separated_by_semicolon_no_whitespace()
     {
         assert_eq!(
-            CommandScript::parse("run program;run another".to_string()),
+            CommandScript::parse("run program;run another"),
             Ok(CommandScript{lines:vec![
                 CommandScriptLine
                 {
@@ -584,7 +574,7 @@ mod tests
     fn two_commands_separated_by_semicolon_eccentric_whitespace()
     {
         assert_eq!(
-            CommandScript::parse("   run\tprogram;\n \n run another  \n  ".to_string()),
+            CommandScript::parse("   run\tprogram;\n \n run another  \n  "),
             Ok(CommandScript{lines:vec![
                 CommandScriptLine
                 {
@@ -609,7 +599,7 @@ mod tests
     fn two_commands_extra_semicolon_eccentric_whitespace()
     {
         assert_eq!(
-            CommandScript::parse("   run\tprogram;\n \n run another  \n ; \n\n".to_string()),
+            CommandScript::parse("   run\tprogram;\n \n run another  \n ; \n\n"),
             Ok(CommandScript{lines:vec![
                 CommandScriptLine
                 {
@@ -634,7 +624,7 @@ mod tests
     fn two_commands_many_extra_semicolon_eccentric_whitespace()
     {
         assert_eq!(
-            CommandScript::parse("  ;;; run\tprogram;\n ;\n  ; run another  \n ; \n;\n".to_string()),
+            CommandScript::parse("  ;;; run\tprogram;\n ;\n  ; run another  \n ; \n;\n"),
             Ok(CommandScript{lines:vec![
                 CommandScriptLine
                 {
@@ -659,7 +649,7 @@ mod tests
     fn one_word_in_quotes()
     {
         assert_eq!(
-            CommandScript::parse("\"run\"".to_string()),
+            CommandScript::parse("\"run\""),
             Ok(CommandScript{lines:vec![CommandScriptLine
                 {
                     exec: "run".to_string(),
@@ -676,7 +666,7 @@ mod tests
     fn two_words_in_quotes_whitespace_in_second_quotes()
     {
         assert_eq!(
-            CommandScript::parse("\"run\" \" program \"".to_string()),
+            CommandScript::parse("\"run\" \" program \""),
             Ok(CommandScript{lines:vec![CommandScriptLine
                 {
                     exec: "run".to_string(),
@@ -693,7 +683,7 @@ mod tests
     fn two_words_in_quotes_semicolon_in_quotes()
     {
         assert_eq!(
-            CommandScript::parse("\"run\" \"program;\"".to_string()),
+            CommandScript::parse("\"run\" \"program;\""),
             Ok(CommandScript{lines:vec![CommandScriptLine
                 {
                     exec: "run".to_string(),
@@ -709,7 +699,7 @@ mod tests
     fn just_one_quote()
     {
         assert_eq!(
-            CommandScript::parse("\"".to_string()),
+            CommandScript::parse("\""),
             Err(ParseError::UnclosedQuote(1, 1)));
     }
 
@@ -718,7 +708,7 @@ mod tests
     fn three_quotes_with_lots_of_newlines()
     {
         assert_eq!(
-            CommandScript::parse("\"\n\n\n\n\"\n\n\n\"".to_string()),
+            CommandScript::parse("\"\n\n\n\n\"\n\n\n\""),
             Err(ParseError::UnclosedQuote(8, 1)));
     }
 
@@ -728,7 +718,7 @@ mod tests
     fn escaped_quote_as_command()
     {
         assert_eq!(
-            CommandScript::parse("\"\\\"\"".to_string()),
+            CommandScript::parse("\"\\\"\""),
             Ok(CommandScript{lines:vec![CommandScriptLine
                 {
                     exec: "\"".to_string(),
@@ -744,7 +734,7 @@ mod tests
     fn pipe_basic()
     {
         assert_eq!(
-            CommandScript::parse("build | log".to_string()),
+            CommandScript::parse("build | log"),
             Ok(CommandScript{lines:vec![CommandScriptLine
                 {
                     exec: "build".to_string(),
@@ -768,7 +758,7 @@ mod tests
     fn pipe_two_levels()
     {
         assert_eq!(
-            CommandScript::parse("build | postprocess | log".to_string()),
+            CommandScript::parse("build | postprocess | log"),
             Ok(CommandScript{lines:vec![CommandScriptLine
                 {
                     exec: "build".to_string(),
@@ -800,7 +790,7 @@ mod tests
     fn out_file_basic()
     {
         assert_eq!(
-            CommandScript::parse("python build.py > build/out".to_string()),
+            CommandScript::parse("python build.py > build/out"),
             Ok(CommandScript{lines:vec![
                 CommandScriptLine
                 {
@@ -817,7 +807,7 @@ mod tests
     fn err_file_basic()
     {
         assert_eq!(
-            CommandScript::parse("python build.py 2> build/out.err".to_string()),
+            CommandScript::parse("python build.py 2> build/out.err"),
             Ok(CommandScript{lines:vec![
                 CommandScriptLine
                 {
@@ -836,7 +826,7 @@ mod tests
         assert_eq!(
             CommandScript::parse("python build.py 
                 > build/out
-                2> build/err".to_string()),
+                2> build/err"),
             Ok(CommandScript{lines:vec![
                 CommandScriptLine
                 {
