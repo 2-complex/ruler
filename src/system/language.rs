@@ -38,7 +38,7 @@ impl CommandScriptLine
         }
     }
 
-    fn push(self:&mut Self, word: &str)
+    fn push(self:&mut Self, word: String)
     {
         if word.len() == 0
         {
@@ -52,7 +52,7 @@ impl CommandScriptLine
             {
                 if path_string.len() == 0
                 {
-                    self.out = OutDestination::File(word.to_string());
+                    self.out = OutDestination::File(word);
                     return;
                 }
             }
@@ -70,7 +70,7 @@ impl CommandScriptLine
             {
                 if path_string.len() == 0
                 {
-                    self.err = ErrDestination::File(word.to_string());
+                    self.err = ErrDestination::File(word);
                     return;
                 }
             }
@@ -78,11 +78,11 @@ impl CommandScriptLine
 
         if self.exec.len() == 0
         {
-            self.exec = word.to_string();
+            self.exec = word;
             return;
         }
 
-        self.args.push(word.to_string());
+        self.args.push(word);
     }
 
     fn pipe(self:&mut Self)
@@ -298,6 +298,7 @@ impl CommandScript
         let mut current_command = CommandScriptLine::new();
         let mut start = 0;
         let mut mode = Mode::Normal;
+        let mut word = String::new();
         let mut line_number = 1usize;
         let mut line_i = 0;
 
@@ -321,17 +322,20 @@ impl CommandScript
                     {
                         if is_end_line_character(c) || is_whitespace(c)
                         {
-                            if is_out_file_indicator(&content[start..i])
+                            let section = &content[start..i];
+                            if is_out_file_indicator(section)
                             {
                                 current_command.out_file();
                             }
-                            else if is_err_file_indicator(&content[start..i])
+                            else if is_err_file_indicator(section)
                             {
                                 current_command.err_file();
                             }
                             else
                             {
-                                current_command.push(&content[start..i]);
+                                word.push_str(section);
+                                current_command.push(word);
+                                word = String::new();
                             }
                             start = i + c.len_utf8();
                         }
@@ -346,7 +350,9 @@ impl CommandScript
                 {
                     if is_quote(c)
                     {
-                        current_command.push(&content[start..i]);
+                        word.push_str(&content[start..i]);
+                        current_command.push(word);
+                        word = String::new();
                         start = i + c.len_utf8();
                         mode = Mode::Normal;
                     }
@@ -354,12 +360,13 @@ impl CommandScript
                     if is_escape(c)
                     {
                         mode = Mode::Escape(Box::new(mode), line_number, i-line_i+1);
-                        start = i + c.len_utf8();
                     }
                 },
                 Mode::Escape(previous_mode, _line_number, _column_number) =>
                 {
                     mode = *previous_mode;
+                    word.push_str(&content[start..(i-1)]);
+                    start = i;
                 }
             }
 
@@ -381,7 +388,8 @@ impl CommandScript
             _ => {}
         }
 
-        current_command.push(&content[start..]);
+        word.push_str(&content[start..]);
+        current_command.push(word);
         result.push(current_command);
         Ok(result)
     }
