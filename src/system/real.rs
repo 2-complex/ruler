@@ -14,7 +14,6 @@ use std::time::SystemTime;
 use std::fmt;
 
 use std::process::Command;
-use execute::Execute;
 
 #[derive(Debug, Clone)]
 pub struct RealSystem
@@ -285,12 +284,9 @@ impl System for RealSystem
         for line in command_script.lines.into_iter()
         {
             let mut command = Command::new(line.exec);
-            for arg in line.args.iter()
-            {
-                command.arg(&arg);
-            }
+            command.args(line.args);
 
-            match command.execute_output()
+            match command.output()
             {
                 Ok(output) => result.push(Ok(CommandLineOutput::from_output(output))),
                 Err(error) =>

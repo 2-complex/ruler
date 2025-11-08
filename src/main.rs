@@ -193,7 +193,7 @@ fn main()
         },
         RulerSubcommand::Invoke(invoke_config) =>
         {
-            let system = RealSystem::new();
+            let mut system = RealSystem::new();
             let content = match read_file_to_string(&system, &invoke_config.path)
             {
                 Ok(content) => content,
@@ -213,7 +213,25 @@ fn main()
                     return;
                 }
             };
+
             println!("Script:\n{}", command_script);
+            println!("Executing...");
+            let results = system.execute_command(command_script);
+            for result in results
+            {
+                match result
+                {
+                    Ok(result) =>
+                    {
+                        println!("{:?}", result);
+                    },
+                    Err(error) =>
+                    {
+                        eprintln!("Script failed to execute: {}", error);
+                        return;
+                    }
+                }
+            }
         },
         RulerSubcommand::Clean(build_config) =>
         {

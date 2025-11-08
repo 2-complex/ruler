@@ -176,7 +176,7 @@ impl fmt::Display for CommandScriptLine
 {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
     {
-        write!(formatter, "{}", self.exec)?;
+        write!(formatter, "{}", escape_string(self.exec.as_str()))?;
         write!(formatter, " {}", self.args.iter().map(|s|{escape_string(s.as_str())}).collect::<Vec<String>>().join(" "))?;
 
         match &self.err
