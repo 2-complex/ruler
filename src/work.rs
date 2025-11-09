@@ -1149,21 +1149,11 @@ mod test
         let mut rule_ext = make_rule_ext(&system, sources_ticket);
         rule_ext.command_script = CommandScript::parse("error").unwrap();
 
-        match handle_rule_node(make_handle_node_info(system.clone(), vec![
-            "poem.txt".to_string()
-        ]), rule_ext)
-        {
-            Ok(result) =>
-            {
-                match result.work_option
-                {
-                    WorkOption::CommandExecuted(_output) => panic!("Unexpected success"),
-                    _ => panic!("Wrong type of work option.  Command was supposed to execute."),
-                }
-            },
-            Err(WorkError::CommandErrored(_command_script_result)) => {},
-            Err(err) => panic!("Error of wrong type: {}", err),
-        }
+        assert_eq!( 
+            handle_rule_node(make_handle_node_info(system.clone(),
+                vec!["poem.txt".to_string()]), rule_ext),
+            Err(WorkError::TargetFileNotGenerated("poem.txt".to_string()))
+        );
 
         /*  The files we tried to build should not be there. */
         assert_eq!(system.is_file("poem.txt"), false);
