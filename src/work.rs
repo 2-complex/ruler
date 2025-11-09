@@ -327,23 +327,6 @@ pub struct RuleExt<SystemType: System>
     pub downloader_rule_history_opt : Option<DownloaderRuleHistory>,
 }
 
-impl<SystemType: System> RuleExt<SystemType>
-{
-    #[cfg(test)]
-    fn new(cache : SysCache<SystemType>, sources_ticket : Ticket) -> RuleExt<SystemType>
-    {
-        return RuleExt
-        {
-            cache : cache,
-            sources_ticket : sources_ticket,
-            command_script : CommandScript::parse("").unwrap(), // TODO unwrap
-            rule_history : RuleHistory::new(),
-            downloader_cache_opt : None,
-            downloader_rule_history_opt : None,
-        };
-    }
-}
-
 pub struct HandleNodeInfo<SystemType: System>
 {
     pub system : SystemType,
@@ -622,6 +605,21 @@ mod test
         info
     }
 
+    fn new_empty_rule_ext(
+        cache : SysCache<FakeSystem>,
+        sources_ticket : Ticket) -> RuleExt<FakeSystem>
+    {
+        RuleExt::<FakeSystem>
+        {
+            cache : cache,
+            sources_ticket : sources_ticket,
+            command_script : CommandScript::parse("").unwrap(),
+            rule_history : RuleHistory::new(),
+            downloader_cache_opt : None,
+            downloader_rule_history_opt : None,
+        }
+    }
+
     /*  Call handle_rule_node with minimal connections and the empty list as a command. */
     #[test]
     fn do_empty_command()
@@ -633,7 +631,7 @@ mod test
         let mut ticket_factory = TicketFactory::new();
         ticket_factory.input_ticket(TicketFactory::from_str("A-content").result());
 
-        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache").unwrap(), ticket_factory.result());
+        let mut rule_ext = new_empty_rule_ext(SysCache::new(system.clone(), ".ruler-cache").unwrap(), ticket_factory.result());
         rule_ext.command_script = CommandScript::parse("").unwrap();
 
         match handle_rule_node(make_handle_node_info(system.clone(), vec![]), rule_ext)
@@ -668,7 +666,7 @@ mod test
         ticket_factory.input_ticket(TicketFactory::from_str("apples").result());
         ticket_factory.input_ticket(TicketFactory::from_str("bananas").result());
 
-        let mut rule_ext = RuleExt::new(SysCache::new(system.clone(), ".ruler-cache").unwrap(), ticket_factory.result());
+        let mut rule_ext = new_empty_rule_ext(SysCache::new(system.clone(), ".ruler-cache").unwrap(), ticket_factory.result());
         rule_ext.command_script = CommandScript::parse("cp A-source.txt A.txt").unwrap();
 
         match handle_rule_node(make_handle_node_info(system.clone(), vec!["A.txt".to_string()]), rule_ext)
@@ -694,7 +692,7 @@ mod test
 
     fn make_rule_ext(system: &FakeSystem, ticket: Ticket) -> RuleExt<FakeSystem>
     {
-        RuleExt::new(SysCache::new(system.clone(), ".ruler-cache").unwrap(), ticket)
+        new_empty_rule_ext(SysCache::new(system.clone(), ".ruler-cache").unwrap(), ticket)
     }
 
     #[test]
@@ -1193,7 +1191,7 @@ mod test
         assert_eq!(system.is_file("poem_copy.txt"), false);
 
         let cache = SysCache::new(system.clone(), ".ruler-cache").unwrap();
-        let mut rule_ext = RuleExt::new(cache.clone(), sources_ticket);
+        let mut rule_ext = new_empty_rule_ext(cache.clone(), sources_ticket);
         rule_ext.command_script = CommandScript::parse("error").unwrap();
 
         match handle_rule_node(make_handle_node_info(system.clone(), vec![
