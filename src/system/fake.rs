@@ -1658,9 +1658,9 @@ mod test
             CommandScriptResult
             {
                 outputs: vec![
-                    StandardOutputs::empty(),
+                    StandardOutputs::error("Failed".as_bytes().to_vec()),
                 ],
-                code: Some(0)
+                code: Some(1)
             }
         );
     }

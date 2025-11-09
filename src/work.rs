@@ -681,7 +681,7 @@ mod test
                         assert_eq!(command_script_result, CommandScriptResult
                         {
                             outputs: vec![StandardOutputs::empty()],
-                            code: Some(1)
+                            code: Some(0)
                         });
                     },
                     _ => panic!("Wrong type of work option.  Command was supposed to execute."),
@@ -1008,8 +1008,7 @@ mod test
         What should happen here is: the file gets backed up into the cache immediately before
         the rm command runs.  This is normal, because ruler caches previous versions of targets.
 
-        The rm command then fails, because the file it's trying to remove isn't there.
-    */
+        The rm command then fails, because the file it's trying to remove isn't there. */
     #[test]
     fn target_removed_by_command()
     {
@@ -1024,9 +1023,10 @@ mod test
             handle_rule_node(make_handle_node_info(system.clone(), vec!["verse1.txt".to_string()]), rule_ext),
             Err(WorkError::CommandExecutedButErrored(CommandScriptResult
             {
-                outputs: vec![StandardOutputs::empty()],
-                code: Some(0)
-            })));
+                outputs: vec![StandardOutputs::error("File failed to delete: verse1.txt".as_bytes().to_vec())],
+                code: Some(1)
+            }))
+        );
     }
 
     fn empty_success() -> CommandScriptResult
@@ -1055,22 +1055,25 @@ mod test
         let sources_ticket = factory.result();
 
         let mut rule_ext = make_rule_ext(&system, sources_ticket);
-        rule_ext.command_script = CommandScript::parse("cat verse1.txt verse2.txt > poem.txt; cp poem.txt poem_copy.txt").unwrap();
+        rule_ext.command_script = CommandScript::parse(
+            "cat verse1.txt verse2.txt > poem.txt; cp poem.txt poem_copy.txt").unwrap();
         rule_ext.rule_history = RuleHistory::new();
 
         match handle_rule_node(make_handle_node_info(system.clone(),
             vec!["poem.txt".to_string(), "poem_copy.txt".to_string()]), rule_ext)
         {
-            Ok(result) =>
+            Ok(result) => match result.work_option
             {
-                match result.work_option
-                {
-                    WorkOption::CommandExecuted(output) =>
+                WorkOption::CommandExecuted(command_script_result) =>
+                    assert_eq!(command_script_result, CommandScriptResult
                     {
-                        assert_eq!(output, empty_success());
-                    },
-                    _ => panic!("Wrong type of work option.  Command was supposed to execute."),
-                }
+                        outputs: vec![
+                            StandardOutputs::empty(),
+                            StandardOutputs::empty(),
+                        ],
+                        code: Some(0),
+                    }),
+                _ => panic!("Wrong type of work option.  Command was supposed to execute."),
             },
             Err(err) => panic!("Command failed: {}", err),
         }
