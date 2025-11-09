@@ -640,8 +640,7 @@ impl Write for FakeOpenFile
 pub struct FakeSystem
 {
     root: Arc<Mutex<Node>>,
-    current_timestamp: u64,
-    command_log: Arc<Mutex<Vec<String>>>
+    current_timestamp: u64
 }
 
 fn convert_node_error_to_system_error(error : NodeError) -> SystemError
@@ -718,8 +717,6 @@ impl FakeSystem
             /*  When too many timestamps are 0 by default it triggers the
                 timestamp optimization at the wrong time */
             current_timestamp : start,
-
-            command_log : Arc::new(Mutex::new(vec![])),
         }
     }
 
@@ -736,11 +733,6 @@ impl FakeSystem
     fn get_root_node_mut(&self) -> impl DerefMut<Target=Node> + '_
     {
         self.root.lock().unwrap()
-    }
-
-    pub fn get_command_log(&self) -> Vec<String>
-    {
-        self.command_log.lock().unwrap().clone()
     }
 
     pub fn create_error_file(&mut self, path: &str, error: SystemError) -> Result<(), SystemError>

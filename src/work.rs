@@ -1082,10 +1082,6 @@ mod test
             "Roses are red\nViolets are blue\n");
         assert_eq!(read_file_to_string(&system, "poem_copy.txt").unwrap(),
             "Roses are red\nViolets are blue\n");
-
-        let command_log = system.get_command_log();
-        assert_eq!(command_log.len(), 1);
-        assert_eq!(command_log[0], "cat verse1.txt verse2.txt > poem.txt;\ncp poem.txt poem_copy.txt");
     }
 
     #[test]
