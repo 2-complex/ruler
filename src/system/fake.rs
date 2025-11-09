@@ -693,8 +693,12 @@ fn error_message(message: String) -> CommandResult
 {
     CommandResult
     {
+        standard: Standard
+        {
+            err: message.into_bytes(),
+            out: vec![],
+        },
         code: Some(1),
-        standard: Standard::error(message.into_bytes())
     }
 }
 
@@ -887,7 +891,7 @@ impl System for FakeSystem
                         out: output,
                         err: vec![]
                     },
-                    code: Some(1)
+                    code: Some(0)
                 }
             },
 
@@ -1632,8 +1636,11 @@ mod test
             CommandScriptResult
             {
                 outputs: vec![
-                    Standard::error("Failed".as_bytes().to_vec()),
-                ],
+                Standard
+                {
+                    out: vec![],
+                    err: "Failed".as_bytes().to_vec(),
+                }],
                 code: Some(1)
             }
         );

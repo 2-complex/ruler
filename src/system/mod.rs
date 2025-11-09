@@ -25,18 +25,6 @@ pub struct Standard
     pub err : Vec<u8>,
 }
 
-impl Standard
-{
-    pub fn error(err: Vec<u8>) -> Self
-    {
-        Self
-        {
-            out : vec![],
-            err : err,
-        }
-    }
-}
-
 #[derive(Debug, PartialEq)]
 pub struct CommandResult
 {
@@ -351,14 +339,10 @@ pub trait System: Clone + Send + Sync
     fn execute_command_script(&mut self, command_script : language::CommandScript) -> CommandScriptResult
     {
         let mut result = CommandScriptResult::new();
-        println!("Computing Results");
-
         for line in command_script.lines.into_iter()
         {
             let line_result = self.execute_command_script_line(line);
             let is_success = line_result.is_success();
-
-            println!("Results: {:?}", line_result);
 
             result.push(line_result);
             if ! is_success

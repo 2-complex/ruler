@@ -327,6 +327,7 @@ pub struct RuleExt<SystemType: System>
     pub downloader_rule_history_opt : Option<DownloaderRuleHistory>,
 }
 
+#[derive(Debug)]
 pub struct HandleNodeInfo<SystemType: System>
 {
     pub system : SystemType,
@@ -732,15 +733,11 @@ mod test
         let mut rule_ext = make_rule_ext(&system, ticket_factory.result());
         rule_ext.command_script = CommandScript::parse("cat verse1.txt verse2.txt > wrong.txt").unwrap();
 
-        match handle_rule_node(make_handle_node_info(system.clone(), vec!["poem.txt".to_string()]), rule_ext)
-        {
-            Ok(_) => panic!("Unexpected command success"),
-            Err(WorkError::TargetFileNotGenerated(path)) =>
-            {
-                assert_eq!(path, "poem.txt");
-            },
-            Err(error) => panic!("Wrong kind of error when command errors: {}", error),
-        }
+        let node_info = make_handle_node_info(system.clone(), vec!["poem.txt".to_string()]);
+
+        assert_eq!(
+            handle_rule_node(node_info, rule_ext),
+            Err(WorkError::TargetFileNotGenerated("poem.txt".to_string())))
     }
 
     #[test]
@@ -1022,7 +1019,11 @@ mod test
             handle_rule_node(make_handle_node_info(system.clone(), vec!["verse1.txt".to_string()]), rule_ext),
             Err(WorkError::CommandErrored(CommandScriptResult
             {
-                outputs: vec![Standard::error("File failed to delete: verse1.txt".as_bytes().to_vec())],
+                outputs: vec![Standard
+                {
+                    err: "File failed to delete: verse1.txt".as_bytes().to_vec(),
+                    out: vec![]
+                }],
                 code: Some(1)
             }))
         );
