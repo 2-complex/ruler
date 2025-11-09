@@ -1,5 +1,3 @@
-use std::str::from_utf8;
-use std::process::Output;
 use std::io;
 use std::fmt;
 
@@ -11,58 +9,100 @@ pub mod real;
 pub mod language;
 
 #[derive(Debug, PartialEq)]
-pub struct CommandLineOutput
+pub struct StandardOutputs
 {
-    pub out : String,
-    pub err : String,
-    pub code : Option<i32>,
-    pub success : bool,
+    pub out : Vec<u8>,
+    pub err : Vec<u8>,
 }
 
-impl CommandLineOutput
+impl StandardOutputs
 {
-    #[cfg(test)]
-    pub fn new() -> CommandLineOutput
+    pub fn empty() -> Self
     {
-        CommandLineOutput
+        Self
         {
-            out : "".to_string(),
-            err : "".to_string(),
-            code : Some(0),
-            success : true,
+            out : vec![],
+            err : vec![],
         }
     }
 
-    #[cfg(test)]
-    pub fn error(message : String) -> CommandLineOutput
+    pub fn error(err: Vec<u8>) -> Self
     {
-        CommandLineOutput
+        Self
         {
-            out : "".to_string(),
-            err : message,
-            code : Some(1),
-            success : false,
+            out : vec![],
+            err : err,
         }
     }
 
-    pub fn from_output(output : Output) -> CommandLineOutput
+    pub fn success(out: Vec<u8>) -> Self
     {
-        CommandLineOutput
+        Self
         {
-            out : match from_utf8(&output.stdout)
-            {
-                Ok(text) => text,
-                Err(_) => "<non-utf8 data>",
-            }.to_string(),
+            out : out,
+            err : vec![],
+        }
+    }
+}
 
-            err : match from_utf8(&output.stderr)
-            {
-                Ok(text) => text,
-                Err(_) => "<non-utf8 data>",
-            }.to_string(),
+/*  For example, the c++ compiler puts errors and warnings both in std-err.
+    If it generates an executable, it returns error code 0, otherwise 1 */
+#[derive(Debug, PartialEq)]
+pub struct CommandScriptResult
+{
+    pub outputs: Vec<StandardOutputs>,
+    pub code: Option<i32>,
+}
 
-            code : output.status.code(),
-            success : output.status.success(),
+impl CommandScriptResult
+{
+    pub fn is_success(self: &Self) -> bool
+    {
+        match self.code
+        {
+            Some(i) => i==0,
+            None => false
+        }
+    }
+
+    pub fn new() -> CommandScriptResult
+    {
+        CommandScriptResult
+        {
+            outputs: vec![],
+            code: Some(0),
+        }
+    }
+
+    pub fn push(self: &mut Self, pair: (Option<i32>, StandardOutputs))
+    {
+        self.code = pair.0;
+        self.outputs.push(pair.1);
+    }
+}
+
+fn bytes_to_string(buf: &[u8]) -> String
+{
+    match str::from_utf8(buf)
+    {
+        Ok(string) => string.to_string(),
+        Err(_) => "<invalid utf8>".to_string(),
+    }
+}
+
+impl fmt::Display for CommandScriptResult
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result
+    {
+        for outputs in self.outputs.iter()
+        {
+            write!(formatter, "{}", bytes_to_string(&outputs.out))?;
+            write!(formatter, "{}", bytes_to_string(&outputs.err))?;
+        }
+        match self.code
+        {
+            Some(i) => write!(formatter, "code: {}", i),
+            None => write!(formatter, "no status code"),
         }
     }
 }
@@ -196,5 +236,5 @@ pub trait System: Clone + Send + Sync
 
     fn is_executable(&self, path: &str) -> Result<bool, SystemError>;
     fn set_is_executable(&mut self, path: &str, executable : bool) -> Result<(), SystemError>;
-    fn execute_command(&mut self, command_script: language::CommandScript) -> Vec<Result<CommandLineOutput, SystemError>>;
+    fn execute_command_script(&mut self, command_script: language::CommandScript) -> CommandScriptResult;
 }

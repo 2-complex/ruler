@@ -216,21 +216,14 @@ fn main()
 
             println!("Script:\n{}", command_script);
             println!("Executing...");
-            let results = system.execute_command(command_script);
-            for result in results
+            let command_script_result = system.execute_command_script(command_script);
+            if command_script_result.is_success()
             {
-                match result
-                {
-                    Ok(result) =>
-                    {
-                        println!("{:?}", result);
-                    },
-                    Err(error) =>
-                    {
-                        eprintln!("Script failed to execute: {}", error);
-                        return;
-                    }
-                }
+                println!("{}", command_script_result);
+            }
+            else
+            {
+                eprintln!("Script failed to execute: {}", command_script_result);
             }
         },
         RulerSubcommand::Clean(build_config) =>

@@ -679,34 +679,34 @@ pub fn build
                                 }
                             },
 
-                            WorkOption::CommandExecuted(output) =>
+                            WorkOption::CommandExecuted(script_result) =>
                             {
                                 for path in work_result.blob.get_paths().iter()
                                 {
                                     printer.print_single_banner_line("     Built", Color::Magenta, &path);
                                 }
 
-                                if output.out != ""
+                                for outputs in script_result.outputs.iter()
                                 {
-                                    printer.print(&output.out);
+                                    if outputs.out.len() != 0
+                                    {
+                                        printer.print(&outputs.out);
+                                    }
+
+                                    if outputs.err.len() != 0
+                                    {
+                                        printer.error(&outputs.out);
+                                    }
                                 }
 
-                                if output.err != ""
+                                if ! script_result.is_success()
                                 {
-                                    printer.error(&output.err);
-                                }
-
-                                if !output.success
-                                {
-                                    printer.error(
-                                        &format!("RESULT: {}",
-                                            match output.code
-                                            {
-                                                Some(code) => format!("{}", code),
-                                                None => "None".to_string(),
-                                            }
-                                        )
-                                    );
+                                    printer.error(&
+                                        match script_result.code
+                                        {
+                                            Some(i) => format!("Status code: {}", i),
+                                            None => format!("No status code"),
+                                        }.as_bytes());
                                 }
 
                             },
@@ -746,7 +746,7 @@ pub fn build
     match elements.current_file_states.to_file()
     {
         Ok(_) => {},
-        Err(_) => printer.error("Error writing history"),
+        Err(_) => printer.error("Error writing history".as_bytes()),
     }
 
     if work_errors.len() == 0
@@ -794,16 +794,9 @@ pub fn run
     let mut all = vec![format!("./{}", executable)];
     all.append(&mut extra_args);
 
-    /* TODO unwrap! */
-    for result in system.execute_command(CommandScript::parse(&all.join("\n")).unwrap())
-    {
-        match result
-        {
-            Ok(_command_line_output) => {},
-            Err(system_error) => return Err(RunError::ExecutionError(system_error)),
-        }
-    }
-
+    // TODO: unwrap!
+    let result = system.execute_command_script(CommandScript::parse(&all.join("\n")).unwrap());
+    println!("{:?}", result); // TODO: do this better!
     Ok(())
 }
 

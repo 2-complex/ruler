@@ -3,7 +3,8 @@ use crate::system::
     System,
     SystemError,
     language::CommandScript,
-    CommandLineOutput,
+    CommandScriptResult,
+    StandardOutputs
 };
 use std::fs;
 use std::ffi::OsString;
@@ -13,7 +14,11 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 use std::fmt;
 
-use std::process::Command;
+use std::process::
+{
+    Command,
+    Output
+};
 
 #[derive(Debug, Clone)]
 pub struct RealSystem
@@ -120,6 +125,18 @@ fn get_timestamp(system_time : SystemTime) -> Result<u64, GetTimestampError>
         Ok(duration) => Ok(1_000_000u64 * duration.as_secs() + u64::from(duration.subsec_micros())),
         Err(error) => Err(GetTimestampError::Error(format!("{}", error))),
     }
+}
+
+fn from_output(output: Output) -> (Option<i32>, StandardOutputs)
+{
+    (
+        output.status.code(),
+        StandardOutputs
+        {
+            out : output.stdout,
+            err : output.stderr,
+        }
+    )
 }
 
 impl System for RealSystem
@@ -277,10 +294,9 @@ impl System for RealSystem
         set_is_executable(path, executable)
     }
 
-    fn execute_command(&mut self, command_script : CommandScript) ->
-        Vec<Result<CommandLineOutput, SystemError>>
+    fn execute_command_script(&mut self, command_script : CommandScript) -> CommandScriptResult
     {
-        let mut result = vec![];
+        let mut result = CommandScriptResult::new();
         for line in command_script.lines.into_iter()
         {
             let mut command = Command::new(line.exec);
@@ -288,10 +304,10 @@ impl System for RealSystem
 
             match command.output()
             {
-                Ok(output) => result.push(Ok(CommandLineOutput::from_output(output))),
+                Ok(output) => result.push(from_output(output)),
                 Err(error) =>
                 {
-                    result.push(Err(SystemError::CommandExecutationFailed(format!("{}", error))));
+                    result.push((None, StandardOutputs::error(format!("{}", error).into_bytes())));
                     return result;
                 },
             }

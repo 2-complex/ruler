@@ -1,7 +1,7 @@
 use crate::ticket::Ticket;
 use crate::system::
 {
-    CommandLineOutput,
+    CommandScriptResult,
     System,
     SystemError
 };
@@ -36,7 +36,7 @@ pub enum WorkOption
 {
     SourceOnly,
     Resolutions(Vec<FileResolution>),
-    CommandExecuted(CommandLineOutput),
+    CommandExecuted(CommandScriptResult),
 }
 
 #[derive(Debug, PartialEq)]
@@ -61,9 +61,8 @@ pub enum WorkError
     SystemError(String, SystemError),
     ResolutionError(ResolutionError),
     GetCurrentFileInfoError(GetCurrentFileInfoError),
-    CommandExecutedButErrored,
+    CommandExecutedButErrored(CommandScriptResult),
     CommandFailedToExecute(SystemError),
-    NoCommandExecuted,
     Contradiction(Vec<String>),
     Weird,
 }
@@ -104,14 +103,11 @@ impl fmt::Display for WorkError
             WorkError::GetCurrentFileInfoError(error) =>
                 write!(formatter, "Error getting ticket and timestamp: {}", error),
 
-            WorkError::CommandExecutedButErrored =>
-                write!(formatter, "Command executed but errored"),
+            WorkError::CommandExecutedButErrored(command_script_result) =>
+                write!(formatter, "Command executed but errored:\n{}", command_script_result),
 
             WorkError::CommandFailedToExecute(error) =>
                 write!(formatter, "Failed to execute command: {}", error),
-
-            WorkError::NoCommandExecuted =>
-                write!(formatter, "No command executed"),
 
             WorkError::Contradiction(contradicting_target_paths) =>
             {
@@ -176,28 +172,6 @@ fn needs_rebuild(resolutions : &Vec<FileResolution>) -> bool
     false
 }
 
-fn to_command_line_input(command_result : Vec<Result<CommandLineOutput, SystemError>>) -> Result<CommandLineOutput, WorkError>
-{
-    let mut result = Err(WorkError::NoCommandExecuted);
-    for res in command_result.into_iter()
-    {
-        match res
-        {
-            Ok(output) =>
-            {
-                if output.code != Some(0)
-                {
-                    return Err(WorkError::CommandExecutedButErrored)
-                }
-                result = Ok(output);
-            },
-            Err(error) => return Err(WorkError::CommandFailedToExecute(error))
-        }
-    }
-
-    result
-}
-
 /*  Handles the case where at least one target is irrecoverable and therefore the command
     needs to execute to rebuild the node.  When successful, returns a WorkResult with option
     indicating that the command executed (WorkResult contains the commandline result) */
@@ -229,7 +203,11 @@ Result<WorkResult, WorkError>
         },
     }
 
-    let command_result = to_command_line_input(system.execute_command(command_script))?;
+    let command_script_result = system.execute_command_script(command_script);
+    if ! command_script_result.is_success()
+    {
+        return Err(WorkError::CommandExecutedButErrored(command_script_result))
+    }
 
     let file_state_vec =
     match blob.update_to_match_system_file_state(system)
@@ -268,7 +246,7 @@ Result<WorkResult, WorkError>
         {
             file_state_vec : file_state_vec,
             blob : blob,
-            work_option : WorkOption::CommandExecuted(command_result),
+            work_option : WorkOption::CommandExecuted(command_script_result),
             rule_history : Some(rule_history),
         }
     )
@@ -536,6 +514,8 @@ mod test
     };
     use crate::system::
     {
+        StandardOutputs,
+        CommandScriptResult,
         System,
         fake::FakeSystem,
     };
@@ -696,12 +676,13 @@ mod test
             {
                 match result.work_option
                 {
-                    WorkOption::CommandExecuted(output) =>
+                    WorkOption::CommandExecuted(command_script_result) =>
                     {
-                        assert_eq!(output.out, "");
-                        assert_eq!(output.err, "");
-                        assert_eq!(output.code, Some(0));
-                        assert_eq!(output.success, true);
+                        assert_eq!(command_script_result, CommandScriptResult
+                        {
+                            outputs: vec![StandardOutputs::empty()],
+                            code: Some(1)
+                        });
                     },
                     _ => panic!("Wrong type of work option.  Command was supposed to execute."),
                 }
@@ -731,7 +712,7 @@ mod test
         match handle_rule_node(make_handle_node_info(system.clone(), vec!["poem.txt".to_string()]), rule_ext)
         {
             Ok(_) => panic!("Unexpected command success"),
-            Err(WorkError::CommandExecutedButErrored) => {},
+            Err(WorkError::CommandExecutedButErrored(_command_script_result)) => {},
             Err(error) => panic!("Wrong kind of error when command errors: {}", error),
         }
     }
@@ -785,13 +766,13 @@ mod test
             {
                 match result.work_option
                 {
-                    WorkOption::CommandExecuted(output)=>
+                    WorkOption::CommandExecuted(command_script_result)=>
                     {
-                        assert_eq!(output.out, "");
-                        assert_eq!(output.err, "");
-                        assert_eq!(output.code, Some(0));
-                        assert_eq!(output.success, true);
-
+                        assert_eq!(command_script_result, CommandScriptResult
+                        {
+                            outputs: vec![StandardOutputs::empty()],
+                            code: Some(0),
+                        });
                         let content = read_file_to_string(&system, "poem.txt").unwrap();
                         assert_eq!(content, "Roses are red\nViolets are violet\n");
                     },
@@ -1037,11 +1018,24 @@ mod test
         write_str_to_file(&mut system, "verse1.txt", "Arbitrary content\n").unwrap();
 
         let mut rule_ext = make_rule_ext(&system, TicketFactory::new().result());
-        rule_ext.command_script = CommandScript::parse("rm\nverse1.txt").unwrap();
+        rule_ext.command_script = CommandScript::parse("rm verse1.txt").unwrap();
 
         assert_eq!(
             handle_rule_node(make_handle_node_info(system.clone(), vec!["verse1.txt".to_string()]), rule_ext),
-            Err(WorkError::CommandExecutedButErrored));
+            Err(WorkError::CommandExecutedButErrored(CommandScriptResult
+            {
+                outputs: vec![StandardOutputs::empty()],
+                code: Some(0)
+            })));
+    }
+
+    fn empty_success() -> CommandScriptResult
+    {
+        CommandScriptResult
+        {
+            outputs: vec![StandardOutputs::empty()],
+            code: Some(0),
+        }
     }
 
     /*  Use a cat and then a cp to generate a poem and a copy of that poem.  Put one poem in place, with incorrect
@@ -1073,10 +1067,7 @@ mod test
                 {
                     WorkOption::CommandExecuted(output) =>
                     {
-                        assert_eq!(output.out, "");
-                        assert_eq!(output.err, "");
-                        assert_eq!(output.code, Some(0));
-                        assert_eq!(output.success, true);
+                        assert_eq!(output, empty_success());
                     },
                     _ => panic!("Wrong type of work option.  Command was supposed to execute."),
                 }
@@ -1093,7 +1084,6 @@ mod test
         assert_eq!(command_log.len(), 1);
         assert_eq!(command_log[0], "cat verse1.txt verse2.txt > poem.txt;\ncp poem.txt poem_copy.txt");
     }
-
 
     #[test]
     fn one_target_already_correct_only()
@@ -1124,10 +1114,7 @@ mod test
                 {
                     WorkOption::CommandExecuted(output) =>
                     {
-                        assert_eq!(output.out, "");
-                        assert_eq!(output.err, "");
-                        assert_eq!(output.code, Some(0));
-                        assert_eq!(output.success, true);
+                        assert_eq!(output, empty_success());
                     },
                     _ => panic!("Wrong type of work option.  Command was supposed to execute."),
                 }
@@ -1172,7 +1159,7 @@ mod test
                     _ => panic!("Wrong type of work option.  Command was supposed to execute."),
                 }
             },
-            Err(WorkError::CommandExecutedButErrored) => {},
+            Err(WorkError::CommandExecutedButErrored(command_script_result)) => {},
             Err(err) => panic!("Error of wrong type: {}", err),
         }
 
@@ -1218,7 +1205,7 @@ mod test
                     _ => panic!("Wrong type of work option.  Command was supposed to execute."),
                 }
             },
-            Err(WorkError::CommandExecutedButErrored) => {},
+            Err(WorkError::CommandExecutedButErrored(_command_script_result)) => {},
             Err(err) => panic!("Error of wrong type: {}", err),
         }
 

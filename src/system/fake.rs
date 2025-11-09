@@ -2,7 +2,8 @@ use crate::system::
 {
     System,
     SystemError,
-    CommandLineOutput,
+    CommandScriptResult,
+    StandardOutputs,
 };
 use crate::system::language::
 {
@@ -696,6 +697,11 @@ fn convert_node_error_to_system_error(error : NodeError) -> SystemError
     }
 }
 
+fn error_message(message: String) -> (Option<i32>, StandardOutputs)
+{
+    (Some(1), StandardOutputs::error(message.into_bytes()))
+}
+
 impl FakeSystem
 {
     pub fn new(start : u64) -> Self
@@ -746,13 +752,14 @@ impl FakeSystem
         }
     }
 
-    fn execute_script_line(&mut self, line : CommandScriptLine) -> Result<CommandLineOutput, SystemError>
+    fn execute_script_line(&mut self, line : CommandScriptLine)
+        -> (Option<i32>, StandardOutputs)
     {
         match line.exec.as_str()
         {
             "error" =>
             {
-                return Ok(CommandLineOutput::error("Failed".to_string()))
+                return error_message("Failed".to_string())
             },
 
             "cat" =>
@@ -770,12 +777,14 @@ impl FakeSystem
                                 {
                                     output.push_str(content_string);
                                 }
-                                Err(_) => return Ok(CommandLineOutput::error(format!("File contained non utf8 bytes: {}", file))),
+                                Err(_) => return error_message(
+                                    format!("File contained non utf8 bytes: {}", file)),
                             }
                         }
-                        Err(_) =>
+                        Err(error) =>
                         {
-                            return Ok(CommandLineOutput::error(format!("File failed to open: {}", file)));
+                            return error_message(
+                                format!("File failed to open: {} with error: {}", file, error));
                         }
                     }
                 }
@@ -790,12 +799,10 @@ impl FakeSystem
                     {
                         match write_str_to_file(self, &path_string, &output)
                         {
-                            Ok(_) => Ok(CommandLineOutput::new()),
+                            Ok(_) => (Some(0), StandardOutputs::empty()),
                             Err(error) =>
-                            {
-                                Ok(CommandLineOutput::error(format!("Failed to cat into file: {} : {}",
-                                    path_string, error)))
-                            },
+                                error_message(format!("Failed to cat into file: {} : {}",
+                                    path_string, error)),
                         }
                     },
                     OutDestination::Command(command_box) =>
@@ -813,13 +820,11 @@ impl FakeSystem
                     {
                         Ok(()) => {}
                         Err(_) =>
-                        {
-                            return Ok(CommandLineOutput::error(format!("File failed to delete: {}", file)));
-                        }
+                            return error_message(format!("File failed to delete: {}", file)),
                     }
                 }
 
-                return Ok(CommandLineOutput::new())
+                return (Some(0), StandardOutputs::empty())
             },
 
             "cp" =>
@@ -828,35 +833,34 @@ impl FakeSystem
                 let src = match iter.next()
                 {
                     Some(src) => src.as_str(),
-                    None => return Ok(CommandLineOutput::error("cp: wrong number of arguments".to_string())),
+                    None => return error_message("cp: wrong number of arguments".to_string()),
                 };
 
                 let dst = match iter.next()
                 {
                     Some(dst) => dst.as_str(),
-                    None => return Ok(CommandLineOutput::error("cp: wrong number of arguments".to_string())),
+                    None => return error_message("cp: wrong number of arguments".to_string()),
                 };
 
                 match io::copy(
                     &mut match self.open(src)
                     {
                         Ok(mut file) => file,
-                        Err(error) => return Ok(CommandLineOutput::error(
-                            format!("cp: source file failed to open: {} with error: {}", src, error))),
+                        Err(error) => return error_message(
+                            format!("cp: source file failed to open: {} with error: {}", src, error)),
                     },
                     &mut match self.create_file(dst)
                     {
                         Ok(mut file) => file,
-                        Err(error) => return Ok(CommandLineOutput::error(
-                            format!("cp: source file failed to open: {} with error: {}", dst, error))),
+                        Err(error) => return error_message(
+                            format!("cp: source file failed to open: {} with error: {}", dst, error)),
                     })
                 {
-                    Ok(_) => Ok(CommandLineOutput::new()),
-                    Err(error) => Ok(CommandLineOutput::error(
-                        format!("cp: stream failed: {}", error))),
+                    Ok(_) => (Some(0), StandardOutputs::empty()),
+                    Err(error) => error_message(format!("cp: stream failed: {}", error)),
                 }
             },
-            _=> return Ok(CommandLineOutput::error(format!("Invalid command given: {}", line.exec)))
+            _=> return error_message(format!("Invalid command given: {}", line.exec))
         }
     }
 }
@@ -967,15 +971,15 @@ impl System for FakeSystem
         }
     }
 
-    fn execute_command(&mut self, command_script: CommandScript) -> Vec<Result<CommandLineOutput, SystemError>>
+    fn execute_command_script(&mut self, command_script: CommandScript) -> CommandScriptResult
     {
-        let mut result = Vec::new();
+        let mut output = CommandScriptResult::new();
         self.get_command_log_mut().push(format!("{}", command_script));
         for line in command_script.lines
         {
-            result.push(self.execute_script_line(line));
+            output.push(self.execute_script_line(line));
         }
-        result
+        output
     }
 }
 
@@ -986,7 +990,8 @@ mod test
     {
         System,
         SystemError,
-        CommandLineOutput
+        StandardOutputs,
+        CommandScriptResult,
     };
 
     use crate::system::language::CommandScript;
@@ -1325,7 +1330,7 @@ mod test
         let mut system = FakeSystem::new(10);
         system.create_file("file.txt").unwrap();
         assert!(system.is_file("file.txt"));
-        system.execute_command(CommandScript::parse("rm file.txt").unwrap());
+        system.execute_command_script(CommandScript::parse("rm file.txt").unwrap());
         assert!(!system.is_file("file.txt"));
         assert!(!system.exists("file.txt"));
         assert!(!system.is_dir("file.txt"));
@@ -1649,16 +1654,14 @@ mod test
     {
         let mut system = FakeSystem::new(10);
         assert_eq!(
-            system.execute_command(CommandScript::parse("error").unwrap()),
-            vec![
-                Ok(CommandLineOutput
-                {
-                    out : "".to_string(),
-                    err : "Failed".to_string(),
-                    code : Some(1),
-                    success : false,
-                })
-            ]
+            system.execute_command_script(CommandScript::parse("error").unwrap()),
+            CommandScriptResult
+            {
+                outputs: vec![
+                    StandardOutputs::empty(),
+                ],
+                code: Some(0)
+            }
         );
     }
 
@@ -1672,18 +1675,16 @@ mod test
         write_str_to_file(&mut system, "line2.txt", "Love to dance\n").unwrap();
 
         assert_eq!(
-            system.execute_command(CommandScript::parse(
+            system.execute_command_script(CommandScript::parse(
                 "cat line1.txt line2.txt > poem.txt").unwrap()
             ),
-            vec![
-                Ok(CommandLineOutput
-                {
-                    out : "".to_string(),
-                    err : "".to_string(),
-                    code : Some(0),
-                    success : true,
-                })
-            ]
+            CommandScriptResult
+            {
+                outputs: vec![
+                    StandardOutputs::empty(),
+                ],
+                code: Some(0)
+            }
         );
 
         assert_eq!(read_file(&system, "poem.txt"), Ok(b"Ants\nLove to dance\n".to_vec()));
@@ -1697,24 +1698,16 @@ mod test
         write_str_to_file(&mut system, "line1.txt", "Ants\n").unwrap();
         system.create_file("line2.txt").unwrap();
         write_str_to_file(&mut system, "line2.txt", "Love to dance\n").unwrap();
-        assert_eq!(system.execute_command(CommandScript::parse(
+        assert_eq!(system.execute_command_script(CommandScript::parse(
             "cat line1.txt line2.txt > poem.txt; cp poem.txt poem-backup.txt").unwrap()),
-            vec![
-                Ok(CommandLineOutput
-                {
-                    out : "".to_string(),
-                    err : "".to_string(),
-                    code : Some(0),
-                    success : true,
-                }),
-                Ok(CommandLineOutput
-                {
-                    out : "".to_string(),
-                    err : "".to_string(),
-                    code : Some(0),
-                    success : true,
-                }),
-            ]
+            CommandScriptResult
+            {
+                outputs: vec![
+                    StandardOutputs::empty(),
+                    StandardOutputs::empty(),
+                ],
+                code: Some(0)
+            }
         );
 
         assert_eq!(read_file(&system, "poem.txt").unwrap(), b"Ants\nLove to dance\n");
@@ -1728,16 +1721,14 @@ mod test
         system.create_file("terrible-file.txt").unwrap();
         assert!(system.is_file("terrible-file.txt"));
         assert_eq!(
-            system.execute_command(CommandScript::parse("rm terrible-file.txt").unwrap()),
-            vec![
-                Ok(CommandLineOutput
-                {
-                    out : "".to_string(),
-                    err : "".to_string(),
-                    code : Some(0),
-                    success : true,
-                })
-            ]
+            system.execute_command_script(CommandScript::parse("rm terrible-file.txt").unwrap()),
+            CommandScriptResult
+            {
+                outputs: vec![
+                    StandardOutputs::empty(),
+                ],
+                code: Some(0)
+            }
         );
 
         assert!(!system.is_file("terrible-file.txt"));

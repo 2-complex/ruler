@@ -1,4 +1,3 @@
-
 use std::io::Write;
 use termcolor::
 {
@@ -11,14 +10,9 @@ use termcolor::
 
 pub trait Printer
 {
-    fn print_single_banner_line(
-        &mut self, banner_text : &str, banner_color : Color, path : &str);
-
-    fn print(
-        &mut self, text : &str);
-
-    fn error(
-        &mut self, text: &str);
+    fn print_single_banner_line(&mut self, banner_text : &str, banner_color : Color, path : &str);
+    fn print(&mut self, text : &[u8]);
+    fn error(&mut self, text : &[u8]);
 }
 
 #[derive(Clone)]
@@ -75,16 +69,14 @@ impl Printer for StandardPrinter
         }
     }
 
-    fn print(
-        &mut self, text : &str)
+    fn print(&mut self, buf: &[u8])
     {
-        println!("{}", text);
+        std::io::stdout().write_all(buf);
     }
 
-    fn error(
-        &mut self, text : &str)
+    fn error(&mut self, buf: &[u8])
     {
-        println!("{}", text);
+        std::io::stderr().write_all(buf);
     }
 }
 
@@ -110,13 +102,11 @@ impl Printer for EmptyPrinter
     {
     }
 
-    fn print(
-        &mut self, _text : &str)
+    fn print(&mut self, _text : &[u8])
     {
     }
 
-    fn error(
-        &mut self, _text: &str)
+    fn error(&mut self, _text : &[u8])
     {
     }
 }
