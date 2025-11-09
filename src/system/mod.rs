@@ -114,7 +114,7 @@ impl CommandScriptResult
 
 fn bytes_to_string(buf: &[u8]) -> String
 {
-    match str::from_utf8(buf)
+    match std::str::from_utf8(buf)
     {
         Ok(string) => string.to_string(),
         Err(_) => "<invalid utf8>".to_string(),
@@ -299,6 +299,7 @@ pub trait System: Clone + Send + Sync
     {
         let command_result = self.execute_command(command_script_line.exec, command_script_line.args);
         let mut line_result = CommandScriptLineResult::new();
+        line_result.code = command_result.code;
 
         match command_script_line.err_destination
         {
@@ -350,10 +351,15 @@ pub trait System: Clone + Send + Sync
     fn execute_command_script(&mut self, command_script : language::CommandScript) -> CommandScriptResult
     {
         let mut result = CommandScriptResult::new();
+        println!("Computing Results");
+
         for line in command_script.lines.into_iter()
         {
             let line_result = self.execute_command_script_line(line);
             let is_success = line_result.is_success();
+
+            println!("Results: {:?}", line_result);
+
             result.push(line_result);
             if ! is_success
             {
