@@ -17,30 +17,12 @@ pub struct StandardOutputs
 
 impl StandardOutputs
 {
-    pub fn empty() -> Self
-    {
-        Self
-        {
-            out : vec![],
-            err : vec![],
-        }
-    }
-
     pub fn error(err: Vec<u8>) -> Self
     {
         Self
         {
             out : vec![],
             err : err,
-        }
-    }
-
-    pub fn success(out: Vec<u8>) -> Self
-    {
-        Self
-        {
-            out : out,
-            err : vec![],
         }
     }
 }

@@ -22,8 +22,8 @@ use crate::directory::
 };
 use crate::rule::
 {
-    parse_all,
-    ParseError,
+    self,
+    parse_all
 };
 use crate::sort::
 {
@@ -82,7 +82,11 @@ use crate::system::
     System,
     SystemError,
 };
-use crate::system::language::CommandScript;
+use crate::system::language::
+{
+    self,
+    CommandScript
+};
 use crate::system::util::
 {
     read_file_to_string,
@@ -146,7 +150,7 @@ pub enum BuildError
     RuleFileFailedToRead(String, io::Error),
     RuleFileFailedToOpen(String, SystemError),
     WorkErrors(Vec<WorkError>),
-    RuleFileFailedToParse(ParseError),
+    RuleFileFailedToParse(rule::ParseError),
     TopologicalSortFailed(TopologicalSortError),
     DirectoryMalfunction,
     HistoryError(HistoryError),
@@ -219,7 +223,7 @@ impl fmt::Display for BuildError
 pub enum RunError
 {
     BuildError(BuildError),
-    ExecutionError(SystemError),
+    ParseError(language::ParseError),
 }
 
 impl fmt::Display for RunError
@@ -231,8 +235,8 @@ impl fmt::Display for RunError
             RunError::BuildError(build_error) =>
                 write!(formatter, "{}", build_error),
 
-            RunError::ExecutionError(system_error) =>
-                write!(formatter, "Target built but failed to execute cleanly: {}", system_error),
+            RunError::ParseError(parse_error) =>
+                write!(formatter, "{}", parse_error),
         }
     }
 }
@@ -794,9 +798,17 @@ pub fn run
     let mut all = vec![format!("./{}", executable)];
     all.append(&mut extra_args);
 
-    // TODO: unwrap!
-    let result = system.execute_command_script(CommandScript::parse(&all.join("\n")).unwrap());
-    println!("{:?}", result); // TODO: do this better!
+    let command_script = match CommandScript::parse(&all.join("\n"))
+    {
+        Ok(command_script) => command_script,
+        Err(parse_error) =>
+        {
+            return Err(RunError::ParseError(parse_error));
+        },
+    };
+
+    let command_script_result = system.execute_command_script(command_script);
+    println!("{}", command_script_result);
     Ok(())
 }
 

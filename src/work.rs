@@ -61,7 +61,7 @@ pub enum WorkError
     SystemError(String, SystemError),
     ResolutionError(ResolutionError),
     GetCurrentFileInfoError(GetCurrentFileInfoError),
-    CommandExecutedButErrored(CommandScriptResult),
+    CommandErrored(CommandScriptResult),
     CommandFailedToExecute(SystemError),
     Contradiction(Vec<String>),
     Weird,
@@ -103,7 +103,7 @@ impl fmt::Display for WorkError
             WorkError::GetCurrentFileInfoError(error) =>
                 write!(formatter, "Error getting ticket and timestamp: {}", error),
 
-            WorkError::CommandExecutedButErrored(command_script_result) =>
+            WorkError::CommandErrored(command_script_result) =>
                 write!(formatter, "Command executed but errored:\n{}", command_script_result),
 
             WorkError::CommandFailedToExecute(error) =>
@@ -206,7 +206,7 @@ Result<WorkResult, WorkError>
     let command_script_result = system.execute_command_script(command_script);
     if ! command_script_result.is_success()
     {
-        return Err(WorkError::CommandExecutedButErrored(command_script_result))
+        return Err(WorkError::CommandErrored(command_script_result))
     }
 
     let file_state_vec =
@@ -654,6 +654,11 @@ mod test
         }
     }
 
+    fn empty_output() -> StandardOutputs
+    {
+        StandardOutputs{ out : vec![], err : vec![] }
+    }
+
     #[test]
     fn work_handle_rule_node_command_executed()
     {
@@ -680,7 +685,7 @@ mod test
                     {
                         assert_eq!(command_script_result, CommandScriptResult
                         {
-                            outputs: vec![StandardOutputs::empty()],
+                            outputs: vec![empty_output()],
                             code: Some(0)
                         });
                     },
@@ -712,7 +717,7 @@ mod test
         match handle_rule_node(make_handle_node_info(system.clone(), vec!["poem.txt".to_string()]), rule_ext)
         {
             Ok(_) => panic!("Unexpected command success"),
-            Err(WorkError::CommandExecutedButErrored(_command_script_result)) => {},
+            Err(WorkError::CommandErrored(_command_script_result)) => {},
             Err(error) => panic!("Wrong kind of error when command errors: {}", error),
         }
     }
@@ -770,7 +775,7 @@ mod test
                     {
                         assert_eq!(command_script_result, CommandScriptResult
                         {
-                            outputs: vec![StandardOutputs::empty()],
+                            outputs: vec![empty_output()],
                             code: Some(0),
                         });
                         let content = read_file_to_string(&system, "poem.txt").unwrap();
@@ -1021,7 +1026,7 @@ mod test
 
         assert_eq!(
             handle_rule_node(make_handle_node_info(system.clone(), vec!["verse1.txt".to_string()]), rule_ext),
-            Err(WorkError::CommandExecutedButErrored(CommandScriptResult
+            Err(WorkError::CommandErrored(CommandScriptResult
             {
                 outputs: vec![StandardOutputs::error("File failed to delete: verse1.txt".as_bytes().to_vec())],
                 code: Some(1)
@@ -1033,7 +1038,7 @@ mod test
     {
         CommandScriptResult
         {
-            outputs: vec![StandardOutputs::empty()],
+            outputs: vec![empty_output()],
             code: Some(0),
         }
     }
@@ -1068,8 +1073,8 @@ mod test
                     assert_eq!(command_script_result, CommandScriptResult
                     {
                         outputs: vec![
-                            StandardOutputs::empty(),
-                            StandardOutputs::empty(),
+                            empty_output(),
+                            empty_output(),
                         ],
                         code: Some(0),
                     }),
@@ -1162,7 +1167,7 @@ mod test
                     _ => panic!("Wrong type of work option.  Command was supposed to execute."),
                 }
             },
-            Err(WorkError::CommandExecutedButErrored(command_script_result)) => {},
+            Err(WorkError::CommandErrored(_command_script_result)) => {},
             Err(err) => panic!("Error of wrong type: {}", err),
         }
 
@@ -1208,7 +1213,7 @@ mod test
                     _ => panic!("Wrong type of work option.  Command was supposed to execute."),
                 }
             },
-            Err(WorkError::CommandExecutedButErrored(_command_script_result)) => {},
+            Err(WorkError::CommandErrored(_command_script_result)) => {},
             Err(err) => panic!("Error of wrong type: {}", err),
         }
 

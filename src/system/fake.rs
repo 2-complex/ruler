@@ -702,6 +702,11 @@ fn error_message(message: String) -> (Option<i32>, StandardOutputs)
     (Some(1), StandardOutputs::error(message.into_bytes()))
 }
 
+fn empty_output() -> StandardOutputs
+{
+    StandardOutputs{ out : vec![], err : vec![] }
+}
+
 impl FakeSystem
 {
     pub fn new(start : u64) -> Self
@@ -793,13 +798,14 @@ impl FakeSystem
                 {
                     OutDestination::StdOut =>
                     {
+                        // TODO
                         panic!("What do I put here!?!?!");
                     },
                     OutDestination::File(path_string) =>
                     {
                         match write_str_to_file(self, &path_string, &output)
                         {
-                            Ok(_) => (Some(0), StandardOutputs::empty()),
+                            Ok(_) => (Some(0), empty_output()),
                             Err(error) =>
                                 error_message(format!("Failed to cat into file: {} : {}",
                                     path_string, error)),
@@ -824,7 +830,7 @@ impl FakeSystem
                     }
                 }
 
-                return (Some(0), StandardOutputs::empty())
+                return (Some(0), empty_output())
             },
 
             "cp" =>
@@ -856,7 +862,7 @@ impl FakeSystem
                             format!("cp: source file failed to open: {} with error: {}", dst, error)),
                     })
                 {
-                    Ok(_) => (Some(0), StandardOutputs::empty()),
+                    Ok(_) => (Some(0), empty_output()),
                     Err(error) => error_message(format!("cp: stream failed: {}", error)),
                 }
             },
@@ -1004,6 +1010,7 @@ mod test
         NodeError,
         get_components,
         FakeSystem,
+        empty_output
     };
 
     use crate::system::util::
@@ -1681,7 +1688,7 @@ mod test
             CommandScriptResult
             {
                 outputs: vec![
-                    StandardOutputs::empty(),
+                    empty_output(),
                 ],
                 code: Some(0)
             }
@@ -1703,8 +1710,8 @@ mod test
             CommandScriptResult
             {
                 outputs: vec![
-                    StandardOutputs::empty(),
-                    StandardOutputs::empty(),
+                    empty_output(),
+                    empty_output(),
                 ],
                 code: Some(0)
             }
@@ -1725,7 +1732,7 @@ mod test
             CommandScriptResult
             {
                 outputs: vec![
-                    StandardOutputs::empty(),
+                    empty_output(),
                 ],
                 code: Some(0)
             }
