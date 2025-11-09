@@ -71,12 +71,22 @@ impl Printer for StandardPrinter
 
     fn print(&mut self, buf: &[u8])
     {
-        std::io::stdout().write_all(buf);
+        match std::io::stdout().write_all(buf)
+        {
+            Ok(_) => {},
+            Err(error) =>
+                panic!("Error writing to stdout: {}", error),
+        }
     }
 
     fn error(&mut self, buf: &[u8])
     {
-        std::io::stderr().write_all(buf);
+        match std::io::stderr().write_all(buf)
+        {
+            Ok(_) => {},
+            Err(error) =>
+                panic!("Error writing to stderr: {}", error),
+        }
     }
 }
 

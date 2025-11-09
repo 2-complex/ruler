@@ -62,7 +62,6 @@ pub enum WorkError
     ResolutionError(ResolutionError),
     GetCurrentFileInfoError(GetCurrentFileInfoError),
     CommandErrored(CommandScriptResult),
-    CommandFailedToExecute(SystemError),
     Contradiction(Vec<String>),
     Weird,
 }
@@ -105,9 +104,6 @@ impl fmt::Display for WorkError
 
             WorkError::CommandErrored(command_script_result) =>
                 write!(formatter, "Command executed but errored:\n{}", command_script_result),
-
-            WorkError::CommandFailedToExecute(error) =>
-                write!(formatter, "Failed to execute command: {}", error),
 
             WorkError::Contradiction(contradicting_target_paths) =>
             {
