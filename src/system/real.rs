@@ -307,7 +307,7 @@ impl System for RealSystem
                 Ok(output) => result.push(from_output(output)),
                 Err(error) =>
                 {
-                    result.push((None, StandardOutputs::error(format!("{}", error).into_bytes())));
+                    result.push((None, StandardOutputs::error(format!("Command line failed to execute: {}", error).into_bytes())));
                     return result;
                 },
             }

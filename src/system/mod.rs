@@ -81,10 +81,18 @@ impl fmt::Display for CommandScriptResult
             write!(formatter, "{}", bytes_to_string(&outputs.out))?;
             write!(formatter, "{}", bytes_to_string(&outputs.err))?;
         }
-        match self.code
+        if ! self.is_success()
         {
-            Some(i) => write!(formatter, "code: {}", i),
-            None => write!(formatter, "no status code"),
+            write!(formatter, "Script ended in error:")?;
+            match self.code
+            {
+                Some(i) => write!(formatter, "status code: {}", i),
+                None => write!(formatter, "no status code"),
+            }
+        }
+        else
+        {
+            write!(formatter, "Done.")
         }
     }
 }
