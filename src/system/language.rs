@@ -227,45 +227,26 @@ impl fmt::Display for ParseError
     }
 }
 
+const END_OF_SCRIPT_LINE: char = ';';
+const QUOTE: char = '"';
+const ESCAPE: char = '\\';
+const PIPE: char = '|';
+const NEWLINE: char = '\n';
+
 fn is_whitespace(c: char) -> bool
 {
-    "\t\n\r ".contains(c)
+    match c
+    {
+        '\t' => true,
+        '\n' => true,
+        '\r' => true,
+        ' ' => true,
+        _ => false,
+    }
 }
 
-fn is_end_line_character(c: char) -> bool
-{
-    c == ';'
-}
-
-fn is_quote(c: char) -> bool
-{
-    c == '"'
-}
-
-fn is_newline(c: char) -> bool
-{
-    c == '\n'
-}
-
-fn is_escape(c: char) -> bool
-{
-    c == '\\'
-}
-
-fn is_pipe(c: char) -> bool
-{
-    c == '|'
-}
-
-fn is_out_file_indicator(s: &str) -> bool
-{
-    s == ">"
-}
-
-fn is_err_file_indicator(s: &str) -> bool
-{
-    s == "2>"
-}
+const FILE_OUT_INDICATOR: &str = ">";
+const FILE_ERR_INDICATOR: &str = "2>";
 
 #[derive(Debug, PartialEq)]
 pub struct CommandScript
@@ -308,26 +289,27 @@ impl CommandScript
             {
                 Mode::Normal =>
                 {
-                    if is_pipe(c)
+                    if c == PIPE
                     {
                         current_command.pipe();
                         start = i + c.len_utf8();
                     }
-                    else if is_quote(c)
+                    else if c == QUOTE
                     {
                         mode = Mode::Quote(line_number, i-line_i+1);
                         start = i + c.len_utf8();
                     }
                     else
                     {
-                        if is_end_line_character(c) || is_whitespace(c)
+                        let is_end_line_character = c == END_OF_SCRIPT_LINE;
+                        if is_end_line_character || is_whitespace(c)
                         {
                             let section = &content[start..i];
-                            if is_out_file_indicator(section)
+                            if section == FILE_OUT_INDICATOR
                             {
                                 current_command.out_file();
                             }
-                            else if is_err_file_indicator(section)
+                            else if section == FILE_ERR_INDICATOR
                             {
                                 current_command.err_file();
                             }
@@ -340,7 +322,7 @@ impl CommandScript
                             start = i + c.len_utf8();
                         }
 
-                        if is_end_line_character(c)
+                        if is_end_line_character
                         {
                             current_command = result.push(current_command);
                         }
@@ -348,7 +330,7 @@ impl CommandScript
                 },
                 Mode::Quote(_line_number, _column_number) =>
                 {
-                    if is_quote(c)
+                    if c == QUOTE
                     {
                         word.push_str(&content[start..i]);
                         current_command.push(word);
@@ -357,7 +339,7 @@ impl CommandScript
                         mode = Mode::Normal;
                     }
 
-                    if is_escape(c)
+                    if c == ESCAPE
                     {
                         mode = Mode::Escape(Box::new(mode), line_number, i-line_i+1);
                     }
@@ -370,7 +352,7 @@ impl CommandScript
                 }
             }
 
-            if is_newline(c)
+            if c == NEWLINE
             {
                 line_number += 1;
                 line_i = i+1;
