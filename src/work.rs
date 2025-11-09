@@ -1131,7 +1131,13 @@ mod test
 
 
     /*  One file depends on one file, but the command errors.  Check that the target does not
-        appear after the build step. */
+        appear after the build step.
+
+        Put the target file in place first before running the command.  But what should happen is:
+        the command, errors, the error captures first before the check whether the file exists, so
+        this turns into CommandErrored, not TargetFileNotGenerated.
+
+        Then, of course, after that, the file should not be there anymore. */
     #[test]
     fn one_dependence_with_error()
     {
@@ -1145,15 +1151,23 @@ mod test
         factory.input_ticket(TicketFactory::from_str("Roses are red\n").result());
         let sources_ticket = factory.result();
 
-        assert_eq!(system.is_file("poem.txt"), true);
-
         let mut rule_ext = make_rule_ext(&system, sources_ticket);
         rule_ext.command_script = CommandScript::parse("error").unwrap();
 
-        assert_eq!( 
+        assert_eq!(
             handle_rule_node(make_handle_node_info(system.clone(),
                 vec!["poem.txt".to_string()]), rule_ext),
-            Err(WorkError::TargetFileNotGenerated("poem.txt".to_string()))
+            Err(WorkError::CommandErrored(CommandScriptResult
+            {
+                outputs: vec![
+                    Standard
+                    {
+                        out: vec![],
+                        err: "Failed".to_string().into_bytes(),
+                    }
+                ],
+                code: Some(1),
+            }))
         );
 
         /*  The files we tried to build should not be there. */
