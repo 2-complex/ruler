@@ -2,9 +2,8 @@ use crate::system::
 {
     System,
     SystemError,
-    language::CommandScript,
-    CommandScriptResult,
-    StandardOutputs
+    CommandResult,
+    Standard,
 };
 use std::fs;
 use std::ffi::OsString;
@@ -17,7 +16,7 @@ use std::fmt;
 use std::process::
 {
     Command,
-    Output
+    // Output
 };
 
 #[derive(Debug, Clone)]
@@ -125,18 +124,6 @@ fn get_timestamp(system_time : SystemTime) -> Result<u64, GetTimestampError>
         Ok(duration) => Ok(1_000_000u64 * duration.as_secs() + u64::from(duration.subsec_micros())),
         Err(error) => Err(GetTimestampError::Error(format!("{}", error))),
     }
-}
-
-fn from_output(output: Output) -> (Option<i32>, StandardOutputs)
-{
-    (
-        output.status.code(),
-        StandardOutputs
-        {
-            out : output.stdout,
-            err : output.stderr,
-        }
-    )
 }
 
 impl System for RealSystem
@@ -294,24 +281,34 @@ impl System for RealSystem
         set_is_executable(path, executable)
     }
 
-    fn execute_command_script(&mut self, command_script : CommandScript) -> CommandScriptResult
+    fn execute_command(&mut self, exec: String, args: Vec<String>) -> CommandResult
     {
-        let mut result = CommandScriptResult::new();
-        for line in command_script.lines.into_iter()
-        {
-            let mut command = Command::new(line.exec);
-            command.args(line.args);
+        let mut command = Command::new(exec);
+        command.args(args);
 
-            match command.output()
+        match command.output()
+        {
+            Ok(output) => CommandResult
             {
-                Ok(output) => result.push(from_output(output)),
-                Err(error) =>
+                standard: Standard
                 {
-                    result.push((None, StandardOutputs::error(format!("Command line failed to execute: {}", error).into_bytes())));
-                    return result;
+                    out : output.stdout,
+                    err : output.stderr,
                 },
-            }
+                code: output.status.code(),
+            },
+            Err(error) => CommandResult
+            {
+                standard: Standard
+                {
+                    out : vec![],
+                    err : format!("Command line failed to execute: {}", error).into_bytes(),
+                    /*  TODO maybe one day this case ^ should be encoded in CommandScriptLineResult
+                        more distinctly.  If the command failed to execute that's different from it
+                        execeuted and to standard-error, but here we're representing one as the other */
+                },
+                code: None,
+            },
         }
-        result
     }
 }

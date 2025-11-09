@@ -2,19 +2,12 @@ use crate::system::
 {
     System,
     SystemError,
-    CommandScriptResult,
-    StandardOutputs,
-};
-use crate::system::language::
-{
-    CommandScript,
-    CommandScriptLine,
-    OutDestination,
+    Standard,
+    CommandResult
 };
 use crate::system::util::
 {
     read_file,
-    write_str_to_file,
     get_dir_path_and_name,
     PathError
 };
@@ -38,7 +31,6 @@ use std::io::
 };
 use std::cmp::min;
 use std::fmt;
-use std::str::from_utf8;
 use std::io;
 
 #[derive(Debug, Clone)]
@@ -697,14 +689,18 @@ fn convert_node_error_to_system_error(error : NodeError) -> SystemError
     }
 }
 
-fn error_message(message: String) -> (Option<i32>, StandardOutputs)
+fn error_message(message: String) -> CommandResult
 {
-    (Some(1), StandardOutputs::error(message.into_bytes()))
+    CommandResult
+    {
+        code: Some(1),
+        standard: Standard::error(message.into_bytes())
+    }
 }
 
-fn empty_output() -> StandardOutputs
+fn empty_output() -> Standard
 {
-    StandardOutputs{ out : vec![], err : vec![] }
+    Standard{ out : vec![], err : vec![] }
 }
 
 impl FakeSystem
@@ -738,11 +734,6 @@ impl FakeSystem
         self.root.lock().unwrap()
     }
 
-    fn get_command_log_mut(&self) -> impl DerefMut<Target=Vec<String>> + '_
-    {
-        self.command_log.lock().unwrap()
-    }
-
     pub fn get_command_log(&self) -> Vec<String>
     {
         self.command_log.lock().unwrap().clone()
@@ -754,119 +745,6 @@ impl FakeSystem
         {
             Ok(()) => Ok(()),
             Err(error) => Err(convert_node_error_to_system_error(error)),
-        }
-    }
-
-    fn execute_script_line(&mut self, line : CommandScriptLine)
-        -> (Option<i32>, StandardOutputs)
-    {
-        match line.exec.as_str()
-        {
-            "error" =>
-            {
-                return error_message("Failed".to_string())
-            },
-
-            "cat" =>
-            {
-                let mut output = String::new();
-                for file in line.args.iter()
-                {
-                    match read_file(self, file)
-                    {
-                        Ok(content) =>
-                        {
-                            match from_utf8(&content)
-                            {
-                                Ok(content_string) =>
-                                {
-                                    output.push_str(content_string);
-                                }
-                                Err(_) => return error_message(
-                                    format!("File contained non utf8 bytes: {}", file)),
-                            }
-                        }
-                        Err(error) =>
-                        {
-                            return error_message(
-                                format!("File failed to open: {} with error: {}", file, error));
-                        }
-                    }
-                }
-
-                match line.out
-                {
-                    OutDestination::StdOut =>
-                    {
-                        // TODO
-                        panic!("What do I put here!?!?!");
-                    },
-                    OutDestination::File(path_string) =>
-                    {
-                        match write_str_to_file(self, &path_string, &output)
-                        {
-                            Ok(_) => (Some(0), empty_output()),
-                            Err(error) =>
-                                error_message(format!("Failed to cat into file: {} : {}",
-                                    path_string, error)),
-                        }
-                    },
-                    OutDestination::Command(command_box) =>
-                    {
-                        self.execute_script_line(*command_box)
-                    }
-                }
-            },
-
-            "rm" =>
-            {
-                for file in line.args.iter()
-                {
-                    match self.remove_file(file)
-                    {
-                        Ok(()) => {}
-                        Err(_) =>
-                            return error_message(format!("File failed to delete: {}", file)),
-                    }
-                }
-
-                return (Some(0), empty_output())
-            },
-
-            "cp" =>
-            {
-                let mut iter = line.args.iter();
-                let src = match iter.next()
-                {
-                    Some(src) => src.as_str(),
-                    None => return error_message("cp: wrong number of arguments".to_string()),
-                };
-
-                let dst = match iter.next()
-                {
-                    Some(dst) => dst.as_str(),
-                    None => return error_message("cp: wrong number of arguments".to_string()),
-                };
-
-                match io::copy(
-                    &mut match self.open(src)
-                    {
-                        Ok(mut file) => file,
-                        Err(error) => return error_message(
-                            format!("cp: source file failed to open: {} with error: {}", src, error)),
-                    },
-                    &mut match self.create_file(dst)
-                    {
-                        Ok(mut file) => file,
-                        Err(error) => return error_message(
-                            format!("cp: source file failed to open: {} with error: {}", dst, error)),
-                    })
-                {
-                    Ok(_) => (Some(0), empty_output()),
-                    Err(error) => error_message(format!("cp: stream failed: {}", error)),
-                }
-            },
-            _=> return error_message(format!("Invalid command given: {}", line.exec))
         }
     }
 }
@@ -977,15 +855,104 @@ impl System for FakeSystem
         }
     }
 
-    fn execute_command_script(&mut self, command_script: CommandScript) -> CommandScriptResult
+    fn execute_command(&mut self, exec: String, args: Vec<String>) -> CommandResult
     {
-        let mut output = CommandScriptResult::new();
-        self.get_command_log_mut().push(format!("{}", command_script));
-        for line in command_script.lines
+        match exec.as_str()
         {
-            output.push(self.execute_script_line(line));
+            "error" =>
+            {
+                return error_message("Failed".to_string())
+            },
+
+            "cat" =>
+            {
+                let mut output = vec![];
+                for file in args.iter()
+                {
+                    match read_file(self, file)
+                    {
+                        Ok(mut content) => output.append(&mut content),
+                        Err(error) =>
+                        {
+                            return error_message(
+                                format!("File failed to open: {} with error: {}", file, error));
+                        }
+                    }
+                }
+
+                CommandResult
+                {
+                    standard: Standard
+                    {
+                        out: output,
+                        err: vec![]
+                    },
+                    code: Some(1)
+                }
+            },
+
+            "rm" =>
+            {
+                for file in args.iter()
+                {
+                    match self.remove_file(file)
+                    {
+                        Ok(()) => {}
+                        Err(_) =>
+                            return error_message(format!("File failed to delete: {}", file)),
+                    }
+                }
+
+                CommandResult
+                {
+                    standard: empty_output(),
+                    code: Some(0)
+                }
+            },
+
+            "cp" =>
+            {
+                let mut iter = args.iter();
+                let src = match iter.next()
+                {
+                    Some(src) => src.as_str(),
+                    None => return error_message("cp: wrong number of arguments".to_string()),
+                };
+
+                let dst = match iter.next()
+                {
+                    Some(dst) => dst.as_str(),
+                    None => return error_message("cp: wrong number of arguments".to_string()),
+                };
+
+                match io::copy(
+                    &mut match self.open(src)
+                    {
+                        Ok(mut file) => file,
+                        Err(error) => return error_message(
+                            format!("cp: source file failed to open: {} with error: {}", src, error)),
+                    },
+                    &mut match self.create_file(dst)
+                    {
+                        Ok(mut file) => file,
+                        Err(error) => return error_message(
+                            format!("cp: source file failed to open: {} with error: {}", dst, error)),
+                    })
+                {
+                    Ok(_) => CommandResult
+                    {
+                        standard: Standard
+                        {
+                            out: vec![],
+                            err: vec![],
+                        },
+                        code: Some(0)
+                    },
+                    Err(error) => error_message(format!("cp: stream failed: {}", error)),
+                }
+            },
+            _=> return error_message(format!("Invalid command executable: {}", exec))
         }
-        output
     }
 }
 
@@ -996,7 +963,7 @@ mod test
     {
         System,
         SystemError,
-        StandardOutputs,
+        Standard,
         CommandScriptResult,
     };
 
@@ -1665,7 +1632,7 @@ mod test
             CommandScriptResult
             {
                 outputs: vec![
-                    StandardOutputs::error("Failed".as_bytes().to_vec()),
+                    Standard::error("Failed".as_bytes().to_vec()),
                 ],
                 code: Some(1)
             }

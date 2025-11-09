@@ -493,7 +493,7 @@ mod test
     };
     use crate::system::
     {
-        StandardOutputs,
+        Standard,
         CommandScriptResult,
         System,
         fake::FakeSystem,
@@ -648,9 +648,9 @@ mod test
         }
     }
 
-    fn empty_output() -> StandardOutputs
+    fn empty_output() -> Standard
     {
-        StandardOutputs{ out : vec![], err : vec![] }
+        Standard{ out : vec![], err : vec![] }
     }
 
     #[test]
@@ -1022,7 +1022,7 @@ mod test
             handle_rule_node(make_handle_node_info(system.clone(), vec!["verse1.txt".to_string()]), rule_ext),
             Err(WorkError::CommandErrored(CommandScriptResult
             {
-                outputs: vec![StandardOutputs::error("File failed to delete: verse1.txt".as_bytes().to_vec())],
+                outputs: vec![Standard::error("File failed to delete: verse1.txt".as_bytes().to_vec())],
                 code: Some(1)
             }))
         );

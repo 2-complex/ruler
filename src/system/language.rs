@@ -21,8 +21,8 @@ pub struct CommandScriptLine
 {
     pub exec: String,
     pub args: Vec<String>,
-    pub out: OutDestination,
-    pub err: ErrDestination,
+    pub out_destination: OutDestination,
+    pub err_destination: ErrDestination,
 }
 
 impl CommandScriptLine
@@ -33,8 +33,8 @@ impl CommandScriptLine
         {
             exec: "".to_string(),
             args: vec![],
-            out: OutDestination::StdOut,
-            err: ErrDestination::StdErr,
+            out_destination: OutDestination::StdOut,
+            err_destination: ErrDestination::StdErr,
         }
     }
 
@@ -45,14 +45,14 @@ impl CommandScriptLine
             return;
         }
 
-        match &mut self.out
+        match &mut self.out_destination
         {
             OutDestination::StdOut => {},
             OutDestination::File(path_string) =>
             {
                 if path_string.len() == 0
                 {
-                    self.out = OutDestination::File(word);
+                    self.out_destination = OutDestination::File(word);
                     return;
                 }
             }
@@ -63,14 +63,14 @@ impl CommandScriptLine
             },
         }
 
-        match &mut self.err
+        match &mut self.err_destination
         {
             ErrDestination::StdErr => {},
             ErrDestination::File(path_string) =>
             {
                 if path_string.len() == 0
                 {
-                    self.err = ErrDestination::File(word);
+                    self.err_destination = ErrDestination::File(word);
                     return;
                 }
             }
@@ -87,11 +87,11 @@ impl CommandScriptLine
 
     fn pipe(self:&mut Self)
     {
-        match &mut self.out
+        match &mut self.out_destination
         {
             OutDestination::StdOut =>
             {
-                self.out = OutDestination::Command(Box::new(CommandScriptLine::new()));
+                self.out_destination = OutDestination::Command(Box::new(CommandScriptLine::new()));
             },
             OutDestination::Command(ref mut command_box) =>
             {
@@ -106,11 +106,11 @@ impl CommandScriptLine
 
     fn out_file(self:&mut Self)
     {
-        match &mut self.out
+        match &mut self.out_destination
         {
             OutDestination::StdOut =>
             {
-                self.out = OutDestination::File("".to_string());
+                self.out_destination = OutDestination::File("".to_string());
             },
             OutDestination::Command(ref mut command_box) =>
             {
@@ -125,11 +125,11 @@ impl CommandScriptLine
 
     fn err_file(self:&mut Self)
     {
-        match &mut self.err
+        match &mut self.err_destination
         {
             ErrDestination::StdErr =>
             {
-                self.err = ErrDestination::File("".to_string());
+                self.err_destination = ErrDestination::File("".to_string());
             },
             ErrDestination::File(_) =>
             {
@@ -179,7 +179,7 @@ impl fmt::Display for CommandScriptLine
         write!(formatter, "{}", escape_string(self.exec.as_str()))?;
         write!(formatter, " {}", self.args.iter().map(|s|{escape_string(s.as_str())}).collect::<Vec<String>>().join(" "))?;
 
-        match &self.err
+        match &self.err_destination
         {
             ErrDestination::StdErr => {},
             ErrDestination::File(path_string) =>
@@ -188,7 +188,7 @@ impl fmt::Display for CommandScriptLine
             },
         }
 
-        match &self.out
+        match &self.out_destination
         {
             OutDestination::StdOut => {},
             OutDestination::File(path_string) =>
@@ -482,8 +482,8 @@ mod tests
                 {
                     exec: "run".to_string(),
                     args: vec![],
-                    out: OutDestination::StdOut,
-                    err: ErrDestination::StdErr,
+                    out_destination: OutDestination::StdOut,
+                    err_destination: ErrDestination::StdErr,
                 }
             ]}));
     }
@@ -499,8 +499,8 @@ mod tests
                 {
                     exec: "run".to_string(),
                     args: vec![],
-                    out: OutDestination::StdOut,
-                    err: ErrDestination::StdErr,
+                    out_destination: OutDestination::StdOut,
+                    err_destination: ErrDestination::StdErr,
                 }
             ]}));
     }
@@ -516,8 +516,8 @@ mod tests
                 {
                     exec: "run".to_string(),
                     args: vec![],
-                    out: OutDestination::StdOut,
-                    err: ErrDestination::StdErr,
+                    out_destination: OutDestination::StdOut,
+                    err_destination: ErrDestination::StdErr,
                 }
             ]}));
     }
@@ -533,8 +533,8 @@ mod tests
                 {
                     exec: "run".to_string(),
                     args: vec![],
-                    out: OutDestination::StdOut,
-                    err: ErrDestination::StdErr,
+                    out_destination: OutDestination::StdOut,
+                    err_destination: ErrDestination::StdErr,
                 }
             ]}));
     }
@@ -550,8 +550,8 @@ mod tests
                 {
                     exec: "run".to_string(),
                     args: vec![],
-                    out: OutDestination::StdOut,
-                    err: ErrDestination::StdErr,
+                    out_destination: OutDestination::StdOut,
+                    err_destination: ErrDestination::StdErr,
                 }
             ]}));
     }
@@ -567,8 +567,8 @@ mod tests
                 {
                     exec: "run".to_string(),
                     args: vec!["program".to_string()],
-                    out: OutDestination::StdOut,
-                    err: ErrDestination::StdErr,
+                    out_destination: OutDestination::StdOut,
+                    err_destination: ErrDestination::StdErr,
                 }
             ]}));
     }
@@ -584,8 +584,8 @@ mod tests
                 {
                     exec: "run".to_string(),
                     args: vec!["program".to_string()],
-                    out: OutDestination::StdOut,
-                    err: ErrDestination::StdErr,
+                    out_destination: OutDestination::StdOut,
+                    err_destination: ErrDestination::StdErr,
                 }
             ]}));
     }
@@ -601,8 +601,8 @@ mod tests
                 {
                     exec: "run".to_string(),
                     args: vec!["program".to_string()],
-                    out: OutDestination::StdOut,
-                    err: ErrDestination::StdErr,
+                    out_destination: OutDestination::StdOut,
+                    err_destination: ErrDestination::StdErr,
                 }
             ]}));
     }
@@ -619,15 +619,15 @@ mod tests
                 {
                     exec: "run".to_string(),
                     args: vec!["program".to_string()],
-                    out: OutDestination::StdOut,
-                    err: ErrDestination::StdErr,
+                    out_destination: OutDestination::StdOut,
+                    err_destination: ErrDestination::StdErr,
                 },
                 CommandScriptLine
                 {
                     exec: "run".to_string(),
                     args: vec!["another".to_string()],
-                    out: OutDestination::StdOut,
-                    err: ErrDestination::StdErr,
+                    out_destination: OutDestination::StdOut,
+                    err_destination: ErrDestination::StdErr,
                 }
             ]}));
     }
@@ -644,15 +644,15 @@ mod tests
                 {
                     exec: "run".to_string(),
                     args: vec!["program".to_string()],
-                    out: OutDestination::StdOut,
-                    err: ErrDestination::StdErr,
+                    out_destination: OutDestination::StdOut,
+                    err_destination: ErrDestination::StdErr,
                 },
                 CommandScriptLine
                 {
                     exec: "run".to_string(),
                     args: vec!["another".to_string()],
-                    out: OutDestination::StdOut,
-                    err: ErrDestination::StdErr,
+                    out_destination: OutDestination::StdOut,
+                    err_destination: ErrDestination::StdErr,
                 }
             ]}));
     }
@@ -669,15 +669,15 @@ mod tests
                 {
                     exec: "run".to_string(),
                     args: vec!["program".to_string()],
-                    out: OutDestination::StdOut,
-                    err: ErrDestination::StdErr,
+                    out_destination: OutDestination::StdOut,
+                    err_destination: ErrDestination::StdErr,
                 },
                 CommandScriptLine
                 {
                     exec: "run".to_string(),
                     args: vec!["another".to_string()],
-                    out: OutDestination::StdOut,
-                    err: ErrDestination::StdErr,
+                    out_destination: OutDestination::StdOut,
+                    err_destination: ErrDestination::StdErr,
                 }
             ]}));
     }
@@ -694,15 +694,15 @@ mod tests
                 {
                     exec: "run".to_string(),
                     args: vec!["program".to_string()],
-                    out: OutDestination::StdOut,
-                    err: ErrDestination::StdErr,
+                    out_destination: OutDestination::StdOut,
+                    err_destination: ErrDestination::StdErr,
                 },
                 CommandScriptLine
                 {
                     exec: "run".to_string(),
                     args: vec!["another".to_string()],
-                    out: OutDestination::StdOut,
-                    err: ErrDestination::StdErr,
+                    out_destination: OutDestination::StdOut,
+                    err_destination: ErrDestination::StdErr,
                 }
             ]}));
     }
@@ -719,15 +719,15 @@ mod tests
                 {
                     exec: "run".to_string(),
                     args: vec!["program".to_string()],
-                    out: OutDestination::StdOut,
-                    err: ErrDestination::StdErr,
+                    out_destination: OutDestination::StdOut,
+                    err_destination: ErrDestination::StdErr,
                 },
                 CommandScriptLine
                 {
                     exec: "run".to_string(),
                     args: vec!["another".to_string()],
-                    out: OutDestination::StdOut,
-                    err: ErrDestination::StdErr,
+                    out_destination: OutDestination::StdOut,
+                    err_destination: ErrDestination::StdErr,
                 }
             ]}));
     }
@@ -743,8 +743,8 @@ mod tests
                 {
                     exec: "run".to_string(),
                     args: vec![],
-                    out: OutDestination::StdOut,
-                    err: ErrDestination::StdErr,
+                    out_destination: OutDestination::StdOut,
+                    err_destination: ErrDestination::StdErr,
                 }
             ]}));
     }
@@ -759,8 +759,8 @@ mod tests
                 {
                     exec: "one\" two".to_string(),
                     args: vec![],
-                    out: OutDestination::StdOut,
-                    err: ErrDestination::StdErr,
+                    out_destination: OutDestination::StdOut,
+                    err_destination: ErrDestination::StdErr,
                 }
             ]}));
     }
@@ -776,8 +776,8 @@ mod tests
                 {
                     exec: "run".to_string(),
                     args: vec![" program ".to_string()],
-                    out: OutDestination::StdOut,
-                    err: ErrDestination::StdErr,
+                    out_destination: OutDestination::StdOut,
+                    err_destination: ErrDestination::StdErr,
                 }
             ]}));
     }
@@ -793,8 +793,8 @@ mod tests
                 {
                     exec: "run".to_string(),
                     args: vec!["program;".to_string()],
-                    out: OutDestination::StdOut,
-                    err: ErrDestination::StdErr,
+                    out_destination: OutDestination::StdOut,
+                    err_destination: ErrDestination::StdErr,
                 }
             ]}));
     }
@@ -828,8 +828,8 @@ mod tests
                 {
                     exec: "\"".to_string(),
                     args: vec![],
-                    out: OutDestination::StdOut,
-                    err: ErrDestination::StdErr,
+                    out_destination: OutDestination::StdOut,
+                    err_destination: ErrDestination::StdErr,
                 }
             ]}));
     }
@@ -844,16 +844,16 @@ mod tests
                 {
                     exec: "build".to_string(),
                     args: vec![],
-                    out: OutDestination::Command(
+                    out_destination: OutDestination::Command(
                         Box::new(CommandScriptLine
                         {
                             exec: "log".to_string(),
                             args: vec![],
-                            out: OutDestination::StdOut,
-                            err: ErrDestination::StdErr,
+                            out_destination: OutDestination::StdOut,
+                            err_destination: ErrDestination::StdErr,
                         })
                     ),
-                    err: ErrDestination::StdErr,
+                    err_destination: ErrDestination::StdErr,
                 }
             ]}));
     }
@@ -868,24 +868,24 @@ mod tests
                 {
                     exec: "build".to_string(),
                     args: vec![],
-                    out: OutDestination::Command(
+                    out_destination: OutDestination::Command(
                         Box::new(CommandScriptLine
                         {
                             exec: "postprocess".to_string(),
                             args: vec![],
-                            out: OutDestination::Command(
+                            out_destination: OutDestination::Command(
                                 Box::new(CommandScriptLine
                                 {
                                     exec: "log".to_string(),
                                     args: vec![],
-                                    out: OutDestination::StdOut,
-                                    err: ErrDestination::StdErr,
+                                    out_destination: OutDestination::StdOut,
+                                    err_destination: ErrDestination::StdErr,
                                 })
                             ),
-                            err: ErrDestination::StdErr,
+                            err_destination: ErrDestination::StdErr,
                         })
                     ),
-                    err: ErrDestination::StdErr,
+                    err_destination: ErrDestination::StdErr,
                 }
             ]}));
     }
@@ -901,8 +901,8 @@ mod tests
                 {
                     exec: "python".to_string(),
                     args: vec!["build.py".to_string()],
-                    out: OutDestination::File("build/out".to_string()),
-                    err: ErrDestination::StdErr,
+                    out_destination: OutDestination::File("build/out".to_string()),
+                    err_destination: ErrDestination::StdErr,
                 }
             ]}));
     }
@@ -918,8 +918,8 @@ mod tests
                 {
                     exec: "python".to_string(),
                     args: vec!["build.py".to_string()],
-                    out: OutDestination::StdOut,
-                    err: ErrDestination::File("build/out.err".to_string()),
+                    out_destination: OutDestination::StdOut,
+                    err_destination: ErrDestination::File("build/out.err".to_string()),
                 }
             ]}));
     }
@@ -937,8 +937,8 @@ mod tests
                 {
                     exec: "python".to_string(),
                     args: vec!["build.py".to_string()],
-                    out: OutDestination::File("build/out".to_string()),
-                    err: ErrDestination::File("build/err".to_string()),
+                    out_destination: OutDestination::File("build/out".to_string()),
+                    err_destination: ErrDestination::File("build/err".to_string()),
                 }
             ]}));
     }

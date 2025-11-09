@@ -1,5 +1,15 @@
-use std::io;
+use std::io::
+{
+    self,
+    Write
+};
 use std::fmt;
+
+use crate::system::language::
+{
+    OutDestination,
+    ErrDestination
+};
 
 #[cfg(test)]
 pub mod fake;
@@ -9,13 +19,13 @@ pub mod real;
 pub mod language;
 
 #[derive(Debug, PartialEq)]
-pub struct StandardOutputs
+pub struct Standard
 {
     pub out : Vec<u8>,
     pub err : Vec<u8>,
 }
 
-impl StandardOutputs
+impl Standard
 {
     pub fn error(err: Vec<u8>) -> Self
     {
@@ -27,12 +37,51 @@ impl StandardOutputs
     }
 }
 
+#[derive(Debug, PartialEq)]
+pub struct CommandResult
+{
+    pub standard: Standard,
+    pub code: Option<i32>,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct CommandScriptLineResult
+{
+    pub standard: Standard,
+    pub code: Option<i32>,
+}
+
+impl CommandScriptLineResult
+{
+    fn new() -> Self
+    {
+        Self
+        {
+            standard: Standard
+            {
+                out: vec![],
+                err: vec![],
+            },
+            code: Some(0)
+        }
+    }
+
+    pub fn is_success(self: &Self) -> bool
+    {
+        match self.code
+        {
+            Some(i) => i==0,
+            None => false
+        }
+    }
+}
+
 /*  For example, the c++ compiler puts errors and warnings both in std-err.
     If it generates an executable, it returns error code 0, otherwise 1 */
 #[derive(Debug, PartialEq)]
 pub struct CommandScriptResult
 {
-    pub outputs: Vec<StandardOutputs>,
+    pub outputs: Vec<Standard>,
     pub code: Option<i32>,
 }
 
@@ -51,15 +100,15 @@ impl CommandScriptResult
     {
         CommandScriptResult
         {
-            outputs: vec![],
+            outputs: vec![], // TODO maybe change the name?
             code: Some(0),
         }
     }
 
-    pub fn push(self: &mut Self, pair: (Option<i32>, StandardOutputs))
+    pub fn push(self: &mut Self, line_result: CommandScriptLineResult)
     {
-        self.code = pair.0;
-        self.outputs.push(pair.1);
+        self.outputs.push(line_result.standard);
+        self.code = line_result.code; // overwrite the one that's there
     }
 }
 
@@ -226,5 +275,91 @@ pub trait System: Clone + Send + Sync
 
     fn is_executable(&self, path: &str) -> Result<bool, SystemError>;
     fn set_is_executable(&mut self, path: &str, executable : bool) -> Result<(), SystemError>;
-    fn execute_command_script(&mut self, command_script: language::CommandScript) -> CommandScriptResult;
+
+    fn execute_command(&mut self, exec: String, args: Vec<String>) -> CommandResult;
+
+    fn write_to_file(&mut self, path_string: &str, content: Vec<u8>) -> Result<(), (Option<i32>, Vec<u8>)>
+    {
+        let mut file = match self.create_file(&path_string)
+        {
+            Ok(file) => file,
+            Err(error) => return Err((Some(1), format!("System error: {}", error).into_bytes())),
+        };
+
+        match file.write_all(&content)
+        {
+            Ok(_) => {},
+            Err(error) => return Err((Some(1), format!("System error: {}", error).into_bytes())),
+        }
+
+        Ok(())
+    }
+
+    fn execute_command_script_line(&mut self, command_script_line: language::CommandScriptLine) -> CommandScriptLineResult
+    {
+        let command_result = self.execute_command(command_script_line.exec, command_script_line.args);
+        let mut line_result = CommandScriptLineResult::new();
+
+        match command_script_line.err_destination
+        {
+            ErrDestination::StdErr =>
+            {
+                line_result.standard.err = command_result.standard.err;
+            },
+            ErrDestination::File(path_string) =>
+            {
+                match self.write_to_file(&path_string, command_result.standard.err)
+                {
+                    Ok(_) => {},
+                    Err((code, message)) =>
+                    {
+                        line_result.standard.err = message;
+                        line_result.code = code;
+                    }
+                }
+            }
+        }
+
+        match command_script_line.out_destination
+        {
+            OutDestination::StdOut =>
+            {
+                line_result.standard.out = command_result.standard.out;
+            },
+            OutDestination::File(path_string) =>
+            {
+                match self.write_to_file(&path_string, command_result.standard.out)
+                {
+                    Ok(_) => {},
+                    Err((code, message)) =>
+                    {
+                        line_result.standard.err = message;
+                        line_result.code = code;
+                    }
+                }
+            },
+            OutDestination::Command(script_line_box) =>
+            {
+                return self.execute_command_script_line(*script_line_box) // TODO: do the actual pipe
+            },
+        }
+
+        line_result
+    }
+
+    fn execute_command_script(&mut self, command_script : language::CommandScript) -> CommandScriptResult
+    {
+        let mut result = CommandScriptResult::new();
+        for line in command_script.lines.into_iter()
+        {
+            let line_result = self.execute_command_script_line(line);
+            let is_success = line_result.is_success();
+            result.push(line_result);
+            if ! is_success
+            {
+                break;
+            }
+        }
+        result
+    }
 }
