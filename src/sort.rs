@@ -169,8 +169,8 @@ impl fmt::Display for TopologicalSortError
             TopologicalSortError::TargetInMultipleRules(target) =>
                 write!(formatter, "Target found in more than one rule: {}", target),
 
-            TopologicalSortError::CommandParseError(_error) =>
-                write!(formatter, "Command parse error"), // TODO: incorporate the error
+            TopologicalSortError::CommandParseError(error) =>
+                write!(formatter, "Command parse error: {}", error),
         }
     }
 }
@@ -499,6 +499,7 @@ mod tests
         TopologicalSortError,
         get_path_list_ticket,
         CommandScript,
+        ParseError
     };
     use crate::ticket::Ticket;
 
@@ -1360,6 +1361,23 @@ mod tests
                 }
             },
         }
+    }
+
+    /*  Topological sort a list of one rule with a bad (non-parsing) script for command.
+        Check the result contains an error with a parse error in it. */
+    #[test]
+    fn topological_sort_bad_command_script()
+    {
+        let rule = Rule::new(
+            vec!["plant".to_string()],
+            vec![],
+            "\"".to_string(),
+        );
+
+        assert_eq!(
+            topological_sort(vec![rule.clone()], "plant"),
+            Err(TopologicalSortError::CommandParseError(ParseError::UnclosedQuote(1, 1)))
+        );
     }
 
     /*  Create a rule with a few sources that don't exist as targets of other rules.
