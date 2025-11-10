@@ -4,7 +4,6 @@ use std::io::
     Write
 };
 use std::fmt;
-
 use crate::system::language::
 {
     OutDestination,
@@ -264,7 +263,7 @@ pub trait System: Clone + Send + Sync
     fn is_executable(&self, path: &str) -> Result<bool, SystemError>;
     fn set_is_executable(&mut self, path: &str, executable : bool) -> Result<(), SystemError>;
 
-    fn execute_command(&mut self, exec: String, args: Vec<String>) -> CommandResult;
+    fn execute_command(&mut self, exec: String, args: Vec<String>, input: Vec<u8>) -> CommandResult;
 
     fn write_to_file(&mut self, path_string: &str, content: Vec<u8>) -> Result<(), (Option<i32>, Vec<u8>)>
     {
@@ -283,9 +282,9 @@ pub trait System: Clone + Send + Sync
         Ok(())
     }
 
-    fn execute_command_script_line(&mut self, command_script_line: language::CommandScriptLine) -> CommandScriptLineResult
+    fn execute_command_script_line(&mut self, command_script_line: language::CommandScriptLine, input: Vec<u8>) -> CommandScriptLineResult
     {
-        let command_result = self.execute_command(command_script_line.exec, command_script_line.args);
+        let command_result = self.execute_command(command_script_line.exec, command_script_line.args, input);
         let mut line_result = CommandScriptLineResult::new();
         line_result.code = command_result.code;
 
@@ -328,9 +327,7 @@ pub trait System: Clone + Send + Sync
                 }
             },
             OutDestination::Command(script_line_box) =>
-            {
-                return self.execute_command_script_line(*script_line_box) // TODO: do the actual pipe
-            },
+                return self.execute_command_script_line(*script_line_box, command_result.standard.out),
         }
 
         line_result
@@ -341,7 +338,7 @@ pub trait System: Clone + Send + Sync
         let mut result = CommandScriptResult::new();
         for line in command_script.lines.into_iter()
         {
-            let line_result = self.execute_command_script_line(line);
+            let line_result = self.execute_command_script_line(line, vec![]);
             let is_success = line_result.is_success();
 
             result.push(line_result);

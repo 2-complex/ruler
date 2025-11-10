@@ -851,10 +851,23 @@ impl System for FakeSystem
         }
     }
 
-    fn execute_command(&mut self, exec: String, args: Vec<String>) -> CommandResult
+    fn execute_command(&mut self, exec: String, args: Vec<String>, input: Vec<u8>) -> CommandResult
     {
         match exec.as_str()
         {
+            "parrot" =>
+            {
+                CommandResult
+                {
+                    standard: Standard
+                    {
+                        out: input,
+                        err: vec![],
+                    },
+                    code: Some(0)
+                }
+            },
+
             "error" =>
             {
                 return error_message("Failed".to_string())

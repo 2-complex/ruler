@@ -7,7 +7,11 @@ use crate::system::
 };
 use std::fs;
 use std::ffi::OsString;
-use std::io::ErrorKind;
+use std::io::
+{
+    ErrorKind,
+    Write
+};
 use std::path::Path;
 use std::path::PathBuf;
 use std::time::SystemTime;
@@ -16,7 +20,7 @@ use std::fmt;
 use std::process::
 {
     Command,
-    // Output
+    Stdio,
 };
 
 #[derive(Debug, Clone)]
@@ -281,10 +285,53 @@ impl System for RealSystem
         set_is_executable(path, executable)
     }
 
-    fn execute_command(&mut self, exec: String, args: Vec<String>) -> CommandResult
+    fn execute_command(&mut self, exec: String, args: Vec<String>, input: Vec<u8>) -> CommandResult
     {
+        fn error_no_code(message: String) -> CommandResult
+        {
+            CommandResult
+            {
+                standard: Standard
+                {
+                    out : vec![],
+                    err : message.into_bytes(),
+                },
+                code: None,
+            }
+        }
+        /*  TODO: maybe one day, cases like this ^ should be encoded in CommandScriptLineResult
+            more distinctly.  If the command failed to execute that's different from it
+            execeuted and to standard-error, but here we're representing one as the other */
+
         let mut command = Command::new(exec);
         command.args(args);
+
+        if input.len() != 0
+        {
+            let mut process = match command.stdin(Stdio::piped()).spawn()
+            {
+                Ok(process) => process,
+                Err(error) => return error_no_code(
+                    format!("Pipe failed: {}", error)),
+            };
+
+            match process.stdin.take()
+            {
+                Some(mut stdin) =>
+                {
+                    match stdin.write_all(&input)
+                    {
+                        Ok(_) => {},
+                        Err(error) => return error_no_code(
+                            format!("Pipe input data failed to write: {}", error)),
+                    }
+                },
+                None => return error_no_code(
+                    format!("Pipe input data failed to write")),
+            };
+
+            process.wait().unwrap();
+        }
 
         match command.output()
         {
@@ -297,18 +344,8 @@ impl System for RealSystem
                 },
                 code: output.status.code(),
             },
-            Err(error) => CommandResult
-            {
-                standard: Standard
-                {
-                    out : vec![],
-                    err : format!("Command line failed to execute: {}", error).into_bytes(),
-                    /*  TODO maybe one day this case ^ should be encoded in CommandScriptLineResult
-                        more distinctly.  If the command failed to execute that's different from it
-                        execeuted and to standard-error, but here we're representing one as the other */
-                },
-                code: None,
-            },
+            Err(error) => error_no_code(
+                format!("Command line failed to execute: {}", error)),
         }
     }
 }
