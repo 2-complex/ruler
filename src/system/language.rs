@@ -99,26 +99,27 @@ impl CommandScriptLine
             },
             _=>
             {
-                // todo:error?
+                println!("HOW DO I GET HERE");
             }
         }
     }
 
-    fn out_file(self:&mut Self)
+    fn out_file(self:&mut Self) -> Result<(), ParseError>
     {
         match &mut self.out_destination
         {
             OutDestination::StdOut =>
             {
                 self.out_destination = OutDestination::File("".to_string());
+                Ok(())
             },
             OutDestination::Command(ref mut command_box) =>
             {
-                (*command_box).out_file();
+                (*command_box).out_file()
             },
-            _=>
+            OutDestination::OutFile =>
             {
-                // todo:error
+                Err(())
             }
         }
     }
@@ -307,7 +308,7 @@ impl CommandScript
                             let section = &content[start..i];
                             if section == FILE_OUT_INDICATOR
                             {
-                                current_command.out_file();
+                                current_command.out_file()?;
                             }
                             else if section == FILE_ERR_INDICATOR
                             {
@@ -832,6 +833,32 @@ mod tests
                             exec: "log".to_string(),
                             args: vec![],
                             out_destination: OutDestination::StdOut,
+                            err_destination: ErrDestination::StdErr,
+                        })
+                    ),
+                    err_destination: ErrDestination::StdErr,
+                }
+            ]}));
+    }
+
+    /*  build | > outfile
+
+        This might look incorrect, but it actually parses fine.  It parses in Bash, too. */
+    #[test]
+    fn pipe_followed_by_out()
+    {
+        assert_eq!(
+            CommandScript::parse("build | > outfile"),
+            Ok(CommandScript{lines:vec![CommandScriptLine
+                {
+                    exec: "build".to_string(),
+                    args: vec![],
+                    out_destination: OutDestination::Command(
+                        Box::new(CommandScriptLine
+                        {
+                            exec: "".to_string(),
+                            args: vec![],
+                            out_destination: OutDestination::File("outfile".to_string()),
                             err_destination: ErrDestination::StdErr,
                         })
                     ),
