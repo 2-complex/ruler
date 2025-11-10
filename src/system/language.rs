@@ -85,7 +85,7 @@ impl CommandScriptLine
         self.args.push(word);
     }
 
-    fn pipe(self:&mut Self)
+    fn pipe(self:&mut Self) -> bool
     {
         match &mut self.out_destination
         {
@@ -97,34 +97,35 @@ impl CommandScriptLine
             {
                 (*command_box).pipe();
             },
-            _=>
+            OutDestination::File(_) =>
             {
-                println!("HOW DO I GET HERE");
+                return false;
             }
         }
+        return true;
     }
 
-    fn out_file(self:&mut Self) -> Result<(), ParseError>
+    fn out_file(self:&mut Self) -> bool
     {
         match &mut self.out_destination
         {
             OutDestination::StdOut =>
             {
                 self.out_destination = OutDestination::File("".to_string());
-                Ok(())
             },
             OutDestination::Command(ref mut command_box) =>
             {
-                (*command_box).out_file()
+                (*command_box).out_file();
             },
-            OutDestination::OutFile =>
+            OutDestination::File(_) =>
             {
-                Err(())
+                return false;
             }
         }
+        return true;
     }
 
-    fn err_file(self:&mut Self)
+    fn err_file(self:&mut Self) -> bool
     {
         match &mut self.err_destination
         {
@@ -134,9 +135,10 @@ impl CommandScriptLine
             },
             ErrDestination::File(_) =>
             {
-                // todo:error
+                return false;
             }
         }
+        return true;
     }
 
     fn non_trivial(self:&Self) -> bool
@@ -210,7 +212,10 @@ impl fmt::Display for CommandScriptLine
 pub enum ParseError
 {
     UnclosedQuote(usize, usize),
-    EmptyEscape(usize, usize)
+    EmptyEscape(usize, usize),
+    RedundantOutFile(usize, usize),
+    RedundantErrFile(usize, usize),
+    PipeContradiction(usize, usize),
 }
 
 impl fmt::Display for ParseError
@@ -224,6 +229,15 @@ impl fmt::Display for ParseError
 
             ParseError::EmptyEscape(line_number, column_number) =>
                 write!(formatter, "Empty escape line {} column {}", line_number, column_number),
+
+            ParseError::RedundantOutFile(line_number, column_number) =>
+                write!(formatter, "Redundant out channel line {} column {}", line_number, column_number),
+
+            ParseError::RedundantErrFile(line_number, column_number) =>
+                write!(formatter, "Redundant err channel line {} column {}", line_number, column_number),
+
+            ParseError::PipeContradiction(line_number, column_number) =>
+                write!(formatter, "Contradictory pipe line {} column {}", line_number, column_number),
         }
     }
 }
@@ -292,7 +306,10 @@ impl CommandScript
                 {
                     if c == PIPE
                     {
-                        current_command.pipe();
+                        if ! current_command.pipe()
+                        {
+                            return Err(ParseError::PipeContradiction(line_number, i-line_i+1));
+                        }
                         start = i + c.len_utf8();
                     }
                     else if c == QUOTE
@@ -308,11 +325,17 @@ impl CommandScript
                             let section = &content[start..i];
                             if section == FILE_OUT_INDICATOR
                             {
-                                current_command.out_file()?;
+                                if ! current_command.out_file()
+                                {
+                                    return Err(ParseError::RedundantOutFile(line_number, i-line_i));
+                                }
                             }
                             else if section == FILE_ERR_INDICATOR
                             {
-                                current_command.err_file();
+                                if ! current_command.err_file()
+                                {
+                                    return Err(ParseError::RedundantErrFile(line_number, i-line_i-1));
+                                }
                             }
                             else
                             {
@@ -841,32 +864,6 @@ mod tests
             ]}));
     }
 
-    /*  build | > outfile
-
-        This might look incorrect, but it actually parses fine.  It parses in Bash, too. */
-    #[test]
-    fn pipe_followed_by_out()
-    {
-        assert_eq!(
-            CommandScript::parse("build | > outfile"),
-            Ok(CommandScript{lines:vec![CommandScriptLine
-                {
-                    exec: "build".to_string(),
-                    args: vec![],
-                    out_destination: OutDestination::Command(
-                        Box::new(CommandScriptLine
-                        {
-                            exec: "".to_string(),
-                            args: vec![],
-                            out_destination: OutDestination::File("outfile".to_string()),
-                            err_destination: ErrDestination::StdErr,
-                        })
-                    ),
-                    err_destination: ErrDestination::StdErr,
-                }
-            ]}));
-    }
-
     /*  One one-word command piped into another one-word command */
     #[test]
     fn pipe_two_levels()
@@ -950,5 +947,88 @@ mod tests
                     err_destination: ErrDestination::File("build/err".to_string()),
                 }
             ]}));
+    }
+
+    /*  build | > outfile
+
+        This might look incorrect, but it actually parses fine.  It parses in Bash, too. */
+    #[test]
+    fn pipe_followed_by_out()
+    {
+        assert_eq!(
+            CommandScript::parse("build | > outfile"),
+            Ok(CommandScript{lines:vec![CommandScriptLine
+                {
+                    exec: "build".to_string(),
+                    args: vec![],
+                    out_destination: OutDestination::Command(
+                        Box::new(CommandScriptLine
+                        {
+                            exec: "".to_string(),
+                            args: vec![],
+                            out_destination: OutDestination::File("outfile".to_string()),
+                            err_destination: ErrDestination::StdErr,
+                        })
+                    ),
+                    err_destination: ErrDestination::StdErr,
+                }
+            ]}));
+    }
+
+    /*  build > out.txt | logger */
+    #[test]
+    fn pipe_contradicts_out()
+    {
+        assert_eq!(
+            CommandScript::parse("build > out.txt | logger"),
+            Err(ParseError::PipeContradiction(1, 17)));
+    }
+
+    /*  build > out.txt
+        | logger */
+    #[test]
+    fn pipe_contradicts_out_with_newline()
+    {
+        assert_eq!(
+            CommandScript::parse("build > out.txt\n| logger"),
+            Err(ParseError::PipeContradiction(2, 1)));
+    }
+
+    /*  build > out.txt > out.txt */
+    #[test]
+    fn redundant_out_file()
+    {
+        assert_eq!(
+            CommandScript::parse("build > out.txt > out.txt"),
+            Err(ParseError::RedundantOutFile(1, 17)));
+    }
+
+    /*  build > out.txt
+        > out.txt */
+    #[test]
+    fn redundant_out_file_with_newline()
+    {
+        assert_eq!(
+            CommandScript::parse("build > out.txt\n> out.txt"),
+            Err(ParseError::RedundantOutFile(2, 1)));
+    }
+
+    /*  build 2> out.txt 2> out.txt */
+    #[test]
+    fn redundant_err_file()
+    {
+        assert_eq!(
+            CommandScript::parse("build 2> out.txt 2> out.txt"),
+            Err(ParseError::RedundantErrFile(1, 18)));
+    }
+
+    /*  build 2> out.txt
+        2> out.txt */
+    #[test]
+    fn redundant_err_file_with_newline()
+    {
+        assert_eq!(
+            CommandScript::parse("build 2> out.txt\n2> out.txt"),
+            Err(ParseError::RedundantErrFile(2, 1)));
     }
 }
