@@ -10,7 +10,8 @@ use std::ffi::OsString;
 use std::io::
 {
     ErrorKind,
-    Write
+    Write,
+    Read
 };
 use std::path::Path;
 use std::path::PathBuf;
@@ -287,8 +288,12 @@ impl System for RealSystem
 
     fn execute_command(&mut self, exec: String, args: Vec<String>, input: Vec<u8>) -> CommandResult
     {
+        /*  Make a generic error std output with message */
         fn error_no_code(message: String) -> CommandResult
-        {
+        {/*
+            TODO: maybe one day, error-cases like this should be encoded in CommandScriptLineResult
+            more distinctly.  If the command failed to execute that's different from it execeuted
+            and output to standard-error, but here we're representing one as the other */
             CommandResult
             {
                 standard: Standard
@@ -299,53 +304,81 @@ impl System for RealSystem
                 code: None,
             }
         }
-        /*  TODO: maybe one day, cases like this ^ should be encoded in CommandScriptLineResult
-            more distinctly.  If the command failed to execute that's different from it
-            execeuted and to standard-error, but here we're representing one as the other */
 
         let mut command = Command::new(exec);
         command.args(args);
 
-        if input.len() != 0
+        let mut process = match command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
         {
-            let mut process = match command.stdin(Stdio::piped()).spawn()
-            {
-                Ok(process) => process,
-                Err(error) => return error_no_code(
-                    format!("Pipe failed: {}", error)),
-            };
+            Ok(process) => process,
+            Err(error) => return error_no_code(
+                format!("Pipe failed: {}", error)),
+        };
 
-            match process.stdin.take()
+        match process.stdin.take()
+        {
+            Some(mut stdin) =>
             {
-                Some(mut stdin) =>
+                match stdin.write_all(&input)
                 {
-                    match stdin.write_all(&input)
-                    {
-                        Ok(_) => {},
-                        Err(error) => return error_no_code(
-                            format!("Pipe input data failed to write: {}", error)),
-                    }
-                },
-                None => return error_no_code(
-                    format!("Pipe input data failed to write")),
-            };
+                    Ok(_) => {},
+                    Err(error) => return error_no_code(
+                        format!("Pipe input data failed to write: {}", error)),
+                }
+            },
+            None => return error_no_code(
+                format!("Pipe input data failed to write")),
+        };
 
-            process.wait().unwrap();
+        let mut process_stdout = match process.stdout.take()
+        {
+            Some(stdout) => stdout,
+            None => return error_no_code(
+                format!("Pipe failed to obtain stdout from process")),
+        };
+
+        let mut process_stderr = match process.stderr.take()
+        {
+            Some(stderr) => stderr,
+            None => return error_no_code(
+                format!("Pipe failed to obtain stderr from process")),
+        };
+
+        let status = match process.wait()
+        {
+            Ok(status_code) => status_code,
+            Err(error) => return error_no_code(
+                format!("Pipe failed to wait for process: {}", error)),
+        };
+
+        let mut stdout_buffer = Vec::new();
+        match process_stdout.read_to_end(&mut stdout_buffer)
+        {
+            Ok(_) => {},
+            Err(error) => return error_no_code(
+                format!("Pipe failed to read stdout to buffer: {}", error)),
         }
 
-        match command.output()
+        let mut stderr_buffer = Vec::new();
+        match process_stderr.read_to_end(&mut stderr_buffer)
         {
-            Ok(output) => CommandResult
+            Ok(_) => {},
+            Err(error) => return error_no_code(
+                format!("Pipe failed to read stderr to buffer: {}", error)),
+        }
+
+        CommandResult
+        {
+            standard: Standard
             {
-                standard: Standard
-                {
-                    out : output.stdout,
-                    err : output.stderr,
-                },
-                code: output.status.code(),
+                out : stdout_buffer,
+                err : stderr_buffer,
             },
-            Err(error) => error_no_code(
-                format!("Command line failed to execute: {}", error)),
+            code: status.code(),
         }
     }
 }
