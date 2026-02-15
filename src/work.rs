@@ -6,6 +6,7 @@ use crate::system::
     SystemError
 };
 use crate::system::language::CommandScript;
+use crate::system::Variables;
 use crate::history::
 {
     RuleHistory,
@@ -199,7 +200,7 @@ Result<WorkResult, WorkError>
         },
     }
 
-    let command_script_result = system.execute_command_script(command_script);
+    let command_script_result = system.execute_command_script(&Variables{}, command_script);
     if ! command_script_result.is_success()
     {
         return Err(WorkError::CommandErrored(command_script_result))

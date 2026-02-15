@@ -220,6 +220,10 @@ impl fmt::Display for SystemError
     }
 }
 
+pub struct Variables
+{
+}
+
 /*  System abstracts the filesystem and command-line executor.  An implementation can
     use the real computer's file-system and command-line, or it can fake it for testing. */
 pub trait System: Clone + Send + Sync
@@ -333,7 +337,7 @@ pub trait System: Clone + Send + Sync
         line_result
     }
 
-    fn execute_command_script(&mut self, command_script : language::CommandScript) -> CommandScriptResult
+    fn execute_command_script(&mut self, variables: &Variables, command_script : language::CommandScript) -> CommandScriptResult
     {
         let mut result = CommandScriptResult::new();
         for line in command_script.lines.into_iter()

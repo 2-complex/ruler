@@ -976,6 +976,7 @@ mod test
         CommandScriptResult,
     };
 
+    use crate::system::Variables;
     use crate::system::language::CommandScript;
 
     use crate::system::fake::
@@ -994,6 +995,7 @@ mod test
         write_str_to_file,
         read_file,
     };
+
 
     #[test]
     fn content_borrows_with_star()
@@ -1313,7 +1315,7 @@ mod test
         let mut system = FakeSystem::new(10);
         system.create_file("file.txt").unwrap();
         assert!(system.is_file("file.txt"));
-        system.execute_command_script(CommandScript::parse("rm file.txt").unwrap());
+        system.execute_command_script(&Variables{}, CommandScript::parse("rm file.txt").unwrap());
         assert!(!system.is_file("file.txt"));
         assert!(!system.exists("file.txt"));
         assert!(!system.is_dir("file.txt"));
@@ -1637,7 +1639,7 @@ mod test
     {
         let mut system = FakeSystem::new(10);
         assert_eq!(
-            system.execute_command_script(CommandScript::parse("error").unwrap()),
+            system.execute_command_script(&Variables{}, CommandScript::parse("error").unwrap()),
             CommandScriptResult
             {
                 outputs: vec![
@@ -1661,7 +1663,7 @@ mod test
         write_str_to_file(&mut system, "line2.txt", "Love to dance\n").unwrap();
 
         assert_eq!(
-            system.execute_command_script(CommandScript::parse(
+            system.execute_command_script(&Variables{}, CommandScript::parse(
                 "cat line1.txt line2.txt > poem.txt").unwrap()
             ),
             CommandScriptResult
@@ -1684,7 +1686,7 @@ mod test
         write_str_to_file(&mut system, "line1.txt", "Ants\n").unwrap();
         system.create_file("line2.txt").unwrap();
         write_str_to_file(&mut system, "line2.txt", "Love to dance\n").unwrap();
-        assert_eq!(system.execute_command_script(CommandScript::parse(
+        assert_eq!(system.execute_command_script(&Variables{}, CommandScript::parse(
             "cat line1.txt line2.txt > poem.txt; cp poem.txt poem-backup.txt").unwrap()),
             CommandScriptResult
             {
@@ -1707,7 +1709,7 @@ mod test
         system.create_file("terrible-file.txt").unwrap();
         assert!(system.is_file("terrible-file.txt"));
         assert_eq!(
-            system.execute_command_script(CommandScript::parse("rm terrible-file.txt").unwrap()),
+            system.execute_command_script(&Variables{}, CommandScript::parse("rm terrible-file.txt").unwrap()),
             CommandScriptResult
             {
                 outputs: vec![

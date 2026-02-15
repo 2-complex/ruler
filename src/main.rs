@@ -15,6 +15,7 @@ use crate::system::util::read_file_to_string;
 use crate::printer::StandardPrinter;
 use crate::ticket::Ticket;
 use crate::system::language::CommandScript;
+use crate::system::Variables;
 
 mod blob;
 mod bundle;
@@ -214,9 +215,7 @@ fn main()
                 }
             };
 
-            println!("Script:\n{}", command_script);
-            println!("Executing...");
-            let command_script_result = system.execute_command_script(command_script);
+            let command_script_result = system.execute_command_script(&Variables{}, command_script);
             if command_script_result.is_success()
             {
                 println!("{}", command_script_result);
