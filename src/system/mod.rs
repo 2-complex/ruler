@@ -353,8 +353,6 @@ pub trait System: Clone + Send + Sync
         let mut code = Some(0);
         let mut command_script_lines = vec![];
 
-        println!("EXECUTING COMMAND SCRIPT: {}", command_script);
-
         for line in command_script.lines.into_iter()
         {
             let line_result = self.execute_command_script_line(variables, line, vec![]);

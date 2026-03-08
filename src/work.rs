@@ -1037,16 +1037,6 @@ mod test
         );
     }
 
-    fn empty_success() -> CommandScriptResult
-    {
-        CommandScriptResult
-        {
-            command_script_lines: vec![],
-            outputs: vec![empty_output()],
-            code: Some(0),
-        }
-    }
-
     /*  Use a cat and then a cp to generate a poem and a copy of that poem.  Put one poem in place, with incorrect
         content.  Handle the node.  Check for the presence of both poems and check the command logs  */
     #[test]

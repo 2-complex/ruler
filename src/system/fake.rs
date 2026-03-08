@@ -1732,4 +1732,33 @@ mod test
 
         assert!(!system.is_file("terrible-file.txt"));
     }
+
+    #[test]
+    fn executing_cat_with_variables()
+    {
+        let mut system = FakeSystem::new(11);
+        system.create_file("line1.txt").unwrap();
+        write_str_to_file(&mut system, "line1.txt", "Ants\n").unwrap();
+        system.create_file("line2.txt").unwrap();
+        write_str_to_file(&mut system, "line2.txt", "Love to dance\n").unwrap();
+
+        let mut variables = Variables::new();
+        variables.add("$A", "line1.txt");
+        variables.add("$B", "line2.txt");
+
+        let command_script = CommandScript::parse(
+            "cat $A $B > poem.txt").unwrap();
+        assert_eq!(system.execute_command_script(&variables, command_script.clone()),
+            CommandScriptResult
+            {
+                command_script_lines: command_script.lines,
+                outputs: vec![
+                    empty_output(),
+                ],
+                code: Some(0)
+            }
+        );
+
+        assert_eq!(read_file(&system, "poem.txt").unwrap(), b"Ants\nLove to dance\n");
+    }
 }
