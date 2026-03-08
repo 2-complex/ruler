@@ -1,7 +1,7 @@
 use std::fmt;
 use std::iter::once;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum OutDestination
 {
     StdOut,
@@ -9,14 +9,14 @@ pub enum OutDestination
     Command(Box<CommandScriptLine>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum ErrDestination
 {
     StdErr,
     File(String),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct CommandScriptLine
 {
     pub exec: String,
@@ -263,7 +263,7 @@ fn is_whitespace(c: char) -> bool
 const FILE_OUT_INDICATOR: &str = ">";
 const FILE_ERR_INDICATOR: &str = "2>";
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct CommandScript
 {
     pub lines: Vec<CommandScriptLine>

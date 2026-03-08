@@ -572,13 +572,12 @@ pub fn get_actual_file_state<SystemType: System>
 
     match TicketFactory::from_file(system, &path)
     {
-        Ok(mut factory) => Ok(
-            FileState
-            {
-                ticket : factory.result(),
-                timestamp : timestamp,
-                executable : executable
-            }),
+        Ok(mut factory) => Ok(FileState
+        {
+            ticket : factory.result(),
+            timestamp : timestamp,
+            executable : executable
+        }),
         Err(read_write_error) => Err(GetCurrentFileInfoError::ErrorGettingTicketForFile(
             path.to_string(),
             read_write_error)),

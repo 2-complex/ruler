@@ -1,13 +1,13 @@
-use std::io::
-{
-    self,
-    Write
-};
+use std::io;
+use std::io::Write;
 use std::fmt;
+use std::collections::HashMap;
 use crate::system::language::
 {
     OutDestination,
-    ErrDestination
+    ErrDestination,
+    CommandScript,
+    CommandScriptLine,
 };
 
 #[cfg(test)]
@@ -34,33 +34,9 @@ pub struct CommandResult
 #[derive(Debug, PartialEq)]
 pub struct CommandScriptLineResult
 {
+    pub command_script_line: CommandScriptLine,
     pub standard: Standard,
     pub code: Option<i32>,
-}
-
-impl CommandScriptLineResult
-{
-    fn new() -> Self
-    {
-        Self
-        {
-            standard: Standard
-            {
-                out: vec![],
-                err: vec![],
-            },
-            code: Some(0)
-        }
-    }
-
-    pub fn is_success(self: &Self) -> bool
-    {
-        match self.code
-        {
-            Some(i) => i==0,
-            None => false
-        }
-    }
 }
 
 /*  For example, the c++ compiler puts errors and warnings both in std-err.
@@ -68,6 +44,7 @@ impl CommandScriptLineResult
 #[derive(Debug, PartialEq)]
 pub struct CommandScriptResult
 {
+    pub command_script_lines: Vec<CommandScriptLine>,
     pub outputs: Vec<Standard>,
     pub code: Option<i32>,
 }
@@ -81,21 +58,6 @@ impl CommandScriptResult
             Some(i) => i==0,
             None => false
         }
-    }
-
-    pub fn new() -> CommandScriptResult
-    {
-        CommandScriptResult
-        {
-            outputs: vec![], // TODO maybe change the name?
-            code: Some(0),
-        }
-    }
-
-    pub fn push(self: &mut Self, line_result: CommandScriptLineResult)
-    {
-        self.outputs.push(line_result.standard);
-        self.code = line_result.code; // overwrite the one that's there
     }
 }
 
@@ -114,8 +76,15 @@ impl fmt::Display for CommandScriptResult
     {
         for outputs in self.outputs.iter()
         {
-            write!(formatter, "{}", bytes_to_string(&outputs.out))?;
-            write!(formatter, "{}", bytes_to_string(&outputs.err))?;
+            if !outputs.out.is_empty()
+            {
+                write!(formatter, "OUT: {}\n", bytes_to_string(&outputs.out))?;
+            }
+
+            if !outputs.err.is_empty()
+            {
+                write!(formatter, "ERR: {}\n", bytes_to_string(&outputs.err))?;
+            }
         }
         if ! self.is_success()
         {
@@ -222,6 +191,37 @@ impl fmt::Display for SystemError
 
 pub struct Variables
 {
+    map: HashMap<String, String>
+}
+
+impl Variables
+{
+    pub fn new() -> Variables
+    {
+        Variables
+        {
+            map: HashMap::new()
+        }
+    }
+
+    fn add(self: &mut Self, key: &str, value: &str)
+    {
+        self.map.insert(key.to_string(), value.to_string());
+    }
+
+    fn apply(self: &Self, string: &str) -> String
+    {
+        match self.map.get(string)
+        {
+            Some(rep) => rep.clone(),
+            None => string.to_string(),
+        }
+    }
+
+    fn apply_vec(self: &Self, strings: &Vec<String>) -> Vec<String>
+    {
+        strings.iter().map(|s|{self.apply(s)}).collect()
+    }
 }
 
 /*  System abstracts the filesystem and command-line executor.  An implementation can
@@ -286,27 +286,32 @@ pub trait System: Clone + Send + Sync
         Ok(())
     }
 
-    fn execute_command_script_line(&mut self, command_script_line: language::CommandScriptLine, input: Vec<u8>) -> CommandScriptLineResult
+    fn execute_command_script_line(&mut self, variables: &Variables, command_script_line: language::CommandScriptLine, input: Vec<u8>) -> CommandScriptLineResult
     {
-        let command_result = self.execute_command(command_script_line.exec, command_script_line.args, input);
-        let mut line_result = CommandScriptLineResult::new();
-        line_result.code = command_result.code;
+        let command_result = self.execute_command(variables.apply(&command_script_line.exec), variables.apply_vec(&command_script_line.args), input);
+
+        let mut standard = Standard
+        {
+            out: vec![],
+            err: vec![],
+        };
+        let mut code = command_result.code;
 
         match command_script_line.err_destination
         {
             ErrDestination::StdErr =>
             {
-                line_result.standard.err = command_result.standard.err;
+                standard.err = command_result.standard.err;
             },
-            ErrDestination::File(path_string) =>
+            ErrDestination::File(ref path_string) =>
             {
                 match self.write_to_file(&path_string, command_result.standard.err)
                 {
                     Ok(_) => {},
-                    Err((code, message)) =>
+                    Err((in_code, message)) =>
                     {
-                        line_result.standard.err = message;
-                        line_result.code = code;
+                        standard.err = message;
+                        code = in_code;
                     }
                 }
             }
@@ -316,41 +321,52 @@ pub trait System: Clone + Send + Sync
         {
             OutDestination::StdOut =>
             {
-                line_result.standard.out = command_result.standard.out;
+                standard.out = command_result.standard.out;
             },
-            OutDestination::File(path_string) =>
+            OutDestination::File(ref path_string) =>
             {
                 match self.write_to_file(&path_string, command_result.standard.out)
                 {
                     Ok(_) => {},
-                    Err((code, message)) =>
+                    Err((in_code, message)) =>
                     {
-                        line_result.standard.err = message;
-                        line_result.code = code;
+                        standard.err = message;
+                        code = in_code;
                     }
                 }
             },
             OutDestination::Command(script_line_box) =>
-                return self.execute_command_script_line(*script_line_box, command_result.standard.out),
+                return self.execute_command_script_line(variables, *script_line_box, command_result.standard.out),
         }
 
-        line_result
+        CommandScriptLineResult
+        {
+            command_script_line: command_script_line,
+            standard: standard,
+            code: code,
+        }
     }
 
-    fn execute_command_script(&mut self, variables: &Variables, command_script : language::CommandScript) -> CommandScriptResult
+    fn execute_command_script(&mut self, variables: &Variables, command_script : CommandScript) -> CommandScriptResult
     {
-        let mut result = CommandScriptResult::new();
+        let mut outputs = vec![];
+        let mut code = Some(0);
+        let mut command_script_lines = vec![];
+
+        println!("EXECUTING COMMAND SCRIPT: {}", command_script);
+
         for line in command_script.lines.into_iter()
         {
-            let line_result = self.execute_command_script_line(line, vec![]);
-            let is_success = line_result.is_success();
-
-            result.push(line_result);
-            if ! is_success
-            {
-                break;
-            }
+            let line_result = self.execute_command_script_line(variables, line, vec![]);
+            outputs.push(line_result.standard);
+            command_script_lines.push(line_result.command_script_line);
+            code = line_result.code;
         }
-        result
+        CommandScriptResult
+        {
+            command_script_lines: command_script_lines,
+            outputs: outputs,
+            code: code,
+        }
     }
 }

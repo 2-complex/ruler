@@ -200,7 +200,7 @@ Result<WorkResult, WorkError>
         },
     }
 
-    let command_script_result = system.execute_command_script(&Variables{}, command_script);
+    let command_script_result = system.execute_command_script(&Variables::new(), command_script);
     if ! command_script_result.is_success()
     {
         return Err(WorkError::CommandErrored(command_script_result))
@@ -669,7 +669,9 @@ mod test
         ticket_factory.input_ticket(TicketFactory::from_str("bananas").result());
 
         let mut rule_ext = new_empty_rule_ext(SysCache::new(system.clone(), ".ruler-cache").unwrap(), ticket_factory.result());
-        rule_ext.command_script = CommandScript::parse("cp A-source.txt A.txt").unwrap();
+
+        let command_script = CommandScript::parse("cp A-source.txt A.txt").unwrap();
+        rule_ext.command_script = command_script.clone();
 
         match handle_rule_node(make_handle_node_info(system.clone(), vec!["A.txt".to_string()]), rule_ext)
         {
@@ -681,6 +683,7 @@ mod test
                     {
                         assert_eq!(command_script_result, CommandScriptResult
                         {
+                            command_script_lines: command_script.lines,
                             outputs: vec![empty_output()],
                             code: Some(0)
                         });
@@ -755,7 +758,8 @@ mod test
         ticket_factory.input_ticket(TicketFactory::from_str("Violets are violet\n").result());
 
         let mut rule_ext = make_rule_ext(&system, ticket_factory.result());
-        rule_ext.command_script = CommandScript::parse("cat verse1.txt verse2.txt > poem.txt").unwrap();
+        let command_script = CommandScript::parse("cat verse1.txt verse2.txt > poem.txt").unwrap();
+        rule_ext.command_script = command_script.clone();
 
         match handle_rule_node(make_handle_node_info(system.clone(), vec!["poem.txt".to_string()]), rule_ext)
         {
@@ -767,6 +771,7 @@ mod test
                     {
                         assert_eq!(command_script_result, CommandScriptResult
                         {
+                            command_script_lines: command_script.lines,
                             outputs: vec![empty_output()],
                             code: Some(0),
                         });
@@ -1014,12 +1019,14 @@ mod test
         write_str_to_file(&mut system, "verse1.txt", "Arbitrary content\n").unwrap();
 
         let mut rule_ext = make_rule_ext(&system, TicketFactory::new().result());
-        rule_ext.command_script = CommandScript::parse("rm verse1.txt").unwrap();
+        let command_script = CommandScript::parse("rm verse1.txt").unwrap();
+        rule_ext.command_script = command_script.clone();
 
         assert_eq!(
             handle_rule_node(make_handle_node_info(system.clone(), vec!["verse1.txt".to_string()]), rule_ext),
             Err(WorkError::CommandErrored(CommandScriptResult
             {
+                command_script_lines: command_script.lines,
                 outputs: vec![Standard
                 {
                     err: "File failed to delete: verse1.txt".as_bytes().to_vec(),
@@ -1034,6 +1041,7 @@ mod test
     {
         CommandScriptResult
         {
+            command_script_lines: vec![],
             outputs: vec![empty_output()],
             code: Some(0),
         }
@@ -1056,8 +1064,9 @@ mod test
         let sources_ticket = factory.result();
 
         let mut rule_ext = make_rule_ext(&system, sources_ticket);
-        rule_ext.command_script = CommandScript::parse(
+        let command_script = CommandScript::parse(
             "cat verse1.txt verse2.txt > poem.txt; cp poem.txt poem_copy.txt").unwrap();
+        rule_ext.command_script = command_script.clone();
         rule_ext.rule_history = RuleHistory::new();
 
         match handle_rule_node(make_handle_node_info(system.clone(),
@@ -1068,6 +1077,7 @@ mod test
                 WorkOption::CommandExecuted(command_script_result) =>
                     assert_eq!(command_script_result, CommandScriptResult
                     {
+                        command_script_lines: command_script.lines,
                         outputs: vec![
                             empty_output(),
                             empty_output(),
@@ -1090,18 +1100,23 @@ mod test
     {
         let mut system = FakeSystem::new(10);
 
+        /*  Make two verses to cat to make a poem, and put the already-constructed poem there, too. */
         system.create_dir(".ruler-cache").unwrap();
         write_str_to_file(&mut system, "verse1.txt", "Roses are red\n").unwrap();
         write_str_to_file(&mut system, "verse2.txt", "Violets are blue\n").unwrap();
         write_str_to_file(&mut system, "poem.txt", "Roses are red\nViolets are blue\n").unwrap();
 
+        /*  Get tickets for the content of the source files */
         let mut factory = TicketFactory::new();
         factory.input_ticket(TicketFactory::from_str("Roses are red\n").result());
         factory.input_ticket(TicketFactory::from_str("Violets are blue\n").result());
         let sources_ticket = factory.result();
 
         let mut rule_ext = make_rule_ext(&system, sources_ticket);
-        rule_ext.command_script = CommandScript::parse("cat verse1.txt verse2.txt > poem.txt").unwrap();
+
+        let command_script = CommandScript::parse("cat verse1.txt verse2.txt > poem.txt").unwrap();
+
+        rule_ext.command_script = command_script.clone();
         rule_ext.rule_history = RuleHistory::new();
 
         match handle_rule_node(make_handle_node_info(system.clone(), vec![
@@ -1114,7 +1129,14 @@ mod test
                 {
                     WorkOption::CommandExecuted(output) =>
                     {
-                        assert_eq!(output, empty_success());
+                        assert_eq!(output, 
+                            CommandScriptResult
+                            {
+                                command_script_lines: command_script.lines,
+                                outputs: vec![empty_output()],
+                                code: Some(0),
+                            }
+                        );
                     },
                     _ => panic!("Wrong type of work option.  Command was supposed to execute."),
                 }
@@ -1149,13 +1171,15 @@ mod test
         let sources_ticket = factory.result();
 
         let mut rule_ext = make_rule_ext(&system, sources_ticket);
-        rule_ext.command_script = CommandScript::parse("error").unwrap();
+        let command_script = CommandScript::parse("error").unwrap();
+        rule_ext.command_script = command_script.clone();
 
         assert_eq!(
             handle_rule_node(make_handle_node_info(system.clone(),
                 vec!["poem.txt".to_string()]), rule_ext),
             Err(WorkError::CommandErrored(CommandScriptResult
             {
+                command_script_lines: command_script.lines,
                 outputs: vec![
                     Standard
                     {

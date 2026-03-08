@@ -215,7 +215,7 @@ fn main()
                 }
             };
 
-            let command_script_result = system.execute_command_script(&Variables{}, command_script);
+            let command_script_result = system.execute_command_script(&Variables::new(), command_script);
             if command_script_result.is_success()
             {
                 println!("{}", command_script_result);

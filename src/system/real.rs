@@ -255,24 +255,22 @@ impl System for RealSystem
 
     fn get_modified(&self, path: &str) -> Result<u64, SystemError>
     {
-        match fs::metadata(path)
+        let metadata = match fs::metadata(path)
         {
-            Ok(metadata) =>
-            {
-                match metadata.modified()
-                {
-                    Ok(system_time) => 
-                    {
-                        match get_timestamp(system_time)
-                        {
-                            Ok(timestamp) => Ok(timestamp),
-                            Err(_) => Err(SystemError::ModifiedInvalid),
-                        }
-                    },
-                    Err(_) => Err(SystemError::ModifiedNotFound)
-                }
-            },
-            Err(_) => Err(SystemError::MetadataNotFound)
+            Err(_) => return Err(SystemError::MetadataNotFound),
+            Ok(metadata) => metadata,
+        };
+
+        let system_time = match metadata.modified()
+        {
+            Err(_) => return Err(SystemError::ModifiedNotFound),
+            Ok(system_time) => system_time,
+        };
+
+        match get_timestamp(system_time)
+        {
+            Err(_) => Err(SystemError::ModifiedInvalid),
+            Ok(timestamp) => Ok(timestamp),
         }
     }
 

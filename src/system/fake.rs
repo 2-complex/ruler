@@ -1315,7 +1315,7 @@ mod test
         let mut system = FakeSystem::new(10);
         system.create_file("file.txt").unwrap();
         assert!(system.is_file("file.txt"));
-        system.execute_command_script(&Variables{}, CommandScript::parse("rm file.txt").unwrap());
+        system.execute_command_script(&Variables::new(), CommandScript::parse("rm file.txt").unwrap());
         assert!(!system.is_file("file.txt"));
         assert!(!system.exists("file.txt"));
         assert!(!system.is_dir("file.txt"));
@@ -1638,16 +1638,20 @@ mod test
     fn executing_error_gives_error_output()
     {
         let mut system = FakeSystem::new(10);
+        let command_script = CommandScript::parse("error").unwrap();
+
         assert_eq!(
-            system.execute_command_script(&Variables{}, CommandScript::parse("error").unwrap()),
+            system.execute_command_script(&Variables::new(), command_script.clone()),
             CommandScriptResult
             {
+                command_script_lines: command_script.lines,
                 outputs: vec![
-                Standard
-                {
-                    out: vec![],
-                    err: "Failed".as_bytes().to_vec(),
-                }],
+                    Standard
+                    {
+                        out: vec![],
+                        err: "Failed".as_bytes().to_vec(),
+                    }
+                ],
                 code: Some(1)
             }
         );
@@ -1662,12 +1666,13 @@ mod test
         system.create_file("line2.txt").unwrap();
         write_str_to_file(&mut system, "line2.txt", "Love to dance\n").unwrap();
 
+        let command_script = CommandScript::parse("cat line1.txt line2.txt > poem.txt").unwrap();
+
         assert_eq!(
-            system.execute_command_script(&Variables{}, CommandScript::parse(
-                "cat line1.txt line2.txt > poem.txt").unwrap()
-            ),
+            system.execute_command_script(&Variables::new(), command_script.clone()),
             CommandScriptResult
             {
+                command_script_lines: command_script.lines,
                 outputs: vec![
                     empty_output(),
                 ],
@@ -1686,10 +1691,12 @@ mod test
         write_str_to_file(&mut system, "line1.txt", "Ants\n").unwrap();
         system.create_file("line2.txt").unwrap();
         write_str_to_file(&mut system, "line2.txt", "Love to dance\n").unwrap();
-        assert_eq!(system.execute_command_script(&Variables{}, CommandScript::parse(
-            "cat line1.txt line2.txt > poem.txt; cp poem.txt poem-backup.txt").unwrap()),
+        let command_script = CommandScript::parse(
+            "cat line1.txt line2.txt > poem.txt; cp poem.txt poem-backup.txt").unwrap();
+        assert_eq!(system.execute_command_script(&Variables::new(), command_script.clone()),
             CommandScriptResult
             {
+                command_script_lines: command_script.lines,
                 outputs: vec![
                     empty_output(),
                     empty_output(),
@@ -1708,10 +1715,14 @@ mod test
         let mut system = FakeSystem::new(10);
         system.create_file("terrible-file.txt").unwrap();
         assert!(system.is_file("terrible-file.txt"));
+
+        let command_script = CommandScript::parse("rm terrible-file.txt").unwrap();
+
         assert_eq!(
-            system.execute_command_script(&Variables{}, CommandScript::parse("rm terrible-file.txt").unwrap()),
+            system.execute_command_script(&Variables::new(), command_script.clone()),
             CommandScriptResult
             {
+                command_script_lines: command_script.lines,
                 outputs: vec![
                     empty_output(),
                 ],

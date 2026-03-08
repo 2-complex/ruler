@@ -808,7 +808,7 @@ pub fn run
         },
     };
 
-    let command_script_result = system.execute_command_script(&Variables{}, command_script);
+    let command_script_result = system.execute_command_script(&Variables::new(), command_script);
     println!("{}", command_script_result);
     Ok(())
 }
