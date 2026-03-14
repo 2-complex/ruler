@@ -680,12 +680,3 @@ mod test
         assert_eq!(cache.list(0, 10).unwrap(), sorted_vec);
     }
 }
-
-
-
-
-
-
-
-
-
