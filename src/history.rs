@@ -282,7 +282,7 @@ impl<SystemType : System> History<SystemType>
         }
     }
 
-    /*  List of all the files known to the hisotry by filename */
+    /*  List of all the files known to the history by filename */
     #[cfg(test)]
     pub fn list(&self) -> Result<Vec<String>, HistoryError>
     {

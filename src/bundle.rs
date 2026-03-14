@@ -179,7 +179,7 @@ impl PathBundle
             |(_, line)| !line.chars().any(|c| c != '\t')).map(|(i, _)| i).collect()
     }
 
-    pub fn parse_lines(mut lines: Vec<&str>) -> Result<PathBundle, ParseError>
+    fn parse_lines(mut lines: Vec<&str>) -> Result<PathBundle, ParseError>
     {
         match lines.last()
         {
@@ -199,7 +199,6 @@ impl PathBundle
         }).collect::<Vec<NumberedIndentedLine>>())
     }
 
-    #[cfg(test)]
     pub fn parse(text: &str) -> Result<PathBundle, ParseError>
     {
         Self::parse_lines(text.split('\n').collect::<Vec<&str>>())
